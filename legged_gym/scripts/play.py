@@ -16,16 +16,17 @@ def play(args):
     )
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
-    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 5)
+    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 10)
     env_cfg.viewer.rendered_envs_idx = list(range(env_cfg.env.num_envs))
-    for i in range(2):
-        env_cfg.viewer.pos[i] = env_cfg.viewer.pos[i] - env_cfg.terrain.plane_length / 4
-        env_cfg.viewer.lookat[i] = env_cfg.viewer.lookat[i] - env_cfg.terrain.plane_length / 4
+    if env_cfg.terrain.mesh_type == "plane":
+        for i in range(2):
+            env_cfg.viewer.pos[i] = env_cfg.viewer.pos[i] - env_cfg.terrain.plane_length / 4
+            env_cfg.viewer.lookat[i] = env_cfg.viewer.lookat[i] - env_cfg.terrain.plane_length / 4
     env_cfg.env.debug_viz = True
     if RECORD_FRAMES or FOLLOW_ROBOT:
         env_cfg.viewer.add_camera = True  # use a extra camera for moving
     env_cfg.terrain.border_size = 5
-    env_cfg.terrain.num_rows = 2
+    env_cfg.terrain.num_rows = 5
     env_cfg.terrain.num_cols = 5
     env_cfg.noise.add_noise = True
     env_cfg.asset.fix_base_link = False
