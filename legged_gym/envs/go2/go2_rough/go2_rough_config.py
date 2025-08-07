@@ -90,8 +90,10 @@ class GO2RoughCfg( LeggedRobotCfg ):
     class rewards( LeggedRobotCfg.rewards ):
         soft_dof_pos_limit = 0.9
         base_height_target = 0.36
+        only_positive_rewards = False
         class scales( LeggedRobotCfg.rewards.scales ):
             # limitation
+            termination = -200.0
             dof_pos_limits = -10.0
             collision = -1.0
             # command tracking
@@ -108,7 +110,6 @@ class GO2RoughCfg( LeggedRobotCfg ):
             torques = -2.e-4
             # gait
             feet_air_time = 1.0
-            # dof_close_to_default = -0.05
     
     class commands( LeggedRobotCfg.commands ):
         curriculum = True
