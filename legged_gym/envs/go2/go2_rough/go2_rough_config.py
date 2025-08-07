@@ -6,12 +6,13 @@ class GO2RoughCfg( LeggedRobotCfg ):
         num_envs = 4096
         num_observations = 48 + 121 # robot_state + terrain_heights
         num_actions = 12
+        num_privileged_obs = 67 + 121
         env_spacing = 3.  # not used with heightfields/trimeshes
         debug_viz = False
     
     class terrain( LeggedRobotCfg.terrain ):
-        mesh_type = "heightfield" # none, plane, heightfield or trimesh
-        horizontal_scale = 0.2 # [m]. if use smaller horizontal scale, need to decrease terrain_length and terrain_width, or it will compile very slowly.
+        mesh_type = "heightfield" # none, plane, heightfield
+        horizontal_scale = 0.1 # [m]. if use smaller horizontal scale, need to decrease terrain_length and terrain_width, or it will compile very slowly.
         vertical_scale = 0.005 # [m]
         border_size = 5 # [m]. implemented a out_of_bound detection, so border_size can be smaller
         curriculum = True
@@ -19,15 +20,15 @@ class GO2RoughCfg( LeggedRobotCfg ):
         restitution = 0.
         # rough terrain only:
         measure_heights = True
-        measured_points_x = [-1.0, -0.8, -0.6, -0.4, -0.2, 0., 0.2, 0.4, 0.6, 0.8, 1.0]
-        measured_points_y = [-1.0, -0.8, -0.6, -0.4, -0.2, 0., 0.2, 0.4, 0.6, 0.8, 1.0]
-        # measured_points_x = [-0.5, -0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5]
-        # measured_points_y = [-0.5, -0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5]
+        # measured_points_x = [-1.0, -0.8, -0.6, -0.4, -0.2, 0., 0.2, 0.4, 0.6, 0.8, 1.0]
+        # measured_points_y = [-1.0, -0.8, -0.6, -0.4, -0.2, 0., 0.2, 0.4, 0.6, 0.8, 1.0]
+        measured_points_x = [-0.5, -0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5]
+        measured_points_y = [-0.5, -0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5]
         selected = False # select a unique terrain type and pass all arguments
         terrain_kwargs = None # Dict of arguments for selected terrain
         max_init_terrain_level = 1 # starting curriculum state
-        terrain_length = 6.0 # 
-        terrain_width = 6.0  # 
+        terrain_length = 8.0 # 
+        terrain_width = 8.0  # 
         num_rows = 8  # number of terrain rows (levels)
         num_cols = 5  # number of terrain cols (types)
         # terrain types: [smooth slope, rough slope, stairs up, stairs down, discrete]
@@ -81,8 +82,8 @@ class GO2RoughCfg( LeggedRobotCfg ):
             'RL_thigh_joint',
             'RL_calf_joint',]
         foot_name = ["foot"]
-        penalize_contacts_on = ["thigh", "calf"]
-        terminate_after_contacts_on = ["base"]
+        penalize_contacts_on = ["base", "Head", "thigh", "calf", "hip"]
+        terminate_after_contacts_on = ["base", "Head"]
         links_to_keep = ['FL_foot', 'FR_foot', 'RL_foot', 'RR_foot']
         self_collisions = True
   
@@ -129,7 +130,6 @@ class GO2RoughCfg( LeggedRobotCfg ):
         push_robots = True
         push_interval_s = 15
         max_push_vel_xy = 1.
-        simulate_action_latency = False # 1 step delay
         randomize_com_displacement = True
         com_displacement_range = [-0.01, 0.01]
 
