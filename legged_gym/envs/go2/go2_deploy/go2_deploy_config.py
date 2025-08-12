@@ -66,7 +66,7 @@ class GO2DeployCfg(LeggedRobotCfg):
             'RL_thigh_joint',
             'RL_calf_joint',]
         foot_name = ["foot"]
-        penalize_contacts_on = ["thigh", "calf"]
+        penalize_contacts_on = ["thigh", "calf", "hip", "base"]
         terminate_after_contacts_on = ["base"]
         links_to_keep = ['FL_foot', 'FR_foot', 'RL_foot', 'RR_foot']
         self_collisions = True
@@ -79,11 +79,12 @@ class GO2DeployCfg(LeggedRobotCfg):
         foot_height_offset = 0.022 # height of the foot coordinate origin above ground [m]
         foot_clearance_tracking_sigma = 0.01
         
-        only_positive_rewards = False
+        about_landing_threshold = 0.03
+        
+        only_positive_rewards = True
 
         class scales(LeggedRobotCfg.rewards.scales):
             # limitation
-            termination = -200.0
             dof_pos_limits = -10.0
             collision = -1.0
             # command tracking
@@ -99,6 +100,7 @@ class GO2DeployCfg(LeggedRobotCfg):
             action_rate = -0.01
             action_smoothness = -0.01
             torques = -2.e-4
+            foot_landing_vel = -0.15
             # gait
             quad_periodic_gait = 1.0
             foot_clearance = 0.5
@@ -107,10 +109,8 @@ class GO2DeployCfg(LeggedRobotCfg):
             '''Periodic reward framework in OSU's paper(https://arxiv.org/abs/2011.01387)'''
             gait_function_type = "step" # can be "step" or "smooth"
             kappa = 20
-            resampling_time = 6.0                      # gait resampling time [s]
-            gait_period = [0.5]                         # gait period [s]
-            num_gaits = 1
-            selected_gait = None
+            resampling_time = 6.0                       # gait resampling time [s]
+            gait_period_range = [0.3, 0.6]                         # gait period [s]
             # start of swing is all the same
             b_swing = [0.5]
             theta_fl = [0.0]  # front left leg
@@ -180,6 +180,6 @@ class GO2DeployCfgPPO(LeggedRobotCfgPPO):
         run_name = 'step_gait'
         experiment_name = 'go2_deploy'
         save_interval = 100
-        load_run = "Jul25_10-19-29_step_gait"
+        load_run = "Aug12_15-47-58_step_gait"
         checkpoint = -1
         max_iterations = 3000

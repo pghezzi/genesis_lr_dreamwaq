@@ -172,25 +172,15 @@ class GO2Deploy(LeggedRobot):
         # resample domain randomization parameters
         self._episodic_domain_randomization(env_ids)
     
-    def resample_gait(self, env_ids):
-        if self.cfg.rewards.periodic_reward_framework.selected_gait is not None:
-            gait = self.cfg.rewards.periodic_reward_framework.selected_gait
-            self.theta[env_ids, 0] = self.cfg.rewards.periodic_reward_framework.theta_fl[gait]
-            self.theta[env_ids, 1] = self.cfg.rewards.periodic_reward_framework.theta_fr[gait]
-            self.theta[env_ids, 2] = self.cfg.rewards.periodic_reward_framework.theta_rl[gait]
-            self.theta[env_ids, 3] = self.cfg.rewards.periodic_reward_framework.theta_rr[gait]
-            self.gait_period[env_ids, :] = self.cfg.rewards.periodic_reward_framework.gait_period[gait]
-            self.b_swing[env_ids, :] = self.cfg.rewards.periodic_reward_framework.b_swing[gait] * 2 * torch.pi
-        else:
-            # resample gait
-            gait = torch.randint(
-                0, self.cfg.rewards.periodic_reward_framework.num_gaits, (len(env_ids),), device=self.device)
-            self.theta[env_ids, 0] = self.cfg.rewards.periodic_reward_framework.theta_fl[gait]
-            self.theta[env_ids, 1] = self.cfg.rewards.periodic_reward_framework.theta_fr[gait]
-            self.theta[env_ids, 2] = self.cfg.rewards.periodic_reward_framework.theta_rl[gait]
-            self.theta[env_ids, 3] = self.cfg.rewards.periodic_reward_framework.theta_rr[gait]
-            self.gait_period[env_ids, :] = self.cfg.rewards.periodic_reward_framework.gait_period[gait]
-            self.b_swing[env_ids, :] = self.cfg.rewards.periodic_reward_framework.b_swing[gait] * 2 * torch.pi
+    def _resample_gait_params(self, env_ids):
+        # resample gait
+        if torch.mean(self.episode_sums["quad_periodic_gait"][env_ids]) / \
+            self.max_episode_length > 0.8 * self.reward_scales["quad_periodic_gait"]:
+            self.gait_period[env_ids, :] = gs_rand_float(
+                self.cfg.rewards.periodic_reward_framework.gait_period_range[0],
+                self.cfg.rewards.periodic_reward_framework.gait_period_range[1],
+                (len(env_ids), 1), device=self.device
+            )
 
     # ------------- Callbacks --------------
     
@@ -203,9 +193,9 @@ class GO2Deploy(LeggedRobot):
     def _post_physics_step_callback(self):
         super()._post_physics_step_callback()
         # Periodic Reward Framework
-        # env_ids = (self.episode_length_buf % int(
-        #     self.cfg.rewards.periodic_reward_framework.resampling_time / self.dt) == 0).nonzero(as_tuple=False).flatten()
-        # self.resample_gait(env_ids)
+        env_ids = (self.episode_length_buf % int(
+            self.cfg.rewards.periodic_reward_framework.resampling_time / self.dt) == 0).nonzero(as_tuple=False).flatten()
+        self._resample_gait_params(env_ids)
 
     def _get_noise_scale_vec(self):
         """ Sets a vector used to scale the noise added to the observations.
@@ -272,7 +262,7 @@ class GO2Deploy(LeggedRobot):
         self.gait_time = torch.zeros(self.num_envs, 1, dtype=gs.tc_float, device=self.device)
         self.phi = torch.zeros(self.num_envs, 1, dtype=gs.tc_float, device=self.device)
         self.gait_period = torch.zeros(self.num_envs, 1, dtype=gs.tc_float, device=self.device)
-        self.gait_period[:] = self.cfg.rewards.periodic_reward_framework.gait_period[0]
+        self.gait_period[:] = self.cfg.rewards.periodic_reward_framework.gait_period_range[1]
         self.clock_input = torch.zeros(
             self.num_envs,
             4,

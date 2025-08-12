@@ -16,7 +16,7 @@ def play(args):
     )
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
-    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 5)
+    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 10)
     env_cfg.viewer.rendered_envs_idx = list(range(env_cfg.env.num_envs))
     for i in range(2):
         env_cfg.viewer.pos[i] = env_cfg.viewer.pos[i] - env_cfg.terrain.plane_length / 4
@@ -34,6 +34,7 @@ def play(args):
     env_cfg.domain_rand.push_robots = False
     env_cfg.domain_rand.randomize_base_mass = False
     env_cfg.asset.fix_base_link = False
+    env_cfg.rewards.periodic_reward_framework.gait_period_range = [0.6, 0.6]
     # initial state randomization
     env_cfg.init_state.yaw_angle_range = [0., 0.]
     # velocity range

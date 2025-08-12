@@ -1156,3 +1156,14 @@ class LeggedRobot(BaseTask):
             ), dim=-1
         )
         return torch.exp(-clearance_error / self.cfg.rewards.foot_clearance_tracking_sigma)
+    
+    def _reward_foot_landing_vel(self):
+        z_vels = self.feet_vel[:, :, 2]
+        contacts = self.link_contact_forces[:, self.feet_indices, 2] > 0.1
+        about_to_land = ((self.feet_pos[:, :, 2] - 
+                          self.cfg.rewards.foot_height_offset) <
+                         self.cfg.rewards.about_landing_threshold) & (~contacts) & (z_vels < 0.0)
+        landing_z_vels = torch.where(
+            about_to_land, z_vels, torch.zeros_like(z_vels))
+        reward = torch.sum(torch.square(landing_z_vels), dim=1)
+        return reward
