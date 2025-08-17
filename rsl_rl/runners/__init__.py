@@ -30,7 +30,9 @@
 
 from .on_policy_runner import OnPolicyRunner
 from .ts_runner import TSRunner
+from .on_policy_runner_dwq import OnPolicyRunnerDWQ
 
 from rsl_rl.utils.runner_registry import runner_registry
 runner_registry.register("OnPolicyRunner", OnPolicyRunner)
+runner_registry.register("OnPolicyRunnerDWQ", OnPolicyRunnerDWQ)
 runner_registry.register("TSRunner", TSRunner)

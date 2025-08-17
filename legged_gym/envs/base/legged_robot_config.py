@@ -129,8 +129,6 @@ class LeggedRobotCfg(BaseConfig):
         foot_clearance_target = 0.08 # desired foot clearance above ground [m]
         foot_height_offset = 0.022   # height of the foot coordinate origin above ground [m]
         foot_clearance_tracking_sigma = 0.01
-        # termination conditions
-        max_projected_gravity = -0.1
 
     class normalization:
         class obs_scales:
@@ -158,7 +156,7 @@ class LeggedRobotCfg(BaseConfig):
         ref_env = 0
         pos = [2, 2, 2]       # [m]
         lookat = [0., 0, 1.]  # [m]
-        rendered_envs_idx = [i for i in range(5)]  # number of environments to be rendered
+        rendered_envs_idx = [i for i in range(1)]  # number of environments to be rendered
         add_camera = False
 
     class sim:

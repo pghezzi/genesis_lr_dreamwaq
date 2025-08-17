@@ -121,7 +121,7 @@ def get_args():
     parser.add_argument('-c', '--cpu',      action='store_true', default=False)  # use cuda by default
     parser.add_argument('-B', '--num_envs', type=int, default=None)
     parser.add_argument('--max_iterations', type=int, default=None)
-    parser.add_argument('--resume',         action='store_true', default=False)
+    parser.add_argument('--resume',         type=str, default=None)
     parser.add_argument('-o', '--offline',  action='store_true', default=False)
 
     parser.add_argument('--debug',          action='store_true', default=False)
@@ -129,14 +129,14 @@ def get_args():
 
     return parser.parse_args()
 
-def export_policy_as_jit(actor_critic, path, prefix=None):
+def export_policy_as_jit(actor_critic, path):
     if hasattr(actor_critic, 'memory_a'):
         # assumes LSTM: TODO add GRU
         exporter = PolicyExporterLSTM(actor_critic)
         exporter.export(path)
     else: 
         os.makedirs(path, exist_ok=True)
-        path = os.path.join(path, prefix + 'policy_1.pt')
+        path = os.path.join(path, 'policy_1.pt')
         model = copy.deepcopy(actor_critic.actor).to('cpu')
         traced_script_module = torch.jit.script(model)
         traced_script_module.save(path)

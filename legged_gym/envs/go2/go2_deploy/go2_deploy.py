@@ -94,9 +94,9 @@ class GO2Deploy(LeggedRobot):
             self.dof_vel * self.obs_scales.dof_vel,        # dp_t    12
             self.actions,                                  # a_{t-1} 12
             self.clock_input,                              # clock   4
+            self.theta,                                    # gait offset 4
             self.gait_period,                              # gait period 1
-            self.base_height_target,                       # base height target 1
-            self.foot_clearance_target,                    # foot clearance target 1
+            self.b_swing,                                  # swing phase ratio 1
         ), dim=-1)
 
         if self.cfg.domain_rand.randomize_ctrl_delay:
@@ -115,9 +115,9 @@ class GO2Deploy(LeggedRobot):
                 self.dof_vel * self.obs_scales.dof_vel,        # dp_t    12
                 self.actions,                                  # a_{t-1} 12
                 self.clock_input,                              # clock   4
+                self.theta,                                    # gait offset 4
                 self.gait_period,                              # gait period 1
-                self.base_height_target,                       # base height target 1
-                self.foot_clearance_target,                    # foot clearance target 1
+                self.b_swing,                                  # swing phase ratio 1
                 # domain randomization parameters
                 self._rand_push_vels[:, :2],                   # 2
                 self._added_base_mass,                         # 1
@@ -159,108 +159,38 @@ class GO2Deploy(LeggedRobot):
         )
 
     def reset_idx(self, env_ids):
-        if len(env_ids) == 0:
-            return
-        # update curriculum
-        if self.cfg.terrain.curriculum:
-            self._update_terrain_curriculum(env_ids)
-        # avoid updating command curriculum at each step since the maximum command is common to all envs
-        if self.cfg.commands.curriculum and (self.common_step_counter % self.max_episode_length ==0):
-            self.update_command_curriculum(env_ids)
-        self._resample_behavior_params(env_ids)
-
-        # reset robot states
-        self._reset_dofs(env_ids)
-        self._reset_root_states(env_ids)
-
-        self._resample_commands(env_ids)
-
-        # domain randomization
-        if self.cfg.domain_rand.randomize_friction:
-            self._randomize_friction(env_ids)
-        if self.cfg.domain_rand.randomize_base_mass:
-            self._randomize_base_mass(env_ids)
-        if self.cfg.domain_rand.randomize_com_displacement:
-            self._randomize_com_displacement(env_ids)
-        if self.cfg.domain_rand.randomize_joint_armature:
-            self._randomize_joint_armature(env_ids)
-        if self.cfg.domain_rand.randomize_joint_stiffness:
-            self._randomize_joint_stiffness(env_ids)
-        if self.cfg.domain_rand.randomize_joint_damping:
-            self._randomize_joint_damping(env_ids)
-
-        # reset buffers
-        self.llast_actions[env_ids] = 0.
-        self.last_actions[env_ids] = 0.
-        self.last_dof_vel[env_ids] = 0.
-        self.feet_air_time[env_ids] = 0.
-        self.episode_length_buf[env_ids] = 0
-        self.reset_buf[env_ids] = 1
-        # Periodic Reward Framework buffer reset
-        self.gait_time[env_ids] = 0.0
-        self.phi[env_ids] = 0.0
-        self.clock_input[env_ids, :] = 0.0
-
-        # fill extras
-        self.extras["episode"] = {}
-        for key in self.episode_sums.keys():
-            self.extras["episode"]['rew_' + key] = torch.mean(
-                self.episode_sums[key][env_ids]) / self.max_episode_length_s
-            self.episode_sums[key][env_ids] = 0.
-        # log additional curriculum info
-        if self.cfg.terrain.curriculum:
-            self.extras["episode"]["terrain_level"] = torch.mean(
-                self.terrain_levels.float())
-        if self.cfg.commands.curriculum:
-            self.extras["episode"]["max_command_x"] = self.command_ranges["lin_vel_x"][1]
-        # send timeout info to the algorithm
-        if self.cfg.env.send_timeouts:
-            self.extras["time_outs"] = self.time_out_buf
-
-        # reset action queue and delay
-        if self.cfg.domain_rand.randomize_ctrl_delay:
-            self.action_queue[env_ids] *= 0.
-            self.action_queue[env_ids] = 0.
-            self.action_delay[env_ids] = torch.randint(self.cfg.domain_rand.ctrl_delay_step_range[0],
-                                                       self.cfg.domain_rand.ctrl_delay_step_range[1]+1, (len(env_ids),), device=self.device, requires_grad=False)
-
+        super().reset_idx(env_ids)
         # clear obs and critic history for the envs that are reset
         for i in range(self.obs_history.maxlen):
             self.obs_history[i][env_ids] *= 0
         for i in range(self.critic_history.maxlen):
             self.critic_history[i][env_ids] *= 0
-        
+        # Periodic Reward Framework
+        self.gait_time[env_ids] = 0.0
+        self.phi[env_ids] = 0.0
+        self.clock_input[env_ids, :] = 0.0
         # resample domain randomization parameters
         self._episodic_domain_randomization(env_ids)
-
-    def _resample_behavior_params(self, env_ids):
-        if len(env_ids) == 0:
-            return
-        # resample gait
-        if torch.mean(self.episode_sums["quad_periodic_gait"][env_ids]) / \
-            self.max_episode_length > 0.8 * self.reward_scales["quad_periodic_gait"]:
-            # gait period
-            self.gait_period[env_ids, :] = gs_rand_float(
-                self.cfg.rewards.periodic_reward_framework.gait_period_range[0],
-                self.cfg.rewards.periodic_reward_framework.gait_period_range[1],
-                (len(env_ids), 1), device=self.device
-            )
-
-        if torch.mean(self.episode_sums["tracking_base_height"][env_ids]) / \
-            self.max_episode_length > 0.9 * self.reward_scales["tracking_base_height"]:
-            self.base_height_target[env_ids, :] = gs_rand_float(
-                self.cfg.rewards.base_height_target_range[0],
-                self.cfg.rewards.base_height_target_range[1],
-                (len(env_ids), 1), device=self.device
-            )
-
-        if torch.mean(self.episode_sums["foot_clearance"][env_ids]) / \
-            self.max_episode_length > 0.75 * self.reward_scales["foot_clearance"]:
-            self.foot_clearance_target[env_ids, :] = gs_rand_float(
-                self.cfg.rewards.foot_clearance_target_range[0],
-                self.cfg.rewards.foot_clearance_target_range[1],
-                (len(env_ids), 1), device=self.device
-            )
+    
+    def resample_gait(self, env_ids):
+        if self.cfg.rewards.periodic_reward_framework.selected_gait is not None:
+            gait = self.cfg.rewards.periodic_reward_framework.selected_gait
+            self.theta[env_ids, 0] = self.cfg.rewards.periodic_reward_framework.theta_fl[gait]
+            self.theta[env_ids, 1] = self.cfg.rewards.periodic_reward_framework.theta_fr[gait]
+            self.theta[env_ids, 2] = self.cfg.rewards.periodic_reward_framework.theta_rl[gait]
+            self.theta[env_ids, 3] = self.cfg.rewards.periodic_reward_framework.theta_rr[gait]
+            self.gait_period[env_ids, :] = self.cfg.rewards.periodic_reward_framework.gait_period[gait]
+            self.b_swing[env_ids, :] = self.cfg.rewards.periodic_reward_framework.b_swing[gait] * 2 * torch.pi
+        else:
+            # resample gait
+            gait = torch.randint(
+                0, self.cfg.rewards.periodic_reward_framework.num_gaits, (len(env_ids),), device=self.device)
+            self.theta[env_ids, 0] = self.cfg.rewards.periodic_reward_framework.theta_fl[gait]
+            self.theta[env_ids, 1] = self.cfg.rewards.periodic_reward_framework.theta_fr[gait]
+            self.theta[env_ids, 2] = self.cfg.rewards.periodic_reward_framework.theta_rl[gait]
+            self.theta[env_ids, 3] = self.cfg.rewards.periodic_reward_framework.theta_rr[gait]
+            self.gait_period[env_ids, :] = self.cfg.rewards.periodic_reward_framework.gait_period[gait]
+            self.b_swing[env_ids, :] = self.cfg.rewards.periodic_reward_framework.b_swing[gait] * 2 * torch.pi
 
     # ------------- Callbacks --------------
     
@@ -270,8 +200,12 @@ class GO2Deploy(LeggedRobot):
         for i in range(4):
             self.clock_input[:, i] = torch.sin(2 * torch.pi * (self.phi + self.theta[:, i].unsqueeze(1))).squeeze(-1)
     
-    # def _post_physics_step_callback(self):
-    #     super()._post_physics_step_callback()
+    def _post_physics_step_callback(self):
+        super()._post_physics_step_callback()
+        # Periodic Reward Framework
+        # env_ids = (self.episode_length_buf % int(
+        #     self.cfg.rewards.periodic_reward_framework.resampling_time / self.dt) == 0).nonzero(as_tuple=False).flatten()
+        # self.resample_gait(env_ids)
 
     def _get_noise_scale_vec(self):
         """ Sets a vector used to scale the noise added to the observations.
@@ -331,14 +265,14 @@ class GO2Deploy(LeggedRobot):
             )
         # Periodic Reward Framework
         self.theta = torch.zeros(self.num_envs, 4, dtype=gs.tc_float, device=self.device)
-        self.theta[:, 0] = self.cfg.rewards.periodic_reward_framework.theta_fl
-        self.theta[:, 1] = self.cfg.rewards.periodic_reward_framework.theta_fr
-        self.theta[:, 2] = self.cfg.rewards.periodic_reward_framework.theta_rl
-        self.theta[:, 3] = self.cfg.rewards.periodic_reward_framework.theta_rr
+        self.theta[:, 0] = self.cfg.rewards.periodic_reward_framework.theta_fl[0]
+        self.theta[:, 1] = self.cfg.rewards.periodic_reward_framework.theta_fr[0]
+        self.theta[:, 2] = self.cfg.rewards.periodic_reward_framework.theta_rl[0]
+        self.theta[:, 3] = self.cfg.rewards.periodic_reward_framework.theta_rr[0]
         self.gait_time = torch.zeros(self.num_envs, 1, dtype=gs.tc_float, device=self.device)
         self.phi = torch.zeros(self.num_envs, 1, dtype=gs.tc_float, device=self.device)
         self.gait_period = torch.zeros(self.num_envs, 1, dtype=gs.tc_float, device=self.device)
-        self.gait_period[:] = self.cfg.rewards.periodic_reward_framework.gait_period_range[1]
+        self.gait_period[:] = self.cfg.rewards.periodic_reward_framework.gait_period[0]
         self.clock_input = torch.zeros(
             self.num_envs,
             4,
@@ -347,17 +281,8 @@ class GO2Deploy(LeggedRobot):
         )
         self.b_swing = torch.zeros(
             self.num_envs, 1, dtype=torch.float, device=self.device, requires_grad=False)
-        self.b_swing[:] = self.cfg.rewards.periodic_reward_framework.b_swing * 2 * torch.pi
-        # Tracking params
-        self.base_height_target = torch.zeros(
-            self.num_envs, 1, dtype=gs.tc_float, device=self.device
-        )
-        self.base_height_target[:, :] = self.cfg.rewards.base_height_target_range[1]
-        self.foot_clearance_target = torch.zeros(
-            self.num_envs, 1, dtype=gs.tc_float, device=self.device
-        )
-        self.foot_clearance_target[:, :] = self.cfg.rewards.foot_clearance_target_range[0]
-
+        self.b_swing[:] = self.cfg.rewards.periodic_reward_framework.b_swing[0] * 2 * torch.pi
+       
     def _create_envs(self):
         super()._create_envs()
         # distinguish between 4 feet
@@ -382,6 +307,7 @@ class GO2Deploy(LeggedRobot):
             return
 
         if self.cfg.domain_rand.randomize_pd_gain:
+
             self._kp_scale[env_ids] = gs_rand_float(
                 self.cfg.domain_rand.kp_range[0], self.cfg.domain_rand.kp_range[1], (len(env_ids), self.num_actions), device=self.device)
             self._kd_scale[env_ids] = gs_rand_float(
@@ -499,17 +425,8 @@ class GO2Deploy(LeggedRobot):
             quad_reward_rl.flatten() + quad_reward_rr.flatten()
         return torch.exp(quad_reward)
     
-    def _reward_hip_pos(self):
-        """ Reward for the hip joint position close to default position
+    def _reward_dof_pos_close_to_default(self):
+        """ Reward for the DOF position close to default position
         """
-        hip_joint_indices = [0, 3, 6, 9]
-        dof_pos_error = torch.sum(torch.square(
-            self.dof_pos[:, hip_joint_indices] - self.default_dof_pos[hip_joint_indices]), dim=-1)
+        dof_pos_error = torch.sum(torch.square(self.dof_pos - self.default_dof_pos), dim=-1)
         return dof_pos_error
-    
-    def _reward_tracking_base_height(self):
-        # Penalize base height away from target
-        base_height = torch.mean(self.base_pos[:, 2].unsqueeze(
-            1) - self.measured_heights, dim=1)
-        rew = torch.square(base_height - self.base_height_target.squeeze(1))
-        return torch.exp(-rew / self.cfg.rewards.base_height_tracking_sigma)

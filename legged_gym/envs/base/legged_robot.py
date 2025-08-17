@@ -145,9 +145,6 @@ class LeggedRobot(BaseTask):
         self.reset_buf = torch.any(torch.norm(self.link_contact_forces[:, self.termination_indices, :], dim=-1) > 1.0, dim=1)
         self.time_out_buf = self.episode_length_buf > self.max_episode_length  # no terminal reward for time-outs
         self.reset_buf |= self.time_out_buf
-        # check if base angle is too big
-        proj_grav_over_limit = self.projected_gravity[:, 2] > self.cfg.rewards.max_projected_gravity
-        self.reset_buf |= proj_grav_over_limit
 
     def reset_idx(self, env_ids):
         """ Reset some environments.
@@ -281,15 +278,10 @@ class LeggedRobot(BaseTask):
                     self._friction_values,        # 1
                     self._added_base_mass,        # 1
                     self._base_com_bias,          # 3
-                    self._rand_push_vels[:, :2],  # 2
+                    self._rand_push_vels[:, :2],  # 3
                 ),
                 dim=-1,
             )
-            # add perceptive inputs if not blind
-            if self.cfg.terrain.measure_heights:
-                heights = torch.clip(self.base_pos[:, 2].unsqueeze(
-                    1) - 0.5 - self.measured_heights, -1, 1.) * self.obs_scales.height_measurements
-                self.privileged_obs_buf = torch.cat((self.privileged_obs_buf, heights), dim=-1)
 
     def create_sim(self):
         """ Creates simulation, terrain and evironments
@@ -312,6 +304,9 @@ class LeggedRobot(BaseTask):
                 enable_collision=True,
                 enable_joint_limit=True,
                 enable_self_collision=self.cfg.asset.self_collisions,
+                batch_dofs_info=True,   # batch dof info for all envs
+                batch_joints_info=True,
+                batch_links_info=True,
             ),
             show_viewer=not self.headless,
         )
@@ -419,9 +414,9 @@ class LeggedRobot(BaseTask):
         # control_type = 'P'
         actions_scaled = actions * self.cfg.control.action_scale
         torques = (
-            self.batched_p_gains * (actions_scaled + \
+            self.p_gains * (actions_scaled + \
                             self.default_dof_pos - self.dof_pos)
-            - self.batched_d_gains * self.dof_vel
+            - self.d_gains * self.dof_vel
         )
         return torques
 
@@ -464,8 +459,7 @@ class LeggedRobot(BaseTask):
         if self.custom_origins:
             self.base_pos[envs_idx] = self.base_init_pos
             self.base_pos[envs_idx] += self.env_origins[envs_idx]
-            self.base_pos[envs_idx,
-                :2] += gs_rand_float(-1.0, 1.0, (len(envs_idx), 2), self.device)
+            self.base_pos[envs_idx, :2] += gs_rand_float(-1.0, 1.0, (len(envs_idx), 2), self.device)
         else:
             self.base_pos[envs_idx] = self.base_init_pos
             self.base_pos[envs_idx] += self.env_origins[envs_idx]
@@ -678,8 +672,8 @@ class LeggedRobot(BaseTask):
                     self.d_gains.append(damping[key])
         self.p_gains = torch.tensor(self.p_gains, device=self.device)
         self.d_gains = torch.tensor(self.d_gains, device=self.device)
-        self.batched_p_gains = self.p_gains[None, :].repeat(self.num_envs, 1)
-        self.batched_d_gains = self.d_gains[None, :].repeat(self.num_envs, 1)
+        self.p_gains = self.p_gains[None, :].repeat(self.num_envs, 1)
+        self.d_gains = self.d_gains[None, :].repeat(self.num_envs, 1)
         # PD control params
         self.robot.set_dofs_kp(self.p_gains, self.motors_dof_idx)
         self.robot.set_dofs_kv(self.d_gains, self.motors_dof_idx)
@@ -719,8 +713,7 @@ class LeggedRobot(BaseTask):
                 horizontal_scale=self.cfg.terrain.horizontal_scale,
                 vertical_scale=self.cfg.terrain.vertical_scale,
                 height_field=self.utils_terrain.height_field_raw,
-            ),
-            vis_mode="collision"
+            )
         )
         self.height_samples = torch.tensor(self.utils_terrain.heightsamples).view(
             self.utils_terrain.tot_rows, self.utils_terrain.tot_cols).to(self.device)
@@ -745,7 +738,6 @@ class LeggedRobot(BaseTask):
                 fixed= self.cfg.asset.fix_base_link,
             ),
             visualize_contact=self.debug,
-            vis_mode="collision"
         )
 
         # build
@@ -879,22 +871,21 @@ class LeggedRobot(BaseTask):
         """ Randomize joint armature of the robot
         """
         min_armature, max_armature = self.cfg.domain_rand.joint_armature_range
-        armature = torch.rand((1,), dtype=gs.tc_float, device=self.device) \
-        * (max_armature - min_armature) + min_armature # scalar
-        self._joint_armature[env_ids, 0] = armature[0].detach().clone()
-        armature = armature.repeat(self.num_actions)  # repeat for all motors
+        armature = torch.rand((len(env_ids), 1), dtype=gs.tc_float, device=self.device) \
+        * (max_armature - min_armature) + min_armature
+        self._joint_armature[env_ids, 0] = armature[:, 0].detach().clone()
+        armature = armature.repeat(1, self.num_actions)  # repeat for all motors
         self.robot.set_dofs_armature(
-            armature, self.motors_dof_idx, envs_idx=env_ids) # all environments share the same armature
-        # This armature will be Refreshed when envs are reset
+            armature, self.motors_dof_idx, envs_idx=env_ids)
 
     def _randomize_joint_stiffness(self, env_ids):
         """ Randomize joint stiffness of the robot
         """
         min_stiffness, max_stiffness = self.cfg.domain_rand.joint_stiffness_range
-        stiffness = torch.rand((1,), dtype=gs.tc_float, device=self.device) \
+        stiffness = torch.rand((len(env_ids), 1), dtype=gs.tc_float, device=self.device) \
         * (max_stiffness - min_stiffness) + min_stiffness
-        self._joint_stiffness[env_ids, 0] = stiffness[0].detach().clone()
-        stiffness = stiffness.repeat(self.num_actions)
+        self._joint_stiffness[env_ids, 0] = stiffness[:, 0].detach().clone()
+        stiffness = stiffness.repeat(1, self.num_actions)
         self.robot.set_dofs_stiffness(
             stiffness, self.motors_dof_idx, envs_idx=env_ids)
 
@@ -902,10 +893,10 @@ class LeggedRobot(BaseTask):
         """ Randomize joint damping of the robot
         """
         min_damping, max_damping = self.cfg.domain_rand.joint_damping_range
-        damping = torch.rand((1,), dtype=gs.tc_float, device=self.device) \
+        damping = torch.rand((len(env_ids), 1), dtype=gs.tc_float, device=self.device) \
         * (max_damping - min_damping) + min_damping
-        self._joint_damping[env_ids, 0] = damping[0].detach().clone()
-        damping = damping.repeat(self.num_actions)
+        self._joint_damping[env_ids, 0] = damping[:, 0].detach().clone()
+        damping = damping.repeat(1, self.num_actions)
         self.robot.set_dofs_damping(
             damping, self.motors_dof_idx, envs_idx=env_ids)
 
@@ -1156,14 +1147,3 @@ class LeggedRobot(BaseTask):
             ), dim=-1
         )
         return torch.exp(-clearance_error / self.cfg.rewards.foot_clearance_tracking_sigma)
-    
-    def _reward_foot_landing_vel(self):
-        z_vels = self.feet_vel[:, :, 2]
-        contacts = self.link_contact_forces[:, self.feet_indices, 2] > 0.1
-        about_to_land = ((self.feet_pos[:, :, 2] - 
-                          self.cfg.rewards.foot_height_offset) <
-                         self.cfg.rewards.about_landing_threshold) & (~contacts) & (z_vels < 0.0)
-        landing_z_vels = torch.where(
-            about_to_land, z_vels, torch.zeros_like(z_vels))
-        reward = torch.sum(torch.square(landing_z_vels), dim=1)
-        return reward
