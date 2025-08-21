@@ -155,7 +155,7 @@ class Terrain:
 
         env_origin_x = (i + 0.5) * self.env_length
         env_origin_y = (j + 0.5) * self.env_width
-        # use the origin height as the max height of a 2mx2m square
+        # use the origin height as the max height of a 2mx2m squmeasured_points_xare
         x1 = int((self.env_length/2. - 1) / terrain.horizontal_scale)
         x2 = int((self.env_length/2. + 1) / terrain.horizontal_scale)
         y1 = int((self.env_width/2. - 1) / terrain.horizontal_scale)

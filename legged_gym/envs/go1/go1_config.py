@@ -65,7 +65,7 @@ class Go1RoughCfg( LeggedRobotCfg ):
         name = "go1"
         foot_name = ["foot"]
         penalize_contacts_on = ["thigh", "calf"]
-        terminate_after_contacts_on = ["base"]
+        terminate_after_contacts_on = ["base", "hip"]
         self_collisions = 1 # 1 to disable, 0 to enable...bitwise filter
         dof_names = [        # specify the sequence of actions
             'FR_hip_joint',

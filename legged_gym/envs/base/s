@@ -1,0 +1,13 @@
+[7 5 3 3 3 3 5 5 5 5 5 5 5 5 1 1 1 1]
+───────────────────────────── <gs.List> of <gs.RigidEntity> ─────────────────────────────
+<gs.List>(len=2, [
+    <gs.RigidEntity>, idx: 0, morph: <gs.morphs.Terrain>, material: <gs.materials.Rigid>,
+    <gs.RigidEntity>, idx: 1, morph: <gs.morphs.URDF(file='/home/pablo/Documents/work/w/genesis_lr_dreamwaq/resources/robots/go1/urdf/go1.urdf')>, material: <gs.materials.Rigid>,
+])
+[[0 0 0 ... 0 0 0]
+ [1 1 1 ... 1 1 1]
+ [1 1 1 ... 1 1 1]
+ ...
+ [1 1 1 ... 1 1 1]
+ [1 1 1 ... 1 1 1]
+ [1 1 1 ... 1 1 1]]

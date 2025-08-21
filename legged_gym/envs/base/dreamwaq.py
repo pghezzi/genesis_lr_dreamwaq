@@ -325,7 +325,7 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
         mesh_type = self.cfg.terrain.mesh_type
         if mesh_type =='plane':
             self.terrain = self.scene.add_entity(
-                gs.morphs.URDF(file="urdf/plane/plane.urdf", fixed=True))
+                morph=gs.morphs.URDF(file="urdf/plane/plane.urdf", fixed=True))
         elif mesh_type =='heightfield':
             self.utils_terrain = Terrain(self.cfg.terrain)
             self._create_heightfield()
@@ -746,8 +746,7 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
         """
         self.terrain = self.scene.add_entity(
             gs.morphs.Terrain(
-                pos=(-self.cfg.terrain.border_size, - \
-                     self.cfg.terrain.border_size, 0.0),
+                pos=(-self.cfg.terrain.border_size, -self.cfg.terrain.border_size, 0.0),
                 horizontal_scale=self.cfg.terrain.horizontal_scale,
                 vertical_scale=self.cfg.terrain.vertical_scale,
                 height_field=self.utils_terrain.height_field_raw,
@@ -804,11 +803,9 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
                 if flag:
                     link_indices.append(link.idx - self.robot.link_start)
             return link_indices
-
-        self.termination_indices = find_link_indices(
-            self.cfg.asset.terminate_after_contacts_on)
+        self.termination_indices = find_link_indices(self.cfg.asset.terminate_after_contacts_on)
         all_link_names = [link.name for link in self.robot.links]
-        print(f"all link names: {all_link_names}")
+        print(f"all link names: {all_link_names} {self.cfg.asset.terminate_after_contacts_on}")
         print("termination link indices:", self.termination_indices)
         self.penalized_indices = find_link_indices(
             self.cfg.asset.penalize_contacts_on)
@@ -1185,6 +1182,7 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
         # Tracking of angular velocity commands (yaw)
         ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
         return torch.exp(-ang_vel_error/self.cfg.rewards.tracking_sigma)
+
 
     def _reward_feet_air_time(self):
         # Reward long steps
