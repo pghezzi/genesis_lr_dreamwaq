@@ -1,0 +1,5 @@
+rigid_solver_decomp
+collider_decomp
+array_class
+
+self._entities[self.links_info.entity_idx.to_numpy()[links_idx[0]]] ==> self._entities[self.links_info.entity_idx.to_numpy()[links_idx[0]][0]]

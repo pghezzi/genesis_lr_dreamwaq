@@ -57,8 +57,10 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
         self.obs_hist_buf = self.obs_hist_buf[:,45:]
         self.obs_hist_buf = torch.cat((self.obs_hist_buf,self.obs_buf),dim = -1)
         # print("###########obs_hist_buf=====",self.obs_hist_buf)
+        self.prev_obs_buf = self.obs_buf
         self.prev_privileged_obs_buf = self.privileged_obs_buf
         self.prev_feet_vel = self.feet_vel
+        self.prev_rew_buf = self.rew_buf
 
         clip_actions = self.cfg.normalization.clip_actions
         self.actions = torch.clip(
@@ -95,7 +97,11 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
                 self.privileged_obs_buf, -clip_obs, clip_obs)
         #for i, x in enumerate([self.obs_buf, self.privileged_obs_buf]):
         #print(f"{i}) {x.shape}")
-        return torch.nan_to_num(self.obs_buf, nan=0.0), torch.nan_to_num(self.privileged_obs_buf, nan=0.0), torch.nan_to_num(self.prev_privileged_obs_buf, nan=0.0), torch.nan_to_num(self.obs_hist_buf, nan=0.0), torch.nan_to_num(self.rew_buf, nan=0.0), torch.nan_to_num(self.reset_buf, nan=0.0), self.extras ## do we need to return obs history buffer??
+        t = torch.any(torch.isnan(self.obs_buf))
+        #print(f"BUFF{t}")
+        if t:
+            print(self.obs_buf[torch.any(torch.isnan(self.obs_buf), dim=1)][0])
+        return self.obs_buf, self.privileged_obs_buf, self.prev_privileged_obs_buf, self.obs_hist_buf, self.rew_buf, self.reset_buf, self.extras ## do we need to return obs history buffer??
 
     def post_physics_step(self):
         """ check terminations, compute observations and rewards
@@ -258,6 +264,7 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
             ) * self.reward_scales["termination"]
             self.rew_buf += rew
             self.episode_sums["termination"] += rew
+        self.rew_buf[:] = torch.nan_to_num(self.rew_buf)
 
     def compute_observations(self):
         """ Computes observations
@@ -270,6 +277,12 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
                                     self.actions
                                     ),dim=-1)
         # add perceptive inputs if not blind
+
+        if torch.any(torch.isnan(self.obs_buf)):
+            self.obs_buf[:] = self.prev_obs_buf
+            self.privileged_obs_buf[:] = self.prev_privileged_obs_buf
+            self.rew_buf[:] = self.prev_rew_buf
+            return
         
         heights = torch.clip(self.base_pos[:, 2].unsqueeze(1) - 0.5 - self.measured_heights, -1, 1.) * self.obs_scales.height_measurements
         
@@ -277,6 +290,11 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
         contact_forces_scale, contact_forces_shift = get_scale_shift(self.cfg.normalization.contact_force_range)
         #print(self.link_contact_forces.view(self.num_envs, -1).shape)
         self.privileged_obs_buf = torch.cat((self.obs_buf,self.base_lin_vel*self.obs_scales.lin_vel,(self.link_contact_forces.view(self.num_envs, -1) - contact_forces_shift) * contact_forces_scale,heights),dim=-1) ## check the velocity and disturbance force part
+        if torch.any(torch.isnan(self.privileged_obs_buf)):
+            self.obs_buf[:] = self.prev_obs_buf
+            self.privileged_obs_buf[:] = self.prev_privileged_obs_buf
+            self.rew_buf[:] = self.prev_rew_buf
+            return
         ## privileged_obs_buffer shape = 4096,286
         # add noise if needed
         if self.add_noise:
@@ -750,6 +768,8 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
                 horizontal_scale=self.cfg.terrain.horizontal_scale,
                 vertical_scale=self.cfg.terrain.vertical_scale,
                 height_field=self.utils_terrain.height_field_raw,
+                name="dreamwaq",
+                #from_stored="dreamwaq"
             )
         )
         self.height_samples = torch.tensor(self.utils_terrain.heightsamples).view(

@@ -32,7 +32,7 @@ from .legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
 
 class LeggedRobotCfg(LeggedRobotCfg):
     class env(LeggedRobotCfg.env):
-        num_envs = 4096
+        num_envs = 10
         num_observations = 45
         num_obs_hist = 5
         num_privileged_obs = 286 # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
