@@ -32,7 +32,7 @@ from .legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
 
 class LeggedRobotCfg(LeggedRobotCfg):
     class env(LeggedRobotCfg.env):
-        num_envs = 10
+        num_envs = 10 #4096
         num_observations = 45
         num_obs_hist = 5
         num_privileged_obs = 286 # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
@@ -121,7 +121,7 @@ class LeggedRobotCfg(LeggedRobotCfg):
 
     class domain_rand(LeggedRobotCfg.domain_rand):
         rand_interval_s = 4
-        randomize_friction = True
+        randomize_friction = False
         friction_range = [0.2, 1.25]
         randomize_base_mass = True
         added_mass_range = [-1., 2.]
@@ -148,10 +148,10 @@ class LeggedRobotCfg(LeggedRobotCfg):
             #torques = -0.00001
             #dof_vel = -0.
             dof_acc = -2.5e-7
-            base_height = -2.0
+            base_height = -1.0 
             feet_air_time =  0.1
             # collision = -1.
-            # stumble = -0.01
+            # stumble = -0.01 
             action_rate = -0.01
             #stand_still = -0.
 
@@ -160,8 +160,6 @@ class LeggedRobotCfg(LeggedRobotCfg):
             # feet_clearance=-0.01
             power_distribution=-10e-6
             # feet_clearance = -0.01
-
-
 
         only_positive_rewards = True # if true negative total rewards are clipped at zero (avoids early termination problems)
         tracking_sigma = 0.25 # tracking reward = exp(-error^2/sigma)
@@ -199,6 +197,7 @@ class LeggedRobotCfg(LeggedRobotCfg):
     # viewer camera:
     class viewer(LeggedRobotCfg.viewer):
         ref_env = 0
+        rendered_envs_idx = [9]
         pos = [10, 0, 6]  # [m]
         lookat = [11., 5, 3.]  # [m]
 
@@ -242,7 +241,7 @@ class LeggedRobotCfgPPO(LeggedRobotCfgPPO):
         entropy_coef = 0.01
         num_learning_epochs = 5
         num_mini_batches = 4 # mini batch size = num_envs*nsteps / nminibatches
-        learning_rate = 1.e-3 #5.e-4
+        learning_rate = 5.e-4
         schedule = 'adaptive' # could be adaptive, fixed
         gamma = 0.99
         lam = 0.95

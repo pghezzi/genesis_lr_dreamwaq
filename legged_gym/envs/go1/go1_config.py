@@ -64,8 +64,8 @@ class Go1RoughCfg( LeggedRobotCfg ):
         file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/go1/urdf/go1.urdf'
         name = "go1"
         foot_name = ["foot"]
-        penalize_contacts_on = ["thigh", "calf"]
-        terminate_after_contacts_on = ["base", "hip"]
+        penalize_contacts_on = ["calf"]
+        terminate_after_contacts_on = ["base", "hip", "thigh"]
         self_collisions = 1 # 1 to disable, 0 to enable...bitwise filter
         dof_names = [        # specify the sequence of actions
             'FR_hip_joint',
