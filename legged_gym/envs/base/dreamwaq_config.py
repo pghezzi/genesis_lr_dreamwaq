@@ -32,7 +32,7 @@ from .legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
 
 class LeggedRobotCfg(LeggedRobotCfg):
     class env(LeggedRobotCfg.env):
-        num_envs = 10 #4096
+        num_envs = 4096
         num_observations = 45
         num_obs_hist = 5
         num_privileged_obs = 286 # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
@@ -42,7 +42,7 @@ class LeggedRobotCfg(LeggedRobotCfg):
         episode_length_s = 20 # episode length in seconds
 
     class terrain(LeggedRobotCfg.terrain):
-        mesh_type = 'heightfield' # "heightfield" # none, plane, heightfield or trimesh
+        mesh_type = 'plane' # "heightfield" # none, plane, heightfield or trimesh
         horizontal_scale = 0.1 # [m]
         vertical_scale = 0.005 # [m]
         border_size = 25 # [m]
@@ -148,7 +148,7 @@ class LeggedRobotCfg(LeggedRobotCfg):
             #torques = -0.00001
             #dof_vel = -0.
             dof_acc = -2.5e-7
-            base_height = -1.0 
+            base_height = -2.0 
             feet_air_time =  0.1
             # collision = -1.
             # stumble = -0.01 
@@ -166,7 +166,7 @@ class LeggedRobotCfg(LeggedRobotCfg):
         soft_dof_pos_limit = 1. # percentage of urdf limits, values above this limit are penalized
         soft_dof_vel_limit = 1.
         soft_torque_limit = 1.
-        base_height_target = 1.
+        base_height_target = 2.
 
 
         max_contact_force = 100. # forces above this value are penalized
@@ -197,7 +197,7 @@ class LeggedRobotCfg(LeggedRobotCfg):
     # viewer camera:
     class viewer(LeggedRobotCfg.viewer):
         ref_env = 0
-        rendered_envs_idx = [9]
+        rendered_envs_idx = [1621]
         pos = [10, 0, 6]  # [m]
         lookat = [11., 5, 3.]  # [m]
 
@@ -257,7 +257,7 @@ class LeggedRobotCfgPPO(LeggedRobotCfgPPO):
         # logging
         save_interval = 50 # check for potential saves every this many iterations
         experiment_name = 'test'
-        run_name = ''
+        run_name = 'hello'
         # load and resume
         resume = False
         load_run = -1 # -1 = last run

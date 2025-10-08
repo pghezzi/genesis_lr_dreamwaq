@@ -69,12 +69,16 @@ def play(args):
     stop_record = 400
     if RECORD_FRAMES:
         env.floating_camera.start_recording()
-
+    #command = (torch.tensor([2, 0, 0], dtype=torch.float32, device=env.commands_scale.device) 
+    #* env.commands_scale)
     for i in range(10*int(env.max_episode_length)):
-        actions = policy(obs.detach(), obs_hist.detach())
+        #obs = obs.detach()
+        #obs[:, 6:9] = command
+        #print(obs[0][6:9]/env.commands_scale)
+        actions = policy(obs, obs_hist.detach())
         obs, _, _, obs_hist, rews, dones, infos = env.step(actions.detach())
         if MOVE_CAMERA:
-            camera_position += camera_vel * env.dt
+            camera_position +=  camera_vel * env.dt
             env.set_camera(camera_position, camera_position + camera_direction)
             env.floating_camera.render()
         if FOLLOW_ROBOT:

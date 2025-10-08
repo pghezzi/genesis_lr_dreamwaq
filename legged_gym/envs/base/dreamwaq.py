@@ -271,6 +271,7 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
             print("DOF Velocities:", self.dof_vel)
             print("Torques:", self.torques)
             print("Base Linear Velocity:", self.base_lin_vel)
+            #input()
         if self.cfg.rewards.only_positive_rewards:
             self.rew_buf[:] = torch.clip(self.rew_buf[:], min=0.)
         # add termination reward after clipping
@@ -784,6 +785,7 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
     def _create_heightfield(self):
         """ Adds a heightfield terrain to the simulation, sets parameters based on the cfg.
         """
+        np.save('height_field_raw.npy', self.utils_terrain.height_field_raw)
         self.terrain = self.scene.add_entity(
             morph=gs.morphs.Terrain(
                 pos=(-self.cfg.terrain.border_size, -self.cfg.terrain.border_size, 0.0),

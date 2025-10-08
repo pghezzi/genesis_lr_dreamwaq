@@ -1,0 +1,1 @@
+docker build -t genesis -f docker/Dockerfile docker
