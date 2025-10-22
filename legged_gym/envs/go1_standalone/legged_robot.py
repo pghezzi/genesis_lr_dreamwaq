@@ -13,17 +13,14 @@ from typing import Tuple, Dict
 
 from legged_gym import LEGGED_GYM_ROOT_DIR
 from legged_gym.envs.base.base_task import BaseTask
-from legged_gym.envs.base.base_task_dwq import BaseTaskDWQ
-from legged_gym.utils.math_utils import wrap_to_pi, torch_rand_sqrt_float, quat_apply_yaw, get_scale_shift
-from genesis.utils import geom as gu
+from legged_gym.utils.math_utils import wrap_to_pi, torch_rand_sqrt_float, quat_apply_yaw
 from legged_gym.utils.terrain import Terrain
 from legged_gym.utils.helpers import class_to_dict
 from legged_gym.utils.gs_utils import *
-from .dreamwaq_config import LeggedRobotCfg
-from collections import deque
+from .legged_robot_config import LeggedRobotCfg
 
 
-class LeggedRobotDreamWaq(BaseTaskDWQ):
+class LeggedRobot(BaseTask):
     def __init__(self, cfg: LeggedRobotCfg, sim_device, headless):
         """ Parses the provided config file,
             calls create_sim() (which creates, simulation, terrain and environments),
@@ -52,20 +49,9 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
         Args:
             actions (torch.Tensor): Tensor of shape (num_envs, num_actions_per_env)
         """
-        #self.obs_hist_buf.append(self.obs_buf) # append the latest obs into hist
-        #self.disturbance_force = self.disturbance_force.to(self.device)
-        self.obs_hist_buf = self.obs_hist_buf[:,45:]
-        self.obs_hist_buf = torch.cat((self.obs_hist_buf,self.obs_buf),dim = -1)
-        # print("###########obs_hist_buf=====",self.obs_hist_buf)
-        self.prev_obs_buf = self.obs_buf
-        self.prev_privileged_obs_buf = self.privileged_obs_buf
-        self.prev_feet_vel = self.feet_vel
-        self.prev_rew_buf = self.rew_buf
-
         clip_actions = self.cfg.normalization.clip_actions
         self.actions = torch.clip(
             actions, -clip_actions, clip_actions).to(self.device)
-        # print("#######actions : ", self.actions[0])
         if self.cfg.domain_rand.randomize_ctrl_delay:
             self.action_queue[:, 1:] = self.action_queue[:, :-1].clone()
             self.action_queue[:, 0] = self.actions.clone()
@@ -89,19 +75,14 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
         # return clipped obs, clipped states (None), rewards, dones and infos
         clip_obs = self.cfg.normalization.clip_observations
         self.obs_buf = torch.clip(self.obs_buf, -clip_obs, clip_obs)
-        # print("#######obs_buf=====",self.obs_buf[0])
-        # self.obs_hist_buf = self.obs_hist_buf[:,45:]
-        # self.obs_hist_buf = torch.cat((self.obs_hist_buf,self.obs_buf),dim = -1)
         if self.privileged_obs_buf is not None:
             self.privileged_obs_buf = torch.clip(
                 self.privileged_obs_buf, -clip_obs, clip_obs)
-        #for i, x in enumerate([self.obs_buf, self.privileged_obs_buf]):
-        #print(f"{i}) {x.shape}")
-        return self.obs_buf, self.privileged_obs_buf, self.prev_privileged_obs_buf, self.obs_hist_buf, self.rew_buf, self.reset_buf, self.extras ## do we need to return obs history buffer??
+        return self.obs_buf, self.privileged_obs_buf, self.rew_buf, self.reset_buf, self.extras
 
     def post_physics_step(self):
         """ check terminations, compute observations and rewards
-            calls self._post_physics_step_callback() for common computations
+            calls self._post_physics_step_callback() for common computations 
             calls self._draw_debug_vis() if needed
         """
         self.episode_length_buf += 1
@@ -115,7 +96,8 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
         self.base_euler = gs_quat2euler(base_quat_rel)
         inv_base_quat = inv_quat(self.base_quat)
         self.base_lin_vel[:] = transform_by_quat(self.robot.get_vel(), inv_base_quat)  # trasform to base frame
-        self.base_ang_vel[:] = transform_by_quat(self.robot.get_ang(), inv_base_quat)
+        self.base_ang_vel[:] = transform_by_quat(
+            self.robot.get_ang(), inv_base_quat)
         self.projected_gravity = transform_by_quat(
             self.global_gravity, inv_base_quat)
         self.dof_pos[:] = self.robot.get_dofs_position(self.motors_dof_idx)
@@ -123,7 +105,6 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
         self.link_contact_forces[:] = self.robot.get_links_net_contact_force()
         self.feet_pos[:] = self.robot.get_links_pos()[:, self.feet_indices, :]
         self.feet_vel[:] = self.robot.get_links_vel()[:, self.feet_indices, :]
-
 
         self._post_physics_step_callback()
 
@@ -139,10 +120,6 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
         self.llast_actions[:] = self.last_actions[:]
         self.last_actions[:] = self.actions[:]
         self.last_dof_vel[:] = self.dof_vel[:]
-        self.slast_actions[:] = self.last_actions[:]
-        self.last_last_joint_pos_target[:] = self.last_joint_pos_target[:]
-        self.last_joint_pos_target[:] = self.joint_pos_target[:]
-        # print(torch.mean(torch.mean(self.base_pos[:, 2].unsqueeze(1) - self.measured_heights, dim=1),dim=-1))
 
         if self.debug_viz:
             self._draw_debug_vis()
@@ -166,14 +143,8 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
         """ Check if environments need to be reset
         """
         self.reset_buf = torch.any(torch.norm(self.link_contact_forces[:, self.termination_indices, :], dim=-1) > 1.0, dim=1)
-        
-        #print(self.reset_buf)
-        #arg = torch.argwhere(torch.norm(self.link_contact_forces[0], dim=-1) > 1.0)
-        #print([self.robot.links[x].name for x in torch.reshape(arg, (-1,))])
-        #print([self.robot.links[x].name for x in self.termination_indices])
         self.time_out_buf = self.episode_length_buf > self.max_episode_length  # no terminal reward for time-outs
         self.reset_buf |= self.time_out_buf
-        #self.reset_buf |= torch.any(torch.isnan(self.base_pos), dim=1)
 
     def reset_idx(self, env_ids):
         """ Reset some environments.
@@ -199,7 +170,6 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
         self._reset_root_states(env_ids)
 
         self._resample_commands(env_ids)
-        self._randomize_rigid_body_props(env_ids, self.cfg)
 
         # domain randomization
         if self.cfg.domain_rand.randomize_friction:
@@ -217,7 +187,6 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
 
         # reset buffers
         self.llast_actions[env_ids] = 0.
-        self.slast_actions[env_ids] = 0.
         self.last_actions[env_ids] = 0.
         self.last_dof_vel[env_ids] = 0.
         self.feet_air_time[env_ids] = 0.
@@ -253,30 +222,14 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
             adds each terms to the episode sums and to the total reward
         """
         self.rew_buf[:] = 0.
-        n = False
         for i in range(len(self.reward_functions)):
             name = self.reward_names[i]
             rew = self.reward_functions[i]() * self.reward_scales[name]
-            if torch.any(torch.isnan(rew)):
-                n = True
             self.rew_buf += rew
             self.episode_sums[name] += rew
-        if n:
-            print()
-            print(torch.flatten(torch.nonzero(torch.any(torch.isnan(self.base_pos), dim=1))))
-            print(name)
-            print("Reward Buffer:", self.rew_buf)
-            print("Base Angular Velocity:", self.base_ang_vel)
-            print("Base Position:", self.base_pos)
-            print("DOF Velocities:", self.dof_vel)
-            print("Torques:", self.torques)
-            print("Base Linear Velocity:", self.base_lin_vel)
-            #input()
         if self.cfg.rewards.only_positive_rewards:
             self.rew_buf[:] = torch.clip(self.rew_buf[:], min=0.)
         # add termination reward after clipping
-        self.reset_buf |= torch.isnan(self.rew_buf)
-        self.rew_buf[:] = torch.nan_to_num(self.rew_buf)
         if "termination" in self.reward_scales:
             rew = self._reward_termination(
             ) * self.reward_scales["termination"]
@@ -286,42 +239,49 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
     def compute_observations(self):
         """ Computes observations
         """
-        self.obs_buf = torch.cat((  self.base_ang_vel  * self.obs_scales.ang_vel,
-                                    self.projected_gravity,
-                                    self.commands[:, :3] * self.commands_scale,
-                                    (self.dof_pos - self.default_dof_pos) * self.obs_scales.dof_pos,
-                                    self.dof_vel * self.obs_scales.dof_vel,
-                                    self.actions
-                                    ),dim=-1)
-
+        self.obs_buf = torch.cat((self.base_lin_vel * self.obs_scales.lin_vel,                    # 3
+                                    self.base_ang_vel * self.obs_scales.ang_vel,                   # 3
+                                    self.projected_gravity,                                         # 3
+                                    self.commands[:, :3] * self.commands_scale,                   # 3
+                                    (self.dof_pos - self.default_dof_pos) * self.obs_scales.dof_pos, # num_dofs
+                                    self.dof_vel * self.obs_scales.dof_vel,                         # num_dofs
+                                    self.actions                                                    # num_actions
+                                    ), dim=-1)
         # add perceptive inputs if not blind
-        
-        heights = torch.clip(self.base_pos[:, 2].unsqueeze(1) - 0.5 - self.measured_heights, -1, 1.) * self.obs_scales.height_measurements
-        
-        #self.obs_buf = torch.cat((self.obs_buf, heights), dim=-1)
-        contact_forces_scale, contact_forces_shift = get_scale_shift(self.cfg.normalization.contact_force_range)
-        #print(self.link_contact_forces.view(self.num_envs, -1).shape)
-        self.privileged_obs_buf = torch.cat((self.obs_buf,self.base_lin_vel*self.obs_scales.lin_vel,(self.link_contact_forces.view(self.num_envs, -1) - contact_forces_shift) * contact_forces_scale,heights),dim=-1) ## check the velocity and disturbance force part
-        
-        ## privileged_obs_buffer shape = 4096,286
+        if self.cfg.terrain.measure_heights:
+            heights = torch.clip(self.base_pos[:, 2].unsqueeze(
+                1) - 0.5 - self.measured_heights, -1, 1.) * self.obs_scales.height_measurements
+            self.obs_buf = torch.cat((self.obs_buf, heights), dim=-1)
+
         # add noise if needed
         if self.add_noise:
-            self.obs_buf += (2 * torch.rand_like(self.obs_buf) - 1) * self.noise_scale_vec
+            self.obs_buf += (2 * torch.rand_like(self.obs_buf) - \
+                             1) * self.noise_scale_vec
 
-        # check for errors
-        # a = torch.isnan(self.privileged_obs_buf)
-        # b = torch.isnan(self.obs_buf)
-        # c = torch.isnan(self.rew_buf)
-        # if torch.any(a) or torch.any(b) or torch.any(c):
-        #    t=torch.any(a, dim=1) | torch.any(b, dim=1) | c
-        #    self.obs_buf[t] = self.prev_obs_buf[t]
-        #    self.privileged_obs_buf[t] = self.prev_privileged_obs_buf[t]
-        #    self.rew_buf[t] = self.prev_rew_buf[t]
-        #    print(torch.flatten(torch.nonzero(t)))
-        #    print(self.rew_buf)
-        #    return                                                                                                                                                   
-        
-        
+        if self.cfg.domain_rand.randomize_ctrl_delay:
+            # normalize to [0, 1]
+            ctrl_delay = (self.action_delay /
+                          self.cfg.domain_rand.ctrl_delay_step_range[1]).unsqueeze(1)
+
+        if self.num_privileged_obs is not None:
+            self.privileged_obs_buf = torch.cat(
+                (
+                    self.base_lin_vel * self.obs_scales.lin_vel,
+                    self.base_ang_vel * self.obs_scales.ang_vel,
+                    self.projected_gravity,
+                    self.commands[:, :3] * self.commands_scale,
+                    (self.dof_pos - self.default_dof_pos) * \
+                     self.obs_scales.dof_pos,
+                    self.dof_vel * self.obs_scales.dof_vel,
+                    self.actions,
+                    self.last_actions,
+                    self._friction_values,        # 1
+                    self._added_base_mass,        # 1
+                    self._base_com_bias,          # 3
+                    self._rand_push_vels[:, :2],  # 3
+                ),
+                dim=-1,
+            )
 
     def create_sim(self):
         """ Creates simulation, terrain and evironments
@@ -366,7 +326,7 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
         mesh_type = self.cfg.terrain.mesh_type
         if mesh_type =='plane':
             self.terrain = self.scene.add_entity(
-                gs.morphs.Plane())
+                gs.morphs.URDF(file="urdf/plane/plane.urdf", fixed=True))
         elif mesh_type =='heightfield':
             self.utils_terrain = Terrain(self.cfg.terrain)
             self._create_heightfield()
@@ -384,7 +344,7 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
             self.terrain_y_range[0] = -self.cfg.terrain.border_size + 1.0
             self.terrain_y_range[1] = self.cfg.terrain.border_size + \
                 self.cfg.terrain.num_cols * self.cfg.terrain.terrain_width - 1.0
-        elif self.cfg.terrain.mesh_type =='plane': # the plane used has limited size,
+        elif self.cfg.terrain.mesh_type =='plane': # the plane used has limited size, 
                                                  # and the origin of the world is at the center of the plane
             self.terrain_x_range[0] = -self.cfg.terrain.plane_length/2+1
             self.terrain_x_range[1] = self.cfg.terrain.plane_length/2-1
@@ -421,7 +381,6 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
         """
         #
         env_ids = (self.episode_length_buf % int(self.cfg.commands.resampling_time / self.dt) == 0).nonzero(as_tuple=False).flatten()
-        self._randomize_dof_props(env_ids, self.cfg)
         self._resample_commands(env_ids)
         if self.cfg.commands.heading_command:
             forward = gs_transform_by_quat(self.forward_vec, self.base_quat)
@@ -448,25 +407,18 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
             *self.cfg.commands.ranges.ang_vel_yaw, (len(env_ids),), self.device)
 
         # set small commands to zero
-        self.commands[env_ids, :]=torch.cuda.FloatTensor([0.5,0,0,0],device=self.device)
         self.commands[env_ids, :2] *= (torch.norm(
             self.commands[env_ids, :2], dim=1) > 0.2).unsqueeze(1)
 
     def _compute_torques(self, actions):
-        #pd controller
+        # control_type = 'P'
         actions_scaled = actions * self.cfg.control.action_scale
-        #print(self.default_dof_pos.shape, actions_scaled)
-        self.joint_pos_target = self.default_dof_pos + actions_scaled
-        control_type = self.cfg.control.control_type
-        if control_type=="P":
-            torques = self.p_gains*(actions_scaled + self.default_dof_pos - self.dof_pos) - self.d_gains*self.dof_vel ## !!check the action later. Might be incorrect!!
-        elif control_type=="V":
-            torques = self.p_gains*(actions_scaled - self.dof_vel) - self.d_gains*(self.dof_vel - self.last_dof_vel)/self.sim_params.dt
-        elif control_type=="T":
-            torques = actions_scaled
-        else:
-            raise NameError(f"Unknown controller type: {control_type}")
-        return torch.clip(torques, -self.torque_limits, self.torque_limits)
+        torques = (
+            self.p_gains * (actions_scaled + \
+                            self.default_dof_pos - self.dof_pos)
+            - self.d_gains * self.dof_vel
+        )
+        return torques
 
     def _compute_target_dof_pos(self, actions):
         # control_type = 'P'
@@ -507,8 +459,7 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
         if self.custom_origins:
             self.base_pos[envs_idx] = self.base_init_pos
             self.base_pos[envs_idx] += self.env_origins[envs_idx]
-            self.base_pos[envs_idx,
-                :2] += gs_rand_float(-1.0, 1.0, (len(envs_idx), 2), self.device)
+            self.base_pos[envs_idx, :2] += gs_rand_float(-1.0, 1.0, (len(envs_idx), 2), self.device)
         else:
             self.base_pos[envs_idx] = self.base_init_pos
             self.base_pos[envs_idx] += self.env_origins[envs_idx]
@@ -541,7 +492,7 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
                                      0, 1, 2, 3, 4, 5], envs_idx=envs_idx)
 
     def _push_robots(self):
-        """ Random pushes the robots. Emulates an impulse by setting a randomized base velocity.
+        """ Random pushes the robots. Emulates an impulse by setting a randomized base velocity. 
         """
         if self.push_interval_s > 0 and not self.debug:
             max_push_vel_xy = self.cfg.domain_rand.max_push_vel_xy
@@ -620,20 +571,14 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
         noise_vec[24:36] = noise_scales.dof_vel * \
             noise_level * self.obs_scales.dof_vel
         noise_vec[36:48] = 0.  # previous actions
-        #if self.cfg.terrain.measure_heights:
-        #    noise_vec[48:235] = noise_scales.height_measurements * noise_level * self.obs_scales.height_measurements
+        if self.cfg.terrain.measure_heights:
+            noise_vec[48:235] = noise_scales.height_measurements * noise_level * self.obs_scales.height_measurements
         return noise_vec
-
-
-
 
     # ----------------------------------------
     def _init_buffers(self):
         """ Initialize torch tensors which will contain simulation states and processed quantities
         """
-        #dof_force and rigid_body_state to add
-
-
         self.common_step_counter = 0
         self.extras = {}
         self.noise_scale_vec = self._get_noise_scale_vec()
@@ -666,21 +611,6 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
             (self.num_envs, self.num_actions), device=self.device, dtype=gs.tc_float)
         self.last_actions = torch.zeros_like(self.actions)
         self.llast_actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)  # last last actions
-        self.slast_actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
-
-        self.joint_pos_target = torch.zeros(self.num_envs, self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
-        self.last_joint_pos_target= torch.zeros(self.num_envs, self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
-        self.last_last_joint_pos_target= torch.zeros(self.num_envs, self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
-
-        #####
-        #dof_force = self.gym.acquire_dof_force_tensor(self.sim)
-        #rigid_body_state = self.gym.acquire_rigid_body_state_tensor(self.sim)
-        #self.gym.refresh_rigid_body_state_tensor(self.sim)
-        #self.forces = gymtorch.wrap_tensor(dof_force)
-        #self.disturbance_force = self.forces.view(self.num_envs,self.num_dof)
-        #self.rigid_body_state = gymtorch.wrap_tensor(rigid_body_state)[:self.num_envs * self.num_bodies, :]
-        #####
-        
         self.dof_pos = torch.zeros_like(self.actions)
         self.dof_vel = torch.zeros_like(self.actions)
         self.last_dof_vel = torch.zeros_like(self.actions)
@@ -748,15 +678,6 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
         self.robot.set_dofs_kp(self.p_gains, self.motors_dof_idx)
         self.robot.set_dofs_kv(self.d_gains, self.motors_dof_idx)
 
-    def _init_custom_buffers__(self):
-        # domain randomization properties
-        self.friction_coeffs = self.default_friction * torch.ones(self.num_envs, 4, dtype=torch.float, device=self.device, requires_grad=False)
-        self.payloads = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
-        self.com_displacements = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
-        self.motor_strengths = torch.ones(self.num_envs, self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
-        self.Kp_factors = torch.ones(self.num_envs, self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
-        self.Kd_factors = torch.ones(self.num_envs, self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
-
     def _prepare_reward_function(self):
         """ Prepares a list of reward functions, whcih will be called to compute the total reward.
             Looks for self._reward_<REWARD_NAME>, where <REWARD_NAME> are names of all non zero reward scales in the cfg.
@@ -771,6 +692,7 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
         # prepare list of functions
         self.reward_functions = []
         self.reward_names = []
+        print(self.reward_scales)
         for name, scale in self.reward_scales.items():
             if name =="termination":
                 continue
@@ -785,16 +707,15 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
     def _create_heightfield(self):
         """ Adds a heightfield terrain to the simulation, sets parameters based on the cfg.
         """
-        np.save('height_field_raw.npy', self.utils_terrain.height_field_raw)
         self.terrain = self.scene.add_entity(
-            morph=gs.morphs.Terrain(
-                pos=(-self.cfg.terrain.border_size, -self.cfg.terrain.border_size, 0.0),
+            gs.morphs.Terrain(
+                pos=(-self.cfg.terrain.border_size, - \
+                     self.cfg.terrain.border_size, 0.0),
                 horizontal_scale=self.cfg.terrain.horizontal_scale,
                 vertical_scale=self.cfg.terrain.vertical_scale,
                 height_field=self.utils_terrain.height_field_raw,
             )
         )
-        self.hf = self.terrain.geoms[0].metadata["height_field"]
         self.height_samples = torch.tensor(self.utils_terrain.heightsamples).view(
             self.utils_terrain.tot_rows, self.utils_terrain.tot_cols).to(self.device)
 
@@ -820,17 +741,13 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
             visualize_contact=self.debug,
         )
 
-        self.num_dof = len(self.cfg.asset.dof_names)
-
         # build
-        self.scene.build(n_envs=self.num_build_envs)
-        self.default_friction = gu.default_friction() #rigid_shape_props_asset[1].friction
+        self.scene.build(n_envs=self.num_envs)
+
         self._get_env_origins()
-        self._init_custom_buffers__()
 
         self._init_domain_params()
 
-        self._randomize_rigid_body_props(torch.arange(self.num_envs, device=self.device), self.cfg)
         # name to indices
         self.motors_dof_idx = [self.robot.get_joint(
             name).dof_start for name in self.cfg.asset.dof_names]
@@ -846,9 +763,11 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
                 if flag:
                     link_indices.append(link.idx - self.robot.link_start)
             return link_indices
-        self.termination_indices = find_link_indices(self.cfg.asset.terminate_after_contacts_on)
+
+        self.termination_indices = find_link_indices(
+            self.cfg.asset.terminate_after_contacts_on)
         all_link_names = [link.name for link in self.robot.links]
-        print(f"all link names: {all_link_names} {self.cfg.asset.terminate_after_contacts_on}")
+        print(f"all link names: {all_link_names}")
         print("termination link indices:", self.termination_indices)
         self.penalized_indices = find_link_indices(
             self.cfg.asset.penalize_contacts_on)
@@ -875,7 +794,6 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
             self.dof_pos_limits[i, 1] = (
                 m + 0.5 * r * self.cfg.rewards.soft_dof_pos_limit
                 )
-
 
         # randomize friction
         if self.cfg.domain_rand.randomize_friction:
@@ -983,35 +901,8 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
         self.robot.set_dofs_damping(
             damping, self.motors_dof_idx, envs_idx=env_ids)
 
-
-    def _randomize_rigid_body_props(self, env_ids, cfg):
-        if cfg.domain_rand.randomize_base_mass:
-            self._randomize_base_mass(env_ids)
-        if cfg.domain_rand.randomize_com_displacement:
-            self._randomize_com_displacement(env_ids)
-        if cfg.domain_rand.randomize_friction:
-            self._randomize_friction(env_ids)
-
-    def _randomize_dof_props(self, env_ids, cfg):
-        if cfg.domain_rand.randomize_motor_strength:
-            min_strength, max_strength = cfg.domain_rand.motor_strength_range
-            self.motor_strengths[env_ids, :] = torch.rand(len(env_ids), dtype=torch.float, device=self.device,
-                                                        requires_grad=False).unsqueeze(1) * (
-                                                    max_strength - min_strength) + min_strength
-        if cfg.domain_rand.randomize_Kp_factor:
-            min_Kp_factor, max_Kp_factor = cfg.domain_rand.Kp_factor_range
-            self.Kp_factors[env_ids, :] = torch.rand(len(env_ids), dtype=torch.float, device=self.device,
-                                                        requires_grad=False).unsqueeze(1) * (
-                                                    max_Kp_factor - min_Kp_factor) + min_Kp_factor
-        if cfg.domain_rand.randomize_Kd_factor:
-            min_Kd_factor, max_Kd_factor = cfg.domain_rand.Kd_factor_range
-            self.Kd_factors[env_ids, :] = torch.rand(len(env_ids), dtype=torch.float, device=self.device,
-                                                        requires_grad=False).unsqueeze(1) * (
-                                                    max_Kd_factor - min_Kd_factor) + min_Kd_factor
-
     def _parse_cfg(self, cfg):
         self.dt = self.cfg.control.dt
-        self.num_obs_hist = self.cfg.env.num_obs_hist
         # use self-implemented pd controller
         self.sim_dt = self.dt / self.cfg.control.decimation
         self.sim_substeps = 1
@@ -1022,7 +913,6 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
             self.cfg.terrain.curriculum = False
         self.max_episode_length_s = self.cfg.env.episode_length_s
         self.max_episode_length = np.ceil(self.max_episode_length_s / self.dt)
-        self.cfg.domain_rand.rand_interval = np.ceil(self.cfg.domain_rand.rand_interval_s / self.dt)
 
         self.push_interval_s = self.cfg.domain_rand.push_interval_s
 
@@ -1057,18 +947,14 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
             max_init_level = self.cfg.terrain.max_init_terrain_level
             if not self.cfg.terrain.curriculum:
                 max_init_level = self.cfg.terrain.num_rows - 1
+            self.terrain_levels = torch.randint(0, max_init_level+1, (self.num_envs,), device=self.device)
             self.terrain_types = torch.div(torch.arange(self.num_envs, device=self.device), (
                 self.num_envs/self.cfg.terrain.num_cols), rounding_mode='floor').to(torch.long)
             self.max_terrain_level = self.cfg.terrain.num_rows
-            self.terrain_origins = torch.from_numpy(self.utils_terrain.env_origins).to(self.device).to(torch.float)
-            self.terrain_levels = torch.randint(0, self.terrain_origins.shape[0], (self.num_envs,), device=self.device)
-            print(self.cfg.terrain.num_rows, max_init_level)
-            print(self.terrain_levels)
-            print(self.terrain_types)
-            print(self.env_origins.shape, self.terrain_origins.shape)
-            print(self.terrain_origins)
-            #print(self.terrain_origins[:, self.terrain_types, self.terrain_levels])
-            self.env_origins[:] = self.terrain_origins[self.terrain_levels,self.terrain_types]
+            self.terrain_origins = torch.from_numpy(
+                self.utils_terrain.env_origins).to(self.device).to(torch.float)
+            self.env_origins[:] = self.terrain_origins[self.terrain_levels,
+                self.terrain_types]
         else:
             self.custom_origins = False
             self.env_origins = torch.zeros(
@@ -1151,128 +1037,34 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
 
         return heights.view(self.num_envs, -1) * self.cfg.terrain.vertical_scale
 
-
     # ------------ reward functions----------------
-    
-    def _reward_lin_vel_z(self):
-        # Penalize z axis base linear velocity
-        return torch.square(self.base_lin_vel[:, 2])
-    
-    def _reward_ang_vel_xy(self):
-        # Penalize xy axes base angular velocity
-        return torch.sum(torch.square(self.base_ang_vel[:, :2]), dim=1)
-    
-    def _reward_orientation(self):
-        # Penalize non flat base orientation
-        return torch.sum(torch.square(self.projected_gravity[:, :2]), dim=1)
-
-    def _reward_base_height(self):
-        # Penalize base height away from target
-        base_height = torch.mean(self.base_pos[:, 2].unsqueeze(1) - self.measured_heights, dim=1)
-        return torch.square(base_height - self.cfg.rewards.base_height_target)
-    
-    # def _reward_torques(self):
-    #     # Penalize torques
-    #     return torch.sum(torch.square(self.torques), dim=1)
-
-    # def _reward_torques(self):
-    #     # Penalize torques
-    #     return 0
-
-
-    # def _reward_dof_vel(self):
-    #     # Penalize dof velocities
-    #     return torch.sum(torch.square(self.dof_vel), dim=1)
-    
-    def _reward_dof_acc(self):
-        # Penalize dof accelerations
-        return torch.sum(torch.square((self.last_dof_vel - self.dof_vel) / self.dt), dim=1)
-    
-    def _reward_joint_power(self):
-        return torch.sum((torch.abs(self.dof_vel)*torch.abs(self.torques)),dim=1)
-    
-    def _reward_action_rate(self):
-        # Penalize changes in actions
-        return torch.sum(torch.square(self.last_actions - self.actions), dim=1)
-    
-    def _reward_collision(self):
-        # Penalize collisions on selected bodies
-        return torch.sum(1.*(torch.norm(self.link_contact_forces[:, self.penalised_contact_indices, :], dim=-1) > 0.1), dim=1)
-    
-    def _reward_termination(self):
-        # Terminal reward / penalty
-        return self.reset_buf * ~self.time_out_buf
-    
-    def _reward_dof_pos_limits(self):
-        # Penalize dof positions too close to the limit
-        out_of_limits = -(self.dof_pos - self.dof_pos_limits[:, 0]).clip(max=0.) # lower limit
-        out_of_limits += (self.dof_pos - self.dof_pos_limits[:, 1]).clip(min=0.)
-        # print(out_of_limits)
-        return torch.sum(out_of_limits, dim=1)
-
-    def _reward_dof_vel_limits(self):
-        # Penalize dof velocities too close to the limit
-        # clip to max error = 1 rad/s per joint to avoid huge penalties
-        return torch.sum((torch.abs(self.dof_vel) - self.dof_vel_limits*self.cfg.rewards.soft_dof_vel_limit).clip(min=0., max=1.), dim=1)
-
-    # def _reward_torque_limits(self):
-    #     # penalize torques too close to the limit
-    #     return torch.sum((torch.abs(self.torques) - self.torque_limits*self.cfg.rewards.soft_torque_limit).clip(min=0.), dim=1)
-
 
     def _reward_tracking_lin_vel(self):
         # Tracking of linear velocity commands (xy axes)
-        lin_vel_error = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
+        lin_vel_error = torch.sum(torch.square(
+            self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
         return torch.exp(-lin_vel_error/self.cfg.rewards.tracking_sigma)
-    
+
     def _reward_tracking_ang_vel(self):
-        # Tracking of angular velocity commands (yaw) 
-        ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
+        # Tracking of angular velocity commands (yaw)
+        ang_vel_error = torch.square(
+            self.commands[:, 2] - self.base_ang_vel[:, 2])
         return torch.exp(-ang_vel_error/self.cfg.rewards.tracking_sigma)
 
-    def _reward_feet_air_time(self):
-        # Reward long steps
-        # Need to filter the contacts because the contact reporting of PhysX is unreliable on meshes
-        contact = self.link_contact_forces[:, self.feet_indices, 2] > 1.
-        contact_filt = torch.logical_or(contact, self.last_contacts) 
-        self.last_contacts = contact
-        first_contact = (self.feet_air_time > 0.) * contact_filt
-        self.feet_air_time += self.dt
-        rew_airTime = torch.sum((self.feet_air_time - 0.5) * first_contact, dim=1) # reward only on first contact with the ground
-        rew_airTime *= torch.norm(self.commands[:, :2], dim=1) > 0.1 #no reward for zero command
-        self.feet_air_time *= ~contact_filt
-        return rew_airTime
-    
-    def _reward_stumble(self):
-        # Penalize feet hitting vertical surfaces
-        return torch.any(torch.norm(self.link_contact_forces[:, self.feet_indices, :2], dim=2) >\
-             5 *torch.abs(self.link_contact_forces[:, self.feet_indices, 2]), dim=1)
-        
-    # def _reward_stand_still(self):
-    #     # Penalize motion at zero commands
-    #     return torch.sum(torch.abs(self.dof_pos - self.default_dof_pos), dim=1) * (torch.norm(self.commands[:, :2], dim=1) < 0.1)
+    def _reward_lin_vel_z(self):
+        # Penalize z axis base linear velocity
+        return torch.square(self.base_lin_vel[:, 2])
 
-    # def _reward_feet_contact_forces(self):
-    #     # penalize high contact forces
-    #     return torch.sum((torch.norm(self.contact_forces[:, self.feet_indices, :], dim=-1) -  self.cfg.rewards.max_contact_force).clip(min=0.), dim=1)
+    def _reward_base_height(self):
+        # Penalize base height away from target
+        base_height = torch.mean(self.base_pos[:, 2].unsqueeze(
+            1) - self.measured_heights, dim=1)
+        rew = torch.square(base_height - self.cfg.rewards.base_height_target)
+        return rew
 
+    def _reward_action_rate(self):
+        # Penalize changes in actions
+        return torch.sum(torch.square(self.last_actions - self.actions), dim=1)
 
-    def _reward_smoothness(self):
-        diff = torch.square(self.joint_pos_target[:, :self.num_dof] - 2 * self.last_joint_pos_target[:, :self.num_dof] + self.last_last_joint_pos_target[:, :self.num_dof])
-        diff = diff * (self.last_actions[:, :self.num_dof] != 0)  # ignore first step
-        diff = diff * (self.slast_actions[:, :self.num_dof] != 0)  # ignore second step
-        return torch.sum(diff, dim=1)
-    
-    def _reward_power_distribution(self):
-        power = self.torques*self.dof_vel
-        return torch.var(torch.abs(power),dim=1)
-    
-    def _reward_feet_clearance(self):
-        feet_height = (self.feet_pos[:, :, 2]).view(self.num_envs, -1)
-        feet_height_des = torch.max(torch.clip(self.base_pos[:, 2].unsqueeze(1) - 0.5 - self.measured_heights, -1, 1.) * self.obs_scales.height_measurements)
-        # feet_height_des.view(self.num_envs)
-        feet_velocities_x = (self.feet_vel[:,:,:1]).view(self.num_envs,-1)
-        feet_velocities_y = (self.feet_vel[:,:,1:2]).view(self.num_envs,-1)
-        feet_clearance = feet_height_des - feet_height
-        # print(feet_clearance[0],feet_velocities[0])
-        return torch.sum(torch.square(feet_clearance)*feet_velocities_x,dim=-1) + torch.sum(torch.square(feet_clearance)*feet_velocities_y,dim=-1)
+    def _reward_similar_to_default(self):
+        return torch.sum(torch.abs(self.dof_pos - self.default_dof_pos), dim=1)

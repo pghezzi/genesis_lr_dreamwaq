@@ -87,8 +87,13 @@ def play(args):
             env.set_camera(camera_position_follow, camera_lookat_follow)
             env.floating_camera.render()
         if RECORD_FRAMES and i == stop_record:
-            env.floating_camera.stop_recording(save_to_filename="go2_rough_demo.mp4", fps=30)
-            print("Saved recording to " + "go2_rough_demo.mp4")
+            try:
+                filename_mp4 = f"{train_cfg.runner.experiment_name}_{train_cfg.runner.run_name}.mp4"
+            except:
+                from datetime import datetime
+                filename_mp4 = f"{datetime.now().timestamp()}"
+            env.floating_camera.stop_recording(save_to_filename=filename_mp4, fps=30)
+            print("Saved recording to " + filename_mp4)
         
         # print debug info
         # print("base lin vel: ", env.base_lin_vel[robot_index, :].cpu().numpy())
@@ -125,9 +130,9 @@ def play(args):
 
 if __name__ == '__main__':
     EXPORT_POLICY = False
-    RECORD_FRAMES = False  # only record frames in extra camera view
+    RECORD_FRAMES = True  # only record frames in extra camera view
     MOVE_CAMERA   = False
-    FOLLOW_ROBOT  = False
+    FOLLOW_ROBOT  = True
     assert not (MOVE_CAMERA and FOLLOW_ROBOT), "Cannot move camera and follow robot at the same time"
     args = get_args()
     play(args)
