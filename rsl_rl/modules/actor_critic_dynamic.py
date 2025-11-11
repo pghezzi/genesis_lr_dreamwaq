@@ -248,11 +248,11 @@ class ActorCritic_Dynamic(nn.Module):
                                               context_torso_velo_size=cenet_velo_dim,
                                               dropout=dropout)
         
-        # Construct the context decoder network
-        self.context_decoder = ContextDecoder(input_dim=cenet_latent_dim+cenet_velo_dim,
-                                              decode_dim=cenet_out_dim,
-                                              layers=cenet_dec_layers,
-                                              dropout=dropout)
+        # # Construct the context decoder network
+        # self.context_decoder = ContextDecoder(input_dim=cenet_latent_dim+cenet_velo_dim,
+        #                                       decode_dim=cenet_out_dim,
+        #                                       layers=cenet_dec_layers,
+        #                                       dropout=dropout)
         
         # Get the activation function used by the actor and critic networks
         self.activation = get_activation(activation)
@@ -474,12 +474,12 @@ class ActorCritic_Dynamic(nn.Module):
         mean, logvar, z, torso_velo = self.context_encoder(obs_history)
         return mean, logvar, z, torso_velo
     
-    def cenet_dec_forward(self, history_latent):
-        # This is assuming all the elements used as input to the forward method
-        #     of the decoder network have been concatonated before being passed
-        #     to this function!
-        next_obs = self.context_decoder(history_latent)
-        return next_obs
+    # def cenet_dec_forward(self, history_latent):
+    #     # This is assuming all the elements used as input to the forward method
+    #     #     of the decoder network have been concatonated before being passed
+    #     #     to this function!
+    #     next_obs = self.context_decoder(history_latent)
+    #     return next_obs
 
     # Method for the forward method of the actor network, used mostly as an internal method
     def actor_forward(self, current_obs):

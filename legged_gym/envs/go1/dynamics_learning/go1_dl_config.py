@@ -32,6 +32,24 @@ class GO2Cfg( LeggedRobotCfg ):
             'FR_calf_joint': -1.5,  # [rad]
             'RR_calf_joint': -1.5,    # [rad]
         }
+        
+        # Double check this.. use WBIC with a joint target
+        default_joint_torques = { # = target angles [rad] when action = 0.0
+            'FR_hip_joint': 0.75,  # [nM]
+            'FL_hip_joint': -0.75,  # [nM]
+            'RR_hip_joint': -0.75,  # [nM]
+            'RL_hip_joint': 0.75,  # [nM]
+
+            'FL_thigh_joint': 0.5,   # [rad]
+            'RL_thigh_joint': 0.5,   # [rad]
+            'FR_thigh_joint': -0.5,   # [rad]
+            'RR_thigh_joint': -0.5,   # [rad]
+
+            'FL_calf_joint': 4.0,   # [rad]
+            'RL_calf_joint': 4.0,   # [rad]
+            'FR_calf_joint': 4.0,   # [rad]
+            'RR_calf_joint': 4.0,   # [rad]
+        }
         # initial state randomization
         yaw_angle_range = [0., 3.14] # min max [rad]
 
@@ -51,7 +69,8 @@ class GO2Cfg( LeggedRobotCfg ):
         # control_type = 'P'
         stiffness = {'joint': 20.}   # [N*m/rad]
         damping = {'joint': 0.5}     # [N*m*s/rad]
-        action_scale = 0.25 # action scale: target angle = actionScale * action + defaultAngle
+        action_scale = 0.25 # action scale: target angle = action_scale * pose_action + defaultAngle
+        torque_scale = 2.5 # action scale:  target torque = torque_scale * tau_action + defaultTorque
         dt =  0.02  # control frequency 50Hz
         decimation = 4 # decimation: Number of control action updates @ sim DT per policy DT
 

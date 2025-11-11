@@ -31,3 +31,4 @@
 from .ppo import PPO
 from .ppo_ts import PPO_TS
 from .ppodwq import PPODWQ
+from .ppo_dynamic import PPODynamic
