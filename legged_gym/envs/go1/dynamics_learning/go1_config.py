@@ -45,7 +45,7 @@ class GO2Cfg( LeggedRobotCfg ):
         decimation = 4 # decimation: Number of control action updates @ sim DT per policy DT
 
     class asset( LeggedRobotCfg.asset ):
-        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/go2/urdf/go2.urdf'
+        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/go1/urdf/go1.urdf'
         dof_names = [        # specify the sequence of actions
             'FR_hip_joint',
             'FR_thigh_joint',
@@ -111,7 +111,7 @@ class GO2CfgPPO( LeggedRobotCfgPPO ):
         entropy_coef = 0.01
     class runner( LeggedRobotCfgPPO.runner ):
         run_name = ''
-        experiment_name = 'go2'
+        experiment_name = 'go1'
         save_interval = 100
         load_run = "Jul21_17-07-50_"
         checkpoint = -1

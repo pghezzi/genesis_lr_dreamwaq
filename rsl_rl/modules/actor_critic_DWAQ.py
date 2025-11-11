@@ -38,6 +38,7 @@ class ActorCritic_DWAQ(nn.Module):
             nn.Linear(128,64),
             self.activation,
         )
+        
         self.encode_mean_latent = nn.Linear(64,cenet_out_dim-3)
         self.encode_logvar_latent = nn.Linear(64,cenet_out_dim-3)
         self.encode_mean_vel = nn.Linear(64,3)

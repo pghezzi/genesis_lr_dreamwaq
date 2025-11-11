@@ -136,6 +136,7 @@ class LeggedRobotCfg(BaseConfig):
             ang_vel = 0.25
             dof_pos = 1.0
             dof_vel = 0.05
+            # dof_tau = 0.05               # in collected data the magnitude of the DOF's velocity and torques are roughly comparable 
             height_measurements = 5.0
         clip_observations = 100.
         clip_actions = 100.

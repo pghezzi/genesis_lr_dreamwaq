@@ -80,11 +80,13 @@ class Go2TS(LeggedRobot):
             self.dof_vel * self.obs_scales.dof_vel,                         # num_dofs
             self.actions                                                    # num_actions
         ), dim=-1)
+        
         # add perceptive inputs if not blind
         if self.cfg.terrain.measure_heights:
             heights = torch.clip(self.base_pos[:, 2].unsqueeze(
                 1) - 0.5 - self.measured_heights, -1, 1.) * self.obs_scales.height_measurements
             self.obs_buf = torch.cat((self.obs_buf, heights), dim=-1)
+        
         # add noise if needed
         if self.add_noise:
             self.obs_buf += (2 * torch.rand_like(self.obs_buf) -
