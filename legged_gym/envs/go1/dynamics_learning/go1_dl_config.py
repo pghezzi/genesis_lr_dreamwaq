@@ -15,7 +15,7 @@ class GO2Cfg( LeggedRobotCfg ):
         restitution = 0.
         
     class init_state( LeggedRobotCfg.init_state ):
-        pos = [0.0, 0.0, 0.42] # x,y,z [m]
+        pos = [0.0, 0.0, 0.38] # x,y,z [m]
         default_joint_angles = { # = target angles [rad] when action = 0.0
             'FL_hip_joint': 0.0,   # [rad]
             'RL_hip_joint': 0.0,   # [rad]
@@ -34,6 +34,17 @@ class GO2Cfg( LeggedRobotCfg ):
         }
         # initial state randomization
         yaw_angle_range = [0., 3.14] # min max [rad]
+
+    class normalization:
+        class obs_scales:
+            lin_vel = 1.0
+            ang_vel = 0.25
+            dof_pos = 1.0
+            dof_vel = 0.05
+            dof_tau = 0.05               # in collected data the magnitude of the DOF's velocity and torques are roughly comparable 
+            height_measurements = 5.0
+        clip_observations = 100.
+        clip_actions = 100.
 
     class control( LeggedRobotCfg.control ):
         # PD Drive parameters:

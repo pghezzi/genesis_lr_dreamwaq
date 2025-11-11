@@ -396,6 +396,73 @@ class ActorCritic_Dynamic(nn.Module):
             nn.init.zeros_(self.critic_out.bias)
         
 
+    def get_optim_groups(self, weight_decay: float = 1e-3, strong_decay: float = 1e-1):
+        """Separate parameters into groups with and without weight decay.
+        
+        Args:
+            weight_decay (float): Weight decay value for regularization. Default: 1e-3.
+            
+        Returns:
+            List of parameter groups for optimizer initialization.
+        """
+        decay     = set()
+        no_decay  = set()
+        special_decay = set()
+        whitelist = (nn.Linear, nn.MultiheadAttention)
+        blacklist = (nn.LayerNorm, nn.Embedding)
+
+        for mn, m in self.named_modules():
+            for pn, p in m.named_parameters():
+                fpn = f"{mn}.{pn}" if mn else pn  # full param name
+
+                if pn.endswith("bias") or pn.startswith("bias"):
+                    no_decay.add(fpn)
+                elif pn.endswith("weight"):
+                    if isinstance(m, whitelist):
+                        if "2" in fpn:
+                            # Here is the name contains a "2" then it is a cross-conditioning
+                            #    FILM layer, and we want a stronger weight reg on these values
+                            special_decay.add(fpn)
+                        else:
+                            decay.add(fpn)
+                    elif isinstance(m, blacklist):
+                        no_decay.add(fpn)
+
+        # for i in range(self.options["action_net"]["num_layers"]-1):
+        #     no_decay.update([f"noise_decoder.cross_field_scales_pos.{i}", f"noise_decoder.cross_field_scales_tau.{i}"])
+
+        # Validate parameter separation
+        param_dict   = {pn: p for pn, p in self.named_parameters()}
+        inter_params = decay & no_decay
+        if inter_params:
+            raise ValueError(f"Parameters in both sets: {inter_params}")
+        missing_params = param_dict.keys() - (decay | no_decay)
+        if missing_params:
+            raise ValueError(f"Parameters not categorized: {missing_params}")
+
+        return [
+            {"params": [param_dict[pn] for pn in sorted(decay)], "weight_decay": weight_decay},
+            {"params": [param_dict[pn] for pn in sorted(no_decay)], "weight_decay": 0.0},
+            {"params": [param_dict[pn] for pn in sorted(no_decay)], "weight_decay": strong_decay}
+        ]
+
+    def configure_optimizers(self,
+                           learning_rate: float = 1e-4,
+                           weight_decay: float = 1e-3,
+                           strong_decay: float = 1e-1,
+                           betas: Tuple[float, float] = (0.9, 0.999)) -> torch.optim.Optimizer:
+        """Configure the AdamW optimizer with parameter groups.
+
+        Standard weights in Linear/Attention layers - weight_decay
+        all bias terms - no decay
+        FiLM layer parameters - strong_decay
+            
+        Returns:
+            Configured AdamW optimizer.
+        """
+        optim_groups = self.get_optim_groups(weight_decay=weight_decay, strong_decay=strong_decay)
+        return torch.optim.AdamW(optim_groups, lr=learning_rate, betas=betas)
+
     def reset(self, dones=None):
         pass
 
