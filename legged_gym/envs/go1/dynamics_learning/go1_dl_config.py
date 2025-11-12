@@ -169,13 +169,14 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         resampling_time = 10.  # time before command are changed[s]
         heading_command = True # if true: compute ang vel command from heading error
         class ranges( LeggedRobotCfg.commands.ranges ):
-            lin_vel_x = [-0.5, 0.5] # min max [m/s]
-            lin_vel_y = [-1.0, 1.0]   # min max [m/s]
-            ang_vel_yaw = [-1, 1]    # min max [rad/s]
+            lin_vel_x = [-1.0, 1.0] # min max [m/s]
+            lin_vel_y = [-0.5, 0.5]   # min max [m/s]
+            ang_vel_yaw = [-1.0, 1.0]    # min max [rad/s]
             heading = [-3.14, 3.14]
 
 class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
-    
+    seed = 10
+    runner_class_name = "OnPolicyRunnerDynamic" # Teacher-Student Runner
     class policy( LeggedRobotCfgPPO.policy ):
         # Context encoder
         cenet_enc_layers=[256,128,64]
@@ -203,8 +204,8 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         max_iterations = 1500 # number of policy updates
         grf_dim = 12
         
-        run_name = ''
-        experiment_name = 'go1'
+        run_name = 'test_01'
+        experiment_name = 'go1_dynamic'
         save_interval = 100
         load_run = "Jul21_17-07-50_"
         checkpoint = -1

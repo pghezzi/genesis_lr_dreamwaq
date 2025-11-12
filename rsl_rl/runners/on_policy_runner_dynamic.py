@@ -41,7 +41,7 @@ from rsl_rl.modules import ActorCritic_Dynamic, ContextDecoder
 from rsl_rl.env import VecEnv
 
 
-class OnPolicyRunnerDWQ:
+class OnPolicyRunnerDynamic:
 
     def __init__(self,
                  env: VecEnv,
