@@ -414,12 +414,11 @@ class ActorCritic_Dynamic(nn.Module):
         for mn, m in self.named_modules():
             for pn, p in m.named_parameters():
                 fpn = f"{mn}.{pn}" if mn else pn  # full param name
-
                 if pn.endswith("bias") or pn.startswith("bias"):
                     no_decay.add(fpn)
                 elif pn.endswith("weight"):
                     if isinstance(m, whitelist):
-                        if "2" in fpn:
+                        if "_2_" in fpn:
                             # Here is the name contains a "2" then it is a cross-conditioning
                             #    FILM layer, and we want a stronger weight reg on these values
                             special_decay.add(fpn)
@@ -433,17 +432,19 @@ class ActorCritic_Dynamic(nn.Module):
 
         # Validate parameter separation
         param_dict   = {pn: p for pn, p in self.named_parameters()}
-        inter_params = decay & no_decay
+        inter_params = decay & no_decay & special_decay
         if inter_params:
-            raise ValueError(f"Parameters in both sets: {inter_params}")
-        missing_params = param_dict.keys() - (decay | no_decay)
+            raise ValueError(f"Parameters in all sets: {inter_params}")
+        missing_params = param_dict.keys() - (decay | no_decay | special_decay)
         if missing_params:
             raise ValueError(f"Parameters not categorized: {missing_params}")
+        
+        print(f"Parameters with extra strong weight decay{special_decay}")
 
         return [
             {"params": [param_dict[pn] for pn in sorted(decay)], "weight_decay": weight_decay},
             {"params": [param_dict[pn] for pn in sorted(no_decay)], "weight_decay": 0.0},
-            {"params": [param_dict[pn] for pn in sorted(no_decay)], "weight_decay": strong_decay}
+            {"params": [param_dict[pn] for pn in sorted(special_decay)], "weight_decay": strong_decay}
         ]
 
     def configure_optimizers(self,
@@ -534,6 +535,8 @@ class ActorCritic_Dynamic(nn.Module):
         act_tau_act = self.act_tau_out(tau_latent)
 
         out = torch.cat([act_pos_act, act_tau_act], dim=-1)
+
+        return out
     
     # Functions that are specific to PPO training
     @property

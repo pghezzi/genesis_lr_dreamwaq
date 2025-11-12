@@ -4,11 +4,13 @@ class GO1DynamicCfg( LeggedRobotCfg ):
     
     class env( LeggedRobotCfg.env ):
         num_envs = 4096
-        num_observations = 70
-        num_privileged_obs = 90
+        num_observations = 69
+        num_privileged_obs = 89
         num_actions = 12
         env_spacing = 0.5
         num_obs_hist = 5
+        grf_dim = 12
+        whole_body_dim = 18
 
     
     class terrain( LeggedRobotCfg.terrain ):
@@ -66,6 +68,40 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         clip_observations = 100.
         clip_actions = 100.
 
+    class domain_rand(LeggedRobotCfg.domain_rand):
+        randomize_friction = True
+        friction_range = [0.2, 1.7]
+        randomize_base_mass = True
+        added_mass_range = [-1., 1.]
+        push_robots = True
+        push_interval_s = 15
+        max_push_vel_xy = 1.
+        randomize_com_displacement = True
+        com_displacement_range = [-0.03, 0.03]
+        randomize_ctrl_delay = False
+        ctrl_delay_step_range = [0, 1]
+        randomize_pd_gain = True
+        kp_range = [0.8, 1.2]
+        kd_range = [0.8, 1.2]
+        randomize_joint_armature = True
+        joint_armature_range = [0.015, 0.025]  # [N*m*s/rad]
+        randomize_joint_stiffness = True
+        joint_stiffness_range = [0.01, 0.02]
+        randomize_joint_damping = True
+        joint_damping_range = [0.25, 0.3]
+
+    class noise (LeggedRobotCfg.noise):
+        add_noise = True
+        noise_level = 1.0 # scales other values
+        class noise_scales:
+            dof_pos = 0.01
+            dof_vel = 0.5
+            dof_tau = 2.0
+            lin_vel = 0.1
+            ang_vel = 0.2
+            gravity = 0.05
+            height_measurements = 0.1
+
     class control( LeggedRobotCfg.control ):
         # PD Drive parameters:
         # control_type = 'P'
@@ -94,7 +130,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         foot_name = ["foot"]
         penalize_contacts_on = ["thigh", "calf"]
         terminate_after_contacts_on = ["base", "hip"]
-        links_to_keep = ['FL_foot', 'FR_foot', 'RL_foot', 'RR_foot']
+        links_to_keep = ['FR_foot', 'FL_foot', 'RR_foot', 'RL_foot']
         self_collisions = True
   
     class rewards( LeggedRobotCfg.rewards ):
@@ -149,7 +185,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         # Context Decoder
         cenet_dec_input_dim = 32
         cenet_dec_layers = [64,128,256,128,92]
-        cenet_dec_out_dim = 82
+        cenet_dec_out_dim = 81
 
         # Actor/critic
         actor_shared_dim = 512
