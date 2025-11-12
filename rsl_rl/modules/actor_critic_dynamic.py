@@ -231,11 +231,11 @@ class ActorCritic_Dynamic(nn.Module):
                  actor_shared_dim=512,
                  actor_branch_layers=[256,128,64],
                  cenet_in_dim=350,
-                 cenet_out_dim=88,
+                #  cenet_out_dim=88,
                  cenet_latent_dim=29,
                  cenet_velo_dim=3, 
                  cenet_enc_layers=[256,128,64],
-                 cenet_dec_layers=[64,128,256,128,92],
+                #  cenet_dec_layers=[64,128,256,128,92],
                  dropout=0.1,
                  activation="elu", 
                  init_noise_std=1.0,):

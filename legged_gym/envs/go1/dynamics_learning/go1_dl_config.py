@@ -1,13 +1,15 @@
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
 
-class GO2Cfg( LeggedRobotCfg ):
+class GO1DynamicCfg( LeggedRobotCfg ):
     
     class env( LeggedRobotCfg.env ):
         num_envs = 4096
-        num_observations = 48
-        num_privileged_obs = None
+        num_observations = 70
+        num_privileged_obs = 90
         num_actions = 12
         env_spacing = 0.5
+        num_obs_hist = 5
+
     
     class terrain( LeggedRobotCfg.terrain ):
         mesh_type = "plane" # none, plane, heightfield
@@ -53,7 +55,7 @@ class GO2Cfg( LeggedRobotCfg ):
         # initial state randomization
         yaw_angle_range = [0., 3.14] # min max [rad]
 
-    class normalization:
+    class normalization (LeggedRobotCfg.normalization):
         class obs_scales:
             lin_vel = 1.0
             ang_vel = 0.25
@@ -136,10 +138,35 @@ class GO2Cfg( LeggedRobotCfg ):
             ang_vel_yaw = [-1, 1]    # min max [rad/s]
             heading = [-3.14, 3.14]
 
-class GO2CfgPPO( LeggedRobotCfgPPO ):
+class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
+    
+    class policy( LeggedRobotCfgPPO.policy ):
+        # Context encoder
+        cenet_enc_layers=[256,128,64]
+        cenet_enc_latent_dim = 29
+        cenet_velo_dim = 3
+
+        # Context Decoder
+        cenet_dec_input_dim = 32
+        cenet_dec_layers = [64,128,256,128,92]
+        cenet_dec_out_dim = 82
+
+        # Actor/critic
+        actor_shared_dim = 512
+        actor_branch_layers = [256,128,64]
+        
+        # Shared
+        dropout = 0.1
+
     class algorithm( LeggedRobotCfgPPO.algorithm ):
         entropy_coef = 0.01
     class runner( LeggedRobotCfgPPO.runner ):
+        policy_class_name = 'ActorCritic_Dynamic'
+        algorithm_class_name = 'PPODynamic'
+        num_steps_per_env = 24 # per iteration
+        max_iterations = 1500 # number of policy updates
+        grf_dim = 12
+        
         run_name = ''
         experiment_name = 'go1'
         save_interval = 100
