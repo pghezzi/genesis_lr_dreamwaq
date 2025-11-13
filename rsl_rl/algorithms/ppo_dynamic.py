@@ -178,22 +178,6 @@ class PPODynamic:
                         for param_group in self.optimizer.param_groups:
                             param_group['lr'] = self.learning_rate
 
-
-                #Beta VAE loss
-                #     Get the prediction from the decoder
-                self.decoder.eval()
-                dec_input = torch.cat((cenet_latent, cenet_torso_velo), dim=-1)
-                enc_update_obs_decode = self.decoder(dec_input)
-                
-                grf_target.requires_grad = False
-                obs_target.requires_grad = False
-                
-                decode_target = torch.cat((obs_target, grf_target), dim=-1)
-                vel_target.requires_grad = False
-                enc_update_obs_decode.requires_grad = False
-                
-                autoenc_loss = (nn.MSELoss()(cenet_torso_velo,vel_target) + nn.MSELoss()(enc_update_obs_decode,decode_target) + beta*(-0.5 * torch.sum(1 + logvar_latent - mean_latent.pow(2) - logvar_latent.exp())))/self.num_mini_batches
-
                 # PPO stuff
                 # Surrogate loss
                 ratio = torch.exp(actions_log_prob_batch - torch.squeeze(old_actions_log_prob_batch))
@@ -212,6 +196,22 @@ class PPODynamic:
                     value_loss = torch.max(value_losses, value_losses_clipped).mean()
                 else:
                     value_loss = (returns_batch - value_batch).pow(2).mean()
+
+                #Beta VAE loss
+                #     Get the prediction from the decoder
+                self.decoder.eval()
+                dec_input = torch.cat((cenet_latent, cenet_torso_velo), dim=-1)
+                enc_update_obs_decode = self.decoder(dec_input)
+                
+                grf_target.requires_grad = False
+                obs_target.requires_grad = False
+                
+                decode_target = torch.cat((obs_target, grf_target), dim=-1)
+                vel_target.requires_grad = False
+                enc_update_obs_decode.requires_grad = False
+                
+                # autoenc_loss = (nn.MSELoss()(cenet_torso_velo,vel_target) + nn.MSELoss()(enc_update_obs_decode,decode_target) + beta*(-0.5 * torch.sum(1 + logvar_latent - mean_latent.pow(2) - logvar_latent.exp())))/self.num_mini_batches
+                autoenc_loss = F.mse_loss(cenet_torso_velo,vel_target) + F.mse_loss(enc_update_obs_decode,decode_target) + beta*(-0.5 * torch.sum(1 + logvar_latent - mean_latent.pow(2) - logvar_latent.exp()))
 
                 loss = surrogate_loss + self.value_loss_coef * value_loss - self.entropy_coef * entropy_batch.mean() + autoenc_loss
 

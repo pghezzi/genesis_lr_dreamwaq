@@ -17,12 +17,12 @@ from legged_gym.utils.math_utils import wrap_to_pi, torch_rand_sqrt_float, quat_
 from legged_gym.utils.terrain import Terrain
 from legged_gym.utils.helpers import class_to_dict
 from legged_gym.utils.gs_utils import *
-from .legged_robot_config import LeggedRobotCfg
+from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg
 from collections import deque
 import pinocchio as pn
 
 
-class LeggedRobot(BaseTask):
+class LeggedRobotGo1Dynamic(BaseTask):
     def __init__(self, cfg: LeggedRobotCfg, sim_device, headless):
         """ Parses the provided config file,
             calls create_sim() (which creates, simulation, terrain and environments),
@@ -47,6 +47,12 @@ class LeggedRobot(BaseTask):
 
     def get_observations(self):
         return self.obs_buf, self.obs_history, self.base_lin_vel
+    
+    def reset(self):
+        """ Reset all robots"""
+        self.reset_idx(torch.arange(self.num_envs, device=self.device))
+        obs, privileged_obs, _, _, _, _ = self.step(torch.zeros(self.num_envs, self.num_actions, device=self.device, requires_grad=False))
+        return obs, privileged_obs
 
     def step(self, actions):
         """ Apply actions, simulate, call self.post_physics_step()
@@ -535,14 +541,20 @@ class LeggedRobot(BaseTask):
 
     def _compute_torques(self, actions):
         # control_type = 'P'
+        # Pull out the position control actions
         pos_actions = actions[:,0:12]
+        # pull out the torque control actions
         tau_actions = actions[:,12:24]
+        # Scale the position actions
         actions_scaled = pos_actions * self.cfg.control.action_scale
+        # Calculate the feedback-control torques
+        #     include PD scaling values 
         feedback_torques = (
             (self._kp_scale * self.p_gains) * (actions_scaled + \
                             self.default_dof_pos - self.dof_pos)
             - (self._kd_scale * self.d_gains) * self.dof_vel
         )
+        # Combine with the scaled + offset torque actions
         torques = (tau_actions * self.cfg.control.torque_scale + self.default_dof_tau) + feedback_torques
         return torques
 
@@ -1411,12 +1423,12 @@ class LeggedRobot(BaseTask):
 
     def _reward_joint_power_dist(self):
         # Penalize uneven distributions of motor power
-        return torch.square(torch.var(self.dof_vel*self.dof_vel, dim=1))
+        return torch.square(torch.var(self.torques*self.dof_vel, dim=1))
     
     def _reward_foot_slip(self):
-        # penalize feet that in-contact for any movement in the x/y direction
+        # penalize feet that are in-contact for any movement in the x/y direction
         contact = self.link_contact_forces[:, self.feet_indices, 2] > 1.
-        return contact * torch.sum(torch.square(self.feet_vel[:,:2]), dim=1)
+        return  torch.sum(torch.square(contact * self.feet_vel[:,:2]), dim=1)
 
     def _reward_tracking_ang_vel(self):
         # Tracking of angular velocity commands (yaw)

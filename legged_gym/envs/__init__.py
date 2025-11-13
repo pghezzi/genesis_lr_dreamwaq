@@ -53,12 +53,17 @@ from legged_gym.envs.go2.go2_ts.go2_ts_config import Go2TSCfg, Go2TSCfgPPO
 from legged_gym.utils.task_registry import task_registry
 # task_registry.register( "go1", LeggedRobotDreamWaq, Go1RoughCfg(), Go1RoughCfgPPO() )
 
+from legged_gym.envs.go1.dynamics_learning.go1_dl_config import GO1DynamicCfg, GO1DynmaicCfgPPO
+from legged_gym.envs.go1.dynamics_learning.go1_dynmaics_learning import LeggedRobotGo1Dynamic
+
 task_registry.register( "go2", GO2, GO2Cfg(), GO2CfgPPO())
 task_registry.register( "go2_rough", GO2, GO2RoughCfg(), GO2RoughCfgPPO())
 task_registry.register( "go2_deploy", GO2Deploy, GO2DeployCfg(), GO2DeployCfgPPO())
 task_registry.register( "go2_sysid", GO2SysID, GO2SysIDCfg(), GO2CfgPPO())
 task_registry.register( "go2_ts", Go2TS, Go2TSCfg(), Go2TSCfgPPO())
 task_registry.register( "bipedal_walker", BipedalWalker, BipedalWalkerCfg(), BipedalWalkerCfgPPO())
+
+task_registry.register("go1_dynamic", LeggedRobotGo1Dynamic, GO1DynamicCfg(), GO1DynmaicCfgPPO())
 
 from legged_gym.envs.go1_standalone.legged_robot_config import Go1RoughCfg, Go1RoughCfgPPO
 from legged_gym.envs.go1_standalone.legged_robot import LeggedRobot

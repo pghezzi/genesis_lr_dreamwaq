@@ -225,8 +225,8 @@ class ContextDecoder(nn.Module):
 
 class ActorCritic_Dynamic(nn.Module):
     def __init__(self, 
-                 num_actor_obs=70, 
-                 num_critic_obs=90, 
+                 num_actor_obs=69, 
+                 num_critic_obs=95, 
                  num_actions=12,
                  actor_shared_dim=512,
                  actor_branch_layers=[256,128,64],

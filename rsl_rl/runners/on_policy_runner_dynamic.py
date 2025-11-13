@@ -100,7 +100,7 @@ class OnPolicyRunnerDynamic:
         self.tot_time = 0
         self.current_learning_iteration = 0
 
-        _, _, _, _ = self.env.reset()
+        _, _ = self.env.reset()
     
     def learn(self, num_learning_iterations, init_at_random_ep_len=False):
         # initialize writer
