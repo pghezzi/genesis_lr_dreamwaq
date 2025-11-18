@@ -67,7 +67,7 @@ class PPODynamic:
         self.actor_critic = actor_critic
         self.actor_critic.to(self.device)
         self.storage = None # initialized later
-        self.optimizer = actor_critic.get_optim_groups(learning_rate)
+        self.optimizer = actor_critic.configure_optimizers(learning_rate)
         self.transition = RolloutStorageDynamics.Transition()
 
         self.decoder = decoder_network
@@ -97,16 +97,19 @@ class PPODynamic:
     def act(self, obs, critic_obs, obs_history, torso_velo):
         # if self.actor_critic.is_recurrent:
         #     self.transition.hidden_states = self.actor_critic.get_hidden_states()
+        
         # Compute the actions and values
         self.transition.actions = self.actor_critic.act(obs,obs_history).detach()
         self.transition.values = self.actor_critic.evaluate(critic_obs).detach()
         self.transition.actions_log_prob = self.actor_critic.get_actions_log_prob(self.transition.actions).detach()
         self.transition.action_mean = self.actor_critic.action_mean.detach()
         self.transition.action_sigma = self.actor_critic.action_std.detach()
+        
         # need to record obs and critic_obs before env.step()
         self.transition.observations = obs
         self.transition.observation_history = obs_history
         self.transition.critic_observations = critic_obs
+        
         # The current torso velocities, used as a target for part of the encoders output
         self.transition.torso_velo_targets = torso_velo
         return self.transition.actions
@@ -181,10 +184,13 @@ class PPODynamic:
                 # PPO stuff
                 # Surrogate loss
                 ratio = torch.exp(actions_log_prob_batch - torch.squeeze(old_actions_log_prob_batch))
-                surrogate = -torch.squeeze(advantages_batch) * ratio
-                surrogate_clipped = -torch.squeeze(advantages_batch) * torch.clamp(ratio, 1.0 - self.clip_param,
-                                                                                1.0 + self.clip_param)
-                surrogate_loss = torch.max(surrogate, surrogate_clipped).mean()
+                # surrogate = -torch.squeeze(advantages_batch) * ratio
+                # surrogate_clipped = -torch.squeeze(advantages_batch) * torch.clamp(ratio, 1.0 - self.clip_param,
+                #                                                                 1.0 + self.clip_param)
+                # surrogate_loss = torch.max(surrogate, surrogate_clipped).mean()
+
+                # SPO loss
+                surrogate_loss = -(torch.squeeze(advantages_batch) * ratio - torch.abs(torch.squeeze(advantages_batch)) * torch.pow(ratio - 1, 2) / (2 * 0.2)).mean()
 
                 # PPO stuff
                 # Value function loss
@@ -206,9 +212,9 @@ class PPODynamic:
                 grf_target.requires_grad = False
                 obs_target.requires_grad = False
                 
-                decode_target = torch.cat((obs_target, grf_target), dim=-1)
+                # decode_target = torch.cat((obs_target, grf_target), dim=-1)
+                decode_target = obs_target
                 vel_target.requires_grad = False
-                enc_update_obs_decode.requires_grad = False
                 
                 # autoenc_loss = (nn.MSELoss()(cenet_torso_velo,vel_target) + nn.MSELoss()(enc_update_obs_decode,decode_target) + beta*(-0.5 * torch.sum(1 + logvar_latent - mean_latent.pow(2) - logvar_latent.exp())))/self.num_mini_batches
                 autoenc_loss = F.mse_loss(cenet_torso_velo,vel_target) + F.mse_loss(enc_update_obs_decode,decode_target) + beta*(-0.5 * torch.sum(1 + logvar_latent - mean_latent.pow(2) - logvar_latent.exp()))

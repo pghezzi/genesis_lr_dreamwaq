@@ -48,7 +48,7 @@ class OnPolicyRunnerDynamic:
                  train_cfg,
                  log_dir=None,
                  device='cpu'):
-
+        torch.autograd.set_detect_anomaly(True)
         self.cfg=train_cfg["runner"]
         self.alg_cfg = train_cfg["algorithm"]
         self.policy_cfg = train_cfg["policy"]
@@ -67,20 +67,20 @@ class OnPolicyRunnerDynamic:
         actor_critic: ActorCritic_Dynamic = actor_critic_class(self.env.num_obs,
                                                                num_critic_obs,
                                                                self.env.num_actions,
-                                                               self.policy_cfg.actor_shared_dim,
-                                                               self.policy_cfg.actor_branch_layers,
+                                                               self.policy_cfg["actor_shared_dim"],
+                                                               self.policy_cfg["actor_branch_layers"],
                                                                cenet_input_dim,
-                                                               self.policy_cfg.cenet_enc_latent_dim,
-                                                               self.policy_cfg.cenet_velo_dim,
-                                                               self.policy_cfg.cenet_enc_layers,
-                                                               self.policy_cfg.dropout,
-                                                               self.policy_cfg.activation,
-                                                               self.policy_cfg.init_noise_std).to(self.device)
+                                                               self.policy_cfg["cenet_enc_latent_dim"],
+                                                               self.policy_cfg["cenet_velo_dim"],
+                                                               self.policy_cfg["cenet_enc_layers"],
+                                                               self.policy_cfg["dropout"],
+                                                               self.policy_cfg["activation"],
+                                                               self.policy_cfg["init_noise_std"]).to(self.device)
         
-        decoder = ContextDecoder(self.policy_cfg.cenet_dec_input_dim,
-                                 self.policy_cfg.cenet_dec_layers,
-                                 self.policy_cfg.cenet_dec_out_dim,
-                                 self.policy_cfg.dropout).to(self.device)
+        decoder = ContextDecoder(self.policy_cfg["cenet_dec_input_dim"],
+                                 self.policy_cfg["cenet_dec_layers"],
+                                 self.policy_cfg["cenet_dec_out_dim"],
+                                 self.policy_cfg["dropout"]).to(self.device)
 
         alg_class = eval(self.cfg["algorithm_class_name"]) # PPO
         
@@ -91,7 +91,7 @@ class OnPolicyRunnerDynamic:
 
         # init storage and model
         self.alg.init_storage(self.env.num_envs, self.num_steps_per_env, [self.env.num_obs], [self.env.num_privileged_obs], [self.env.num_obs_hist*self.env.num_obs], \
-                              [self.env.num_actions], [self.policy_cfg.cenet_velo_dim], [self.cfg.grf_dim])
+                              [2*self.env.num_actions], [self.policy_cfg["cenet_velo_dim"]], [self.cfg["grf_dim"]])
 
         # Log
         self.log_dir = log_dir

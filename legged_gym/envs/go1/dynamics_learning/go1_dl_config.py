@@ -3,14 +3,16 @@ from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobot
 class GO1DynamicCfg( LeggedRobotCfg ):
     
     class env( LeggedRobotCfg.env ):
-        num_envs = 4096
-        num_observations = 69
-        num_privileged_obs = 95
+        num_envs = 2048
+        num_observations = 57
+        num_privileged_obs = 82
         num_actions = 12
         env_spacing = 0.5
         num_obs_hist = 5
         grf_dim = 12
         whole_body_dim = 18
+        debug = False # if debugging, visualize contacts, 
+        debug_viz = False # draw debug visualizations
 
     
     class terrain( LeggedRobotCfg.terrain ):
@@ -39,21 +41,38 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         
         # These have been checked using the BalanceStand controller that leverages the WBIC impulse control loop. 
         #   The standing posture assumed by this control is about only a few fractions of a radian off from the above, so should be fine
+        # default_joint_torques = { # = target joint torques [nM] when action = 0.0
+        #     'FR_hip_joint':  1.5,   # [nM]
+        #     'FL_hip_joint': -1.5,   # [nM]
+        #     'RR_hip_joint':  1.5,   # [nM]
+        #     'RL_hip_joint': -1.5,   # [nM]
+
+        #     'FL_thigh_joint': 0.5,  # [nM]
+        #     'RL_thigh_joint': 0.5,  # [nM]
+        #     'FR_thigh_joint': 0.5,  # [nM]
+        #     'RR_thigh_joint': 0.5,  # [nM]
+
+        #     'FL_calf_joint': 4.0,   # [nM]
+        #     'RL_calf_joint': 4.0,   # [nM]
+        #     'FR_calf_joint': 5.0,   # [nM]
+        #     'RR_calf_joint': 5.0,   # [nM]
+        # }
+
         default_joint_torques = { # = target joint torques [nM] when action = 0.0
-            'FR_hip_joint':  1.5,   # [nM]
-            'FL_hip_joint': -1.5,   # [nM]
-            'RR_hip_joint':  1.5,   # [nM]
-            'RL_hip_joint': -1.5,   # [nM]
+            'FR_hip_joint':  0.0,   # [nM]
+            'FL_hip_joint':  0.0,   # [nM]
+            'RR_hip_joint':  0.0,   # [nM]
+            'RL_hip_joint':  0.0,   # [nM]
 
-            'FL_thigh_joint': 0.5,  # [nM]
-            'RL_thigh_joint': 0.5,  # [nM]
-            'FR_thigh_joint': 0.5,  # [nM]
-            'RR_thigh_joint': 0.5,  # [nM]
+            'FL_thigh_joint': 0.0,  # [nM]
+            'RL_thigh_joint': 0.0,  # [nM]
+            'FR_thigh_joint': 0.0,  # [nM]
+            'RR_thigh_joint': 0.0,  # [nM]
 
-            'FL_calf_joint': 4.0,   # [nM]
-            'RL_calf_joint': 4.0,   # [nM]
-            'FR_calf_joint': 5.0,   # [nM]
-            'RR_calf_joint': 5.0,   # [nM]
+            'FL_calf_joint': 0.0,   # [nM]
+            'RL_calf_joint': 0.0,   # [nM]
+            'FR_calf_joint': 0.0,   # [nM]
+            'RR_calf_joint': 0.0,   # [nM]
         }
         # initial state randomization
         yaw_angle_range = [0., 3.14] # min max [rad]
@@ -65,55 +84,72 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             dof_pos = 1.0
             dof_vel = 0.05
             dof_tau = 0.05               # in collected data the magnitude of the DOF's velocity and torques are roughly comparable 
+            grf = 0.01
             height_measurements = 5.0
         clip_observations = 100.
-        clip_actions = 100.
+        clip_actions = 50.
 
     class domain_rand(LeggedRobotCfg.domain_rand):
-        randomize_friction = True
+        randomize_friction = False
         friction_range = [0.2, 1.25]
-        randomize_base_mass = True
+        randomize_base_mass = False
         added_mass_range = [-1., 2.]
-        push_robots = True
+        push_robots = False
         push_interval_s = 15
         max_push_vel_xy = 1.
-        randomize_com_displacement = True
+        randomize_com_displacement = False
         com_displacement_range = [-0.05, 0.05]
         randomize_ctrl_delay = False
         ctrl_delay_step_range = [0, 1]
-        randomize_pd_gain = True
+        randomize_pd_gain = False
         kp_range = [0.8, 1.2]
         kd_range = [0.8, 1.2]
-        randomize_joint_armature = True
+        randomize_joint_armature = False
         joint_armature_range = [0.015, 0.025]  # [N*m*s/rad]
-        randomize_joint_stiffness = True
+        randomize_joint_stiffness = False
         joint_stiffness_range = [0.01, 0.02]
-        randomize_joint_damping = True
+        randomize_joint_damping = False
         joint_damping_range = [0.25, 0.3]
 
     class noise (LeggedRobotCfg.noise):
-        add_noise = True
+        add_noise = False
         noise_level = 1.0 # scales other values
         class noise_scales:
             dof_pos = 0.01
             dof_vel = 0.5
-            dof_tau = 2.0
+            dof_tau = 0.5
             lin_vel = 0.1
             ang_vel = 0.2
             gravity = 0.05
             height_measurements = 0.1
 
+    # self.joint_max = [1.047, 2.966, -0.837]
+    # self.joint_min = [-1.047, -0.633, -2.721]  
+    #                [0.0, 0.8, -1.5]
     class control( LeggedRobotCfg.control ):
         # PD Drive parameters:
         # control_type = 'P'
         # Much smaller values than typical... only used for feedback control
         #     default values are taken from - https://arxiv.org/pdf/1909.06586
-        stiffness = {'joint': 3.0}   # [N*m/rad]
-        damping = {'joint': 0.3}     # [N*m*s/rad]
-        action_scale = 0.25 # action scale: target angle = action_scale * pose_action + defaultAngle
-        torque_scale = 2.5 # action scale:  target torque = torque_scale * tau_action + defaultTorque
+        stiffness = {'joint': 20.0}   # [N*m/rad]
+        damping = {'joint': 0.5}     # [N*m*s/rad]
+        action_scale = 0.6               # action scale: target angle = action_scale * pose_action + defaultAngle
+        torque_scale = [0.1, 0.1, 0.2] # action scale:  target torque = torque_scale * tau_action + defaultTorque
         dt =  0.02  # control frequency 50Hz
         decimation = 4 # decimation: Number of control action updates @ sim DT per policy DT
+        
+    class termination:
+        termination_terms = ["roll", "pitch", "height_min", "height_max"]
+        roll_threshold = 1.5     # [rad] ~ 40 degrees
+        pitch_threshold = 1.5   # [rad] ~ 20 degrees
+        height_min = 0.10        # [m]
+        height_max = 1.50        # [m]
+    class viewer:
+        ref_env = 0
+        pos = [2, 2, 2]       # [m]
+        lookat = [0., 0, 1.]  # [m]
+        rendered_envs_idx = [i for i in range(10)]  # number of environments to be rendered
+        add_camera = False
 
     class asset( LeggedRobotCfg.asset ):
         file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/go1/urdf/go1.urdf'
@@ -137,8 +173,8 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         self_collisions = True
   
     class rewards( LeggedRobotCfg.rewards ):
-        soft_dof_pos_limit = 0.95
-        soft_torque_limit = 0.98
+        soft_dof_pos_limit = 0.90
+        soft_torque_limit = 0.90
         base_height_target = 0.30
         tracking_sigma = 0.25 # tracking reward = exp(-error^2/sigma)
         
@@ -149,21 +185,21 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         only_positive_rewards = False
         class scales( LeggedRobotCfg.rewards.scales ):
             # limitation
-            termination = -200.0
-            dof_pos_limits = -10.0
-            torque_limits = -10.0
-            collision = -1.0
-            # dof_close_to_default = -0.05
+            termination = -10.0
+            dof_pos_limits = -1.0
+            torque_limits = -1.0
+            collision = -0.0001
+            dof_close_to_default = -1.0
             # command tracking
             tracking_lin_vel = 1.0
             tracking_ang_vel = 0.5
             # smooth
-            lin_vel_z = -0.5
-            base_height = -2.0
+            lin_vel_z = -2.0
+            base_height = -1.0
             ang_vel_xy = -0.05
             orientation = -1.0
-            dof_vel = -5.e-4
-            dof_acc = -2.e-7
+            # dof_vel = -5.e-4
+            dof_acc = -2.5e-7
             action_rate = -0.01
             action_smoothness = -0.01
             torques = -2.e-4
@@ -175,28 +211,35 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             # whereas here we are trying to discourage this error signal (promoting stable WB locomotion).
             # Might need to scale this a bit depending on the magnitude of the reward signal..
             # we want the reward to be large but not dominating....
-            wb_dynamics = -1.0
+            wb_dynamics = -1.e-3
+            task_alignment = -1e-2
+            # task_alignment = 0.0
+
+            # alive_bonus = 1.0
 
             # gait
+            # foot_contact = 0.01
             feet_air_time = 1.0
-            foot_clearance = 0.5
+            # foot_clearance = 0.5
+            foot_clearance = -0.01
             foot_slip = -0.01
     
     class commands( LeggedRobotCfg.commands ):
         curriculum = True
         max_curriculum = 1.
-        num_commands = 4 # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
+        num_commands = 3 # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         resampling_time = 10.  # time before command are changed[s]
-        heading_command = True # if true: compute ang vel command from heading error
+        heading_command = False # if true: compute ang vel command from heading error
         class ranges( LeggedRobotCfg.commands.ranges ):
-            lin_vel_x = [-1.0, 1.0] # min max [m/s]
-            lin_vel_y = [-0.5, 0.5]   # min max [m/s]
-            ang_vel_yaw = [-1.0, 1.0]    # min max [rad/s]
+            lin_vel_x = [-0.4, 0.4] # min max [m/s]
+            lin_vel_y = [-0.0, 0.0]   # min max [m/s]
+            ang_vel_yaw = [-0.0, 0.0]    # min max [rad/s]
             heading = [-3.14, 3.14]
 
 class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
-    seed = 10
+    seed = 1
     runner_class_name = "OnPolicyRunnerDynamic" # Teacher-Student Runner
+    
     class policy( LeggedRobotCfgPPO.policy ):
         # Context encoder
         cenet_enc_layers=[256,128,64]
@@ -205,8 +248,8 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
 
         # Context Decoder
         cenet_dec_input_dim = 32
-        cenet_dec_layers = [64,128,256,128,92]
-        cenet_dec_out_dim = 81        # next obs (69) + grf_dim (12)
+        cenet_dec_layers = [64,128,256,512,128]
+        cenet_dec_out_dim = 57        # next obs (57) + grf_dim (12)
 
         # Actor/critic
         actor_shared_dim = 512
@@ -217,11 +260,13 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
 
     class algorithm( LeggedRobotCfgPPO.algorithm ):
         entropy_coef = 0.01
+        learning_rate = 1.0e-4 #
+    
     class runner( LeggedRobotCfgPPO.runner ):
         policy_class_name = 'ActorCritic_Dynamic'
         algorithm_class_name = 'PPODynamic'
         num_steps_per_env = 24 # per iteration
-        max_iterations = 1500 # number of policy updates
+        max_iterations = 5000 # number of policy updates
         grf_dim = 12
         
         run_name = 'test_01'

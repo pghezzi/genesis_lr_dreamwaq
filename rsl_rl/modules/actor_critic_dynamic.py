@@ -297,6 +297,15 @@ class ActorCritic_Dynamic(nn.Module):
         self.h3_pos_drop = nn.Dropout(p=dropout)
         self.h3_tau_drop = nn.Dropout(p=dropout)
 
+        # Normalization Layers
+        self.shared_norm = nn.LayerNorm(actor_input_dim)
+        self.pos_norm_h1 = nn.LayerNorm(actor_branch_layers[0])
+        self.tau_norm_h1 = nn.LayerNorm(actor_branch_layers[0])
+        self.pos_norm_h2 = nn.LayerNorm(actor_branch_layers[1])
+        self.tau_norm_h2 = nn.LayerNorm(actor_branch_layers[1])
+        self.pos_norm_h3 = nn.LayerNorm(actor_branch_layers[2])
+        self.tau_norm_h3 = nn.LayerNorm(actor_branch_layers[2])
+
         ###
         #  Construct layers for the critic network
         ###
@@ -313,22 +322,6 @@ class ActorCritic_Dynamic(nn.Module):
         self.critic_h2_drop = nn.Dropout(p=dropout)
         self.critic_h3_drop = nn.Dropout(p=dropout)
 
-        self.critic = nn.Sequential(
-            self.critic_in,
-            self.activation,
-            self.critic_in_drop,
-            self.critic_h1,
-            self.activation,
-            self.critic_h1_drop,
-            self.critic_h2,
-            self.activation,
-            self.critic_h2_drop,
-            self.critic_h3,
-            self.activation,
-            self.critic_h3_drop,
-            self.critic_out
-        )
-
         # Used to track these values during training....
         #     These values will not be used during inference (sim or real)
         self.cenet_mean = None 
@@ -336,10 +329,17 @@ class ActorCritic_Dynamic(nn.Module):
         self.cenet_z = None
         self.cenet_torso_velo = None
 
-        self.std = nn.Parameter(init_noise_std * torch.ones(num_actions))
-        self.distribution = None
+        self.std_pos = nn.Parameter(init_noise_std * torch.ones(num_actions))
+        self.std_tau = nn.Parameter(init_noise_std * torch.ones(num_actions))
+        
+        self.distribution_pos = None
+        self.distribution_tau = None
+        
         # disable args validation for speedup
         Normal.set_default_validate_args = False
+
+        # initalize the weights
+        self._init_weights()
 
     def _init_weights(self):
         # Shared input encoding layer
@@ -349,10 +349,12 @@ class ActorCritic_Dynamic(nn.Module):
         nn.init.xavier_uniform_(self.act_pos_h2.weight)
         nn.init.xavier_uniform_(self.act_pos_h3.weight)
         nn.init.xavier_uniform_(self.act_pos_out.weight)
+        # nn.init.normal_(self.act_pos_out.weight, mean=0.0, std=2e-8)
         # Actor torque control layers
         nn.init.xavier_uniform_(self.act_tau_h1.weight)
         nn.init.xavier_uniform_(self.act_tau_h2.weight)
         nn.init.xavier_uniform_(self.act_tau_h3.weight)
+        # nn.init.normal_(self.act_tau_out.weight, mean=0.0, std=2e-8)
         nn.init.xavier_uniform_(self.act_tau_out.weight)
         # Critic layers
         nn.init.xavier_uniform_(self.critic_in.weight)
@@ -396,11 +398,11 @@ class ActorCritic_Dynamic(nn.Module):
             nn.init.zeros_(self.critic_out.bias)
         
 
-    def get_optim_groups(self, weight_decay: float = 1e-3, strong_decay: float = 1e-1):
+    def get_optim_groups(self, weight_decay: float = 1e-4, strong_decay: float = 1e-1):
         """Separate parameters into groups with and without weight decay.
         
         Args:
-            weight_decay (float): Weight decay value for regularization. Default: 1e-3.
+            weight_decay (float): Weight decay value for regularization. Default: 1e-4.
             
         Returns:
             List of parameter groups for optimizer initialization.
@@ -409,7 +411,7 @@ class ActorCritic_Dynamic(nn.Module):
         no_decay  = set()
         special_decay = set()
         whitelist = (nn.Linear, nn.MultiheadAttention)
-        blacklist = (nn.LayerNorm, nn.Embedding)
+        blacklist = (nn.LayerNorm, nn.Embedding, nn.Sequential, nn.Parameter)
 
         for mn, m in self.named_modules():
             for pn, p in m.named_parameters():
@@ -417,29 +419,30 @@ class ActorCritic_Dynamic(nn.Module):
                 if pn.endswith("bias") or pn.startswith("bias"):
                     no_decay.add(fpn)
                 elif pn.endswith("weight"):
-                    if isinstance(m, whitelist):
+                    if isinstance(m, blacklist):
+                        no_decay.add(fpn)
+                    elif isinstance(m, whitelist):
                         if "_2_" in fpn:
                             # Here is the name contains a "2" then it is a cross-conditioning
                             #    FILM layer, and we want a stronger weight reg on these values
                             special_decay.add(fpn)
                         else:
                             decay.add(fpn)
-                    elif isinstance(m, blacklist):
-                        no_decay.add(fpn)
 
         # for i in range(self.options["action_net"]["num_layers"]-1):
         #     no_decay.update([f"noise_decoder.cross_field_scales_pos.{i}", f"noise_decoder.cross_field_scales_tau.{i}"])
+        # no_decay.update([f"std_pos"])
 
         # Validate parameter separation
         param_dict   = {pn: p for pn, p in self.named_parameters()}
-        inter_params = decay & no_decay & special_decay
+        inter_params = decay & no_decay & special_decay        
         if inter_params:
             raise ValueError(f"Parameters in all sets: {inter_params}")
         missing_params = param_dict.keys() - (decay | no_decay | special_decay)
         if missing_params:
             raise ValueError(f"Parameters not categorized: {missing_params}")
         
-        print(f"Parameters with extra strong weight decay{special_decay}")
+        # print(f"Parameters with extra strong weight decay{special_decay}")
 
         return [
             {"params": [param_dict[pn] for pn in sorted(decay)], "weight_decay": weight_decay},
@@ -449,7 +452,7 @@ class ActorCritic_Dynamic(nn.Module):
 
     def configure_optimizers(self,
                            learning_rate: float = 1e-4,
-                           weight_decay: float = 1e-3,
+                           weight_decay: float = 1e-4,
                            strong_decay: float = 1e-1,
                            betas: Tuple[float, float] = (0.9, 0.999)) -> torch.optim.Optimizer:
         """Configure the AdamW optimizer with parameter groups.
@@ -486,19 +489,25 @@ class ActorCritic_Dynamic(nn.Module):
     def actor_forward(self, current_obs):
         # run the concatonated vector through the shared encoder layer
         x = self.actor_shared_input(current_obs)
+        x = self.shared_norm(x)
         x = self.activation(x)
         x = self.shared_drop(x)
 
         # Now run the two parallel branches
         #     position
         pos_latent = self.act_pos_h1(x)
-        pos_latent = self.activation(pos_latent)
         #     torque
         tau_latent = self.act_tau_h1(x)
-        tau_latent = self.activation(tau_latent)
+        # Perform layer normalization (before FiLM activation function)
+        pos_latent = self.pos_norm_h1(pos_latent)
+        tau_latent = self.tau_norm_h1(tau_latent)
         #     now perform the cross-conditioning
+        #     this has a built-in axtivation function
         pos_latent = self.act_tau_2_pos_h1(pos_latent, tau_latent)  # perform FiLM on pos_latent using tau_latent
         tau_latent = self.act_pos_2_tau_h1(tau_latent, pos_latent)  # perform FiLM on tau_latent using pos_latent
+        # Perform activation
+        pos_latent = self.activation(pos_latent)
+        tau_latent = self.activation(tau_latent)
         #     dropout AFTER sharing
         pos_latent = self.h1_pos_drop(pos_latent)
         tau_latent = self.h1_tau_drop(tau_latent)
@@ -506,37 +515,51 @@ class ActorCritic_Dynamic(nn.Module):
         # REPEAT
         #     position
         pos_latent = self.act_pos_h2(pos_latent)
-        pos_latent = self.activation(pos_latent)
         #     torque
         tau_latent = self.act_tau_h2(tau_latent)
-        tau_latent = self.activation(tau_latent)
+        # normalization
+        pos_latent = self.pos_norm_h2(pos_latent)
+        tau_latent = self.tau_norm_h2(tau_latent)
         #     now perform the cross-conditioning
         pos_latent = self.act_tau_2_pos_h2(pos_latent, tau_latent)  # perform FiLM on pos_latent using tau_latent
         tau_latent = self.act_pos_2_tau_h2(tau_latent, pos_latent)  # perform FiLM on tau_latent using pos_latent
+        # perform activation
+        pos_latent = self.activation(pos_latent)
+        tau_latent = self.activation(tau_latent)
         #     dropout AFTER sharing
         pos_latent = self.h2_pos_drop(pos_latent)
         tau_latent = self.h2_tau_drop(tau_latent)    
     
         #     position
         pos_latent = self.act_pos_h3(pos_latent)
-        pos_latent = self.activation(pos_latent)
         #     torque
         tau_latent = self.act_tau_h3(tau_latent)
-        tau_latent = self.activation(tau_latent)
+        #   normalization
+        pos_latent = self.pos_norm_h3(pos_latent)
+        tau_latent = self.tau_norm_h3(tau_latent)
         #     now perform the cross-conditioning
         pos_latent = self.act_tau_2_pos_h3(pos_latent, tau_latent)  # perform FiLM on pos_latent using tau_latent
         tau_latent = self.act_pos_2_tau_h3(tau_latent, pos_latent)  # perform FiLM on tau_latent using pos_latent
+        # activation 
+        pos_latent = self.activation(pos_latent)
+        tau_latent = self.activation(tau_latent)
         #     dropout AFTER sharing
         pos_latent = self.h3_pos_drop(pos_latent)
         tau_latent = self.h3_tau_drop(tau_latent)
 
         # Now run the final output layers to get both action modalities
-        act_pos_act = self.act_pos_out(pos_latent)
-        act_tau_act = self.act_tau_out(tau_latent)
+        act_pos_act = F.tanh(self.act_pos_out(pos_latent))
+        act_tau_act = F.tanh(self.act_tau_out(tau_latent))
+        # act_pos_act = self.act_pos_out(pos_latent)
+        # act_tau_act = self.act_tau_out(tau_latent)
 
-        out = torch.cat([act_pos_act, act_tau_act], dim=-1)
+        act_pos_act = torch.nan_to_num(act_pos_act, nan=0.0, posinf=0.0, neginf=0.0)
+        act_tau_act = torch.nan_to_num(act_tau_act, nan=0.0, posinf=0.0, neginf=0.0)
 
-        return out
+        # out = torch.cat([act_pos_act, act_tau_act], dim=-1)
+        # out = torch.nan_to_num(out, nan=0.0)
+
+        return act_pos_act, act_tau_act
     
     # Functions that are specific to PPO training
     @property
@@ -561,7 +584,7 @@ class ActorCritic_Dynamic(nn.Module):
     # method used during simulated training
     def act(self, obs, obs_history, **kwargs):
         # Call the forward method of the context encoder
-        mean, logvar, z, torso_velo = self.cenet_dec_forward(obs_history)
+        mean, logvar, z, torso_velo = self.cenet_enc_forward(obs_history)
         
         # create the actors observation
         current_obs = torch.cat((obs,z,torso_velo), dim=-1)   
@@ -581,7 +604,7 @@ class ActorCritic_Dynamic(nn.Module):
     # Method using during simulated inference
     def act_inference(self,obs,obs_history):
         # Call the forward method of the context encoder
-        _, _, z, torso_velo = self.cenet_dec_forward(obs_history)
+        _, _, z, torso_velo = self.cenet_enc_forward(obs_history)
         
         # create the actors observation
         current_obs = torch.cat((obs,z,torso_velo), dim=-1)   
@@ -594,7 +617,7 @@ class ActorCritic_Dynamic(nn.Module):
     @torch.jit.export
     def act_inference_deploy(self, obs, obs_history):
         # Call the forward method of the context encoder
-        _, _, z, torso_velo = self.cenet_dec_forward(obs_history)
+        _, _, z, torso_velo = self.cenet_enc_forward(obs_history)
         
         # create the actors observation
         current_obs = torch.cat((obs,z,torso_velo), dim=-1)   
@@ -606,7 +629,7 @@ class ActorCritic_Dynamic(nn.Module):
     @torch.jit.export
     def act_inference_deploy_log(self, obs, obs_history):
         # Call the forward method of the context encoder
-        _, _, z, torso_velo = self.cenet_dec_forward(obs_history)
+        _, _, z, torso_velo = self.cenet_enc_forward(obs_history)
         
         # create the actors observation
         current_obs = torch.cat((obs,z,torso_velo), dim=-1)   
@@ -619,8 +642,20 @@ class ActorCritic_Dynamic(nn.Module):
     # Forward method for calculating the value of the current state
     #     using the privilged critic observation
     def evaluate(self, critic_observations, **kwargs):
-        value = self.critic(critic_observations)
-        return value
+        val = self.critic_in(critic_observations)
+        val = self.activation(val)
+        val = self.critic_in_drop(val)
+        val = self.critic_h1(val)
+        val = self.activation(val)
+        val = self.critic_h1_drop(val)
+        val = self.critic_h2(val)
+        val = self.activation(val)
+        val = self.critic_h2_drop(val)
+        val = self.critic_h3(val)
+        val = self.activation(val)
+        val = self.critic_h3_drop(val)
+
+        return self.critic_out(val)
 
 
 def get_activation(act_name):
@@ -638,6 +673,8 @@ def get_activation(act_name):
         return nn.Tanh()
     elif act_name == "sigmoid":
         return nn.Sigmoid()
+    elif act_name == "swish":
+        return nn.SiLU()
     else:
         print("invalid activation function!")
         return None
