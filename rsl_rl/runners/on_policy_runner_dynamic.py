@@ -91,7 +91,7 @@ class OnPolicyRunnerDynamic:
 
         # init storage and model
         self.alg.init_storage(self.env.num_envs, self.num_steps_per_env, [self.env.num_obs], [self.env.num_privileged_obs], [self.env.num_obs_hist*self.env.num_obs], \
-                              [2*self.env.num_actions], [self.policy_cfg["cenet_velo_dim"]], [self.cfg["grf_dim"]])
+                              [self.env.num_actions], [self.policy_cfg["cenet_velo_dim"]], [self.cfg["grf_dim"]])
 
         # Log
         self.log_dir = log_dir
@@ -120,9 +120,12 @@ class OnPolicyRunnerDynamic:
         self.alg.actor_critic.train() # switch to train mode (for dropout for example)
 
         ep_infos = []
-        rewbuffer = deque(maxlen=100)
+        pos_rewbuffer = deque(maxlen=100)
+        tau_rewbuffer = deque(maxlen=100)
         lenbuffer = deque(maxlen=100)
-        cur_reward_sum = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
+        cur_pos_reward_sum = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
+        cur_tau_reward_sum = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
+
         cur_episode_length = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
 
         tot_iter = self.current_learning_iteration + num_learning_iterations
@@ -137,27 +140,34 @@ class OnPolicyRunnerDynamic:
                     # print("######prev_critic_obs =====",prev_critic_obs)
                     
                     # Submit the predicted action and extract the resulting state... TODO - update this env function
-                    obs, privileged_obs, obs_hist, rewards, dones, infos, grfs = self.env.step(actions)
+                    obs, privileged_obs, obs_hist, pos_rewards, tau_rewards, dones, infos, grfs = self.env.step(actions)
+                    
+                    # Create privileged obs
                     critic_obs = privileged_obs if privileged_obs is not None else obs
-                    obs, critic_obs, obs_hist, rewards, dones, grfs = obs.to(self.device), critic_obs.to(self.device), \
-                        obs_hist.to(self.device), rewards.to(self.device), dones.to(self.device), grfs.to(self.device)
+                    
+                    # move everything to the correct device
+                    obs, critic_obs, obs_hist, pos_rewards, tau_rewards, dones, grfs = obs.to(self.device), critic_obs.to(self.device), \
+                        obs_hist.to(self.device), pos_rewards.to(self.device), tau_rewards.to(self.device), dones.to(self.device), grfs.to(self.device)
                     
                     # print("######prev_critic_obs =====",prev_critic_obs[0,0],'\n',"#####critic_obs =====",critic_obs[0,0])
                     # print("######obs_hist =====",obs_hist[180,0],'\n',"#####obs =====",obs[0,0])
                     
                     # Log the labels associated with the context decoder as well as the typical stuff
-                    self.alg.process_env_step(rewards, dones, infos, grfs, obs)
+                    self.alg.process_env_step(pos_rewards, tau_rewards, dones, infos, grfs, obs)
                     
                     if self.log_dir is not None:
                         # Book keeping
                         if 'episode' in infos:
                             ep_infos.append(infos['episode'])
-                        cur_reward_sum += rewards
+                        cur_pos_reward_sum += pos_rewards
+                        cur_tau_reward_sum += tau_rewards
                         cur_episode_length += 1
                         new_ids = (dones > 0).nonzero(as_tuple=False)
-                        rewbuffer.extend(cur_reward_sum[new_ids][:, 0].cpu().numpy().tolist())
+                        pos_rewbuffer.extend(cur_pos_reward_sum[new_ids][:, 0].cpu().numpy().tolist())
+                        tau_rewbuffer.extend(cur_tau_reward_sum[new_ids][:, 0].cpu().numpy().tolist())
                         lenbuffer.extend(cur_episode_length[new_ids][:, 0].cpu().numpy().tolist())
-                        cur_reward_sum[new_ids] = 0
+                        cur_pos_reward_sum[new_ids] = 0
+                        cur_tau_reward_sum[new_ids] = 0
                         cur_episode_length[new_ids] = 0
 
                 stop = time.time()
@@ -167,7 +177,9 @@ class OnPolicyRunnerDynamic:
                 start = stop
                 self.alg.compute_returns(critic_obs)
             
-            mean_value_loss, mean_surrogate_loss, mean_autoenc_loss, mean_decoder_loss = self.alg.update()
+            mean_pos_value_loss, mean_pos_surrogate_loss, mean_tau_value_loss, mean_tau_surrogate_loss, mean_autoenc_loss, mean_decoder_loss = self.alg.update()
+            
+            
             stop = time.time()
             learn_time = stop - start
             if self.log_dir is not None:
@@ -179,6 +191,7 @@ class OnPolicyRunnerDynamic:
         self.current_learning_iteration += num_learning_iterations
         self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(self.current_learning_iteration)))
 
+    # TODO - update to inlcude separate pos and tau PPO losses
     def log(self, locs, width=80, pad=35):
         self.tot_timesteps += self.num_steps_per_env * self.env.num_envs
         self.tot_time += locs['collection_time'] + locs['learn_time']
@@ -198,22 +211,32 @@ class OnPolicyRunnerDynamic:
                 value = torch.mean(infotensor)
                 self.writer.add_scalar('Episode/' + key, value, locs['it'])
                 ep_string += f"""{f'Mean episode {key}:':>{pad}} {value:.4f}\n"""
-        mean_std = self.alg.actor_critic.std.mean()
+        
+        # TODO - update this as well
+        mean_pos_std = self.alg.actor_critic.std_pos.mean()
+        mean_tau_std = self.alg.actor_critic.std_tau.mean()
+        
         fps = int(self.num_steps_per_env * self.env.num_envs / (locs['collection_time'] + locs['learn_time']))
-
-        self.writer.add_scalar('Loss/value_function', locs['mean_value_loss'], locs['it'])
-        self.writer.add_scalar('Loss/surrogate', locs['mean_surrogate_loss'], locs['it'])
         self.writer.add_scalar('Loss/autoenc_function', locs['mean_autoenc_loss'], locs['it'])
         self.writer.add_scalar('Loss/decoder_function', locs['mean_decoder_loss'], locs['it'])
-        self.writer.add_scalar('Loss/learning_rate', self.alg.learning_rate, locs['it'])
-        self.writer.add_scalar('Policy/mean_noise_std', mean_std.item(), locs['it'])
+        self.writer.add_scalar('Loss/pos_value_function', locs['mean_pos_value_loss'], locs['it'])
+        self.writer.add_scalar('Loss/pos_surrogate', locs['mean_pos_surrogate_loss'], locs['it'])
+        self.writer.add_scalar('Loss/pos_learning_rate', self.alg.pos_learning_rate, locs['it'])
+        self.writer.add_scalar('Loss/tau_value_function', locs['mean_tau_value_loss'], locs['it'])
+        self.writer.add_scalar('Loss/tau_surrogate', locs['mean_tau_surrogate_loss'], locs['it'])
+        self.writer.add_scalar('Loss/tau_learning_rate', self.alg.tau_learning_rate, locs['it'])
+        self.writer.add_scalar('Policy/mean_pos_noise_std', mean_pos_std.item(), locs['it'])        
+        self.writer.add_scalar('Policy/mean_tau_noise_std', mean_tau_std.item(), locs['it'])
         self.writer.add_scalar('Perf/total_fps', fps, locs['it'])
         self.writer.add_scalar('Perf/collection time', locs['collection_time'], locs['it'])
         self.writer.add_scalar('Perf/learning_time', locs['learn_time'], locs['it'])
+        
         if len(locs['rewbuffer']) > 0:
-            self.writer.add_scalar('Train/mean_reward', statistics.mean(locs['rewbuffer']), locs['it'])
+            self.writer.add_scalar('Train/mean_pos_reward', statistics.mean(locs['pos_rewbuffer']), locs['it'])
+            self.writer.add_scalar('Train/mean_tau_reward', statistics.mean(locs['tau_rewbuffer']), locs['it'])
             self.writer.add_scalar('Train/mean_episode_length', statistics.mean(locs['lenbuffer']), locs['it'])
-            self.writer.add_scalar('Train/mean_reward/time', statistics.mean(locs['rewbuffer']), self.tot_time)
+            self.writer.add_scalar('Train/mean_pos_reward/time', statistics.mean(locs['pos_rewbuffer']), self.tot_time)
+            self.writer.add_scalar('Train/mean_tau_reward/time', statistics.mean(locs['tau_rewbuffer']), self.tot_time)
             self.writer.add_scalar('Train/mean_episode_length/time', statistics.mean(locs['lenbuffer']), self.tot_time)
 
         str = f" \033[1m Learning iteration {locs['it']}/{self.current_learning_iteration + locs['num_learning_iterations']} \033[0m "
@@ -223,12 +246,16 @@ class OnPolicyRunnerDynamic:
                           f"""{str.center(width, ' ')}\n\n"""
                           f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
                             'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n"""
-                          f"""{'Value function loss:':>{pad}} {locs['mean_value_loss']:.4f}\n"""
-                          f"""{'Surrogate loss:':>{pad}} {locs['mean_surrogate_loss']:.4f}\n"""
                           f"""{'Autoenc function loss:':>{pad}} {locs['mean_autoenc_loss']:.4f}\n"""
                           f"""{'Decoder function loss:':>{pad}} {locs['mean_decoder_loss']:.4f}\n"""
-                          f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n"""
-                          f"""{'Mean reward:':>{pad}} {statistics.mean(locs['rewbuffer']):.2f}\n"""
+                          f"""{'Pos Value function loss:':>{pad}} {locs['mean_pos_value_loss']:.4f}\n"""
+                          f"""{'Pos Surrogate loss:':>{pad}} {locs['mean_pos_surrogate_loss']:.4f}\n"""
+                          f"""{'Tau Value function loss:':>{pad}} {locs['mean_tau_value_loss']:.4f}\n"""
+                          f"""{'Tau Surrogate loss:':>{pad}} {locs['mean_tau_surrogate_loss']:.4f}\n"""
+                          f"""{'Mean pos action noise std:':>{pad}} {mean_pos_std.item():.2f}\n"""
+                          f"""{'Mean tau action noise std:':>{pad}} {mean_tau_std.item():.2f}\n"""
+                          f"""{'Mean Pos reward:':>{pad}} {statistics.mean(locs['pos_rewbuffer']):.2f}\n"""
+                          f"""{'Mean Tau reward:':>{pad}} {statistics.mean(locs['tau_rewbuffer']):.2f}\n"""
                           f"""{'Mean episode length:':>{pad}} {statistics.mean(locs['lenbuffer']):.2f}\n""")
                         #   f"""{'Mean reward/step:':>{pad}} {locs['mean_reward']:.2f}\n"""
                         #   f"""{'Mean episode length/episode:':>{pad}} {locs['mean_trajectory_length']:.2f}\n""")
@@ -237,13 +264,14 @@ class OnPolicyRunnerDynamic:
                           f"""{str.center(width, ' ')}\n\n"""
                           f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
                             'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n"""
-                          f"""{'Value function loss:':>{pad}} {locs['mean_value_loss']:.4f}\n"""
-                          f"""{'Surrogate loss:':>{pad}} {locs['mean_surrogate_loss']:.4f}\n"""
                           f"""{'Autoenc function loss:':>{pad}} {locs['mean_autoenc_loss']:.4f}\n"""
                           f"""{'Decoder function loss:':>{pad}} {locs['mean_decoder_loss']:.4f}\n"""
-                          f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n""")
-                        #   f"""{'Mean reward/step:':>{pad}} {locs['mean_reward']:.2f}\n"""
-                        #   f"""{'Mean episode length/episode:':>{pad}} {locs['mean_trajectory_length']:.2f}\n""")
+                          f"""{'Pos Value function loss:':>{pad}} {locs['mean_pos_value_loss']:.4f}\n"""
+                          f"""{'Pos Surrogate loss:':>{pad}} {locs['mean_pos_surrogate_loss']:.4f}\n"""
+                          f"""{'Tau Value function loss:':>{pad}} {locs['mean_tau_value_loss']:.4f}\n"""
+                          f"""{'Tau Surrogate loss:':>{pad}} {locs['mean_tau_surrogate_loss']:.4f}\n"""
+                          f"""{'Mean pos action noise std:':>{pad}} {mean_pos_std.item():.2f}\n"""
+                          f"""{'Mean tau action noise std:':>{pad}} {mean_tau_std.item():.2f}\n""")
 
         log_string += ep_string
         log_string += (f"""{'-' * width}\n"""
@@ -257,7 +285,9 @@ class OnPolicyRunnerDynamic:
     def save(self, path, infos=None):
         torch.save({
             'model_state_dict': self.alg.actor_critic.state_dict(),
-            'optimizer_state_dict': self.alg.optimizer.state_dict(),
+            'optimizer_state_dict': self.alg.optimizer.optimizer.state_dict(),
+            'decoder_state_dict': self.alg.decoder.state_dict(),
+            'decoder_opt_state_dict': self.alg.decoder_optimizer.state_dict(),
             'iter': self.current_learning_iteration,
             'infos': infos,
             }, path)
@@ -266,7 +296,7 @@ class OnPolicyRunnerDynamic:
         loaded_dict = torch.load(path)
         self.alg.actor_critic.load_state_dict(loaded_dict['model_state_dict'])
         if load_optimizer:
-            self.alg.optimizer.load_state_dict(loaded_dict['optimizer_state_dict'])
+            self.alg.optimizer.optimizer.load_state_dict(loaded_dict['optimizer_state_dict'])
         self.current_learning_iteration = loaded_dict['iter']
         return loaded_dict['infos']
 

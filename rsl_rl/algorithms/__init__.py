@@ -28,6 +28,8 @@
 #
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
 
+from .pc_grad import PCGrad
+from .zclip import ZClip
 from .ppo import PPO
 from .ppo_ts import PPO_TS
 from .ppodwq import PPODWQ

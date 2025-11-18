@@ -36,6 +36,9 @@ import torch.nn.functional as F
 from rsl_rl.modules import ActorCritic_Dynamic, ContextDecoder
 from rsl_rl.storage import RolloutStorageDynamics
 
+from .pc_grad import PCGrad
+from .zclip import ZClip
+
 class PPODynamic:
     actor_critic: ActorCritic_Dynamic
     decoder_network: ContextDecoder
@@ -61,7 +64,8 @@ class PPODynamic:
 
         self.desired_kl = desired_kl
         self.schedule = schedule
-        self.learning_rate = learning_rate
+        self.pos_learning_rate = learning_rate
+        self.tau_learning_rate = learning_rate
 
         # PPO components
         self.actor_critic = actor_critic
@@ -69,9 +73,13 @@ class PPODynamic:
         self.storage = None # initialized later
         self.optimizer = actor_critic.configure_optimizers(learning_rate)
         self.transition = RolloutStorageDynamics.Transition()
+        self.optimizer = PCGrad(self.optimizer)
 
         self.decoder = decoder_network
         self.decoder_optimizer = optim.Adam(self.decoder.parameters(), lr=learning_rate)
+
+        # Initialize ZClip
+        self.zclip = ZClip(alpha=0.97, z_thresh=2.5)
 
         # PPO parameters
         self.clip_param = clip_param
@@ -94,16 +102,24 @@ class PPODynamic:
     def train_mode(self):
         self.actor_critic.train()
 
+    # TODO - Try to prevent any crashes by replacing nans and other bad values....
     def act(self, obs, critic_obs, obs_history, torso_velo):
         # if self.actor_critic.is_recurrent:
         #     self.transition.hidden_states = self.actor_critic.get_hidden_states()
-        
+        all_actions = self.actor_critic.act(obs,obs_history).detach()
         # Compute the actions and values
-        self.transition.actions = self.actor_critic.act(obs,obs_history).detach()
-        self.transition.values = self.actor_critic.evaluate(critic_obs).detach()
-        self.transition.actions_log_prob = self.actor_critic.get_actions_log_prob(self.transition.actions).detach()
-        self.transition.action_mean = self.actor_critic.action_mean.detach()
-        self.transition.action_sigma = self.actor_critic.action_std.detach()
+        #  - Position Control
+        self.transition.pos_actions =  all_actions[:,0:12]
+        self.transition.pos_values = self.actor_critic.evaluate_pos(critic_obs).detach()
+        self.transition.pos_actions_log_prob = self.actor_critic.get_pos_actions_log_prob(self.transition.pos_actions).detach()
+        self.transition.pos_action_mean = self.actor_critic.pos_action_mean.detach()
+        self.transition.pos_action_sigma = self.actor_critic.pos_action_std.detach()
+        #  - Torque Control
+        self.transition.tau_actions =  all_actions[:,12:24]
+        self.transition.tau_values = self.actor_critic.evaluate_tau(critic_obs).detach()
+        self.transition.tau_actions_log_prob = self.actor_critic.get_pos_actions_log_prob(self.transition.tau_actions).detach()
+        self.transition.tau_action_mean = self.actor_critic.tau_action_mean.detach()
+        self.transition.tau_action_sigma = self.actor_critic.tau_action_std.detach()
         
         # need to record obs and critic_obs before env.step()
         self.transition.observations = obs
@@ -112,10 +128,13 @@ class PPODynamic:
         
         # The current torso velocities, used as a target for part of the encoders output
         self.transition.torso_velo_targets = torso_velo
-        return self.transition.actions
+        
+        return all_actions
     
-    def process_env_step(self, rewards, dones, infos, grf_labels, obs_labels):
-        self.transition.rewards = rewards.clone()
+    def process_env_step(self, pos_rewards, tau_rewards, dones, infos, grf_labels, obs_labels):
+        self.transition.pos_rewards = pos_rewards.clone()
+        self.transition.tau_rewards = tau_rewards.clone()
+        
         self.transition.dones = dones
         # Values from the next-time step used as labels for the decoder network
         self.transition.grf_targets = grf_labels
@@ -131,12 +150,17 @@ class PPODynamic:
         self.actor_critic.reset(dones)
     
     def compute_returns(self, last_critic_obs):
-        last_values= self.actor_critic.evaluate(last_critic_obs).detach()
-        self.storage.compute_returns(last_values, self.gamma, self.lam)
+        last_values_pos = self.actor_critic.evaluate_pos(last_critic_obs).detach()
+        self.storage.compute_returns_pos(last_values_pos, self.gamma, self.lam)
+
+        last_values_tau = self.actor_critic.evaluate_tau(last_critic_obs).detach()
+        self.storage.compute_returns_tau(last_values_tau, self.gamma, self.lam)
 
     def update(self,beta=1):
-        mean_value_loss = 0
-        mean_surrogate_loss = 0
+        mean_pos_value_loss = 0
+        mean_pos_surrogate_loss = 0
+        mean_tau_value_loss = 0
+        mean_tau_surrogate_loss = 0
         mean_autoenc_loss = 0
         mean_decoder_loss = 0
 
@@ -144,9 +168,12 @@ class PPODynamic:
         #     generator = self.storage.reccurent_mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
         # else:
         generator = self.storage.mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
-        for obs_batch, critic_obs_batch, obs_hist_batch, vel_target, grf_target, obs_target, actions_batch, \
-            target_values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, \
-            old_mu_batch, old_sigma_batch, hid_states_batch, masks_batch in generator:
+        for obs_batch, critic_obs_batch, obs_hist_batch, vel_target, \
+            grf_target, obs_target, pos_actions_batch, pos_target_values_batch, \
+            pos_advantages_batch, pos_returns_batch, pos_old_actions_log_prob_batch, pos_old_mu_batch, \
+            pos_old_sigma_batch,  tau_actions_batch, tau_target_values_batch, \
+            tau_advantages_batch, tau_returns_batch, tau_old_actions_log_prob_batch, tau_old_mu_batch, \
+            tau_old_sigma_batch, hid_states_batch, masks_batch in generator:
 
                 self.actor_critic.train()
                 self.optimizer.zero_grad()
@@ -160,50 +187,20 @@ class PPODynamic:
                 cenet_latent = self.actor_critic.cenet_z
                 cenet_torso_velo = self.actor_critic.cenet_torso_velo
                 # PPO stuff
-                actions_log_prob_batch = self.actor_critic.get_actions_log_prob(actions_batch)
-                value_batch = self.actor_critic.evaluate(critic_obs_batch, masks=masks_batch, hidden_states=hid_states_batch[1])
-                mu_batch = self.actor_critic.action_mean
-                sigma_batch = self.actor_critic.action_std
-                entropy_batch = self.actor_critic.entropy
+                #    - Position Control
+                pos_actions_log_prob_batch = self.actor_critic.get_pos_actions_log_prob(pos_actions_batch)
+                pos_value_batch            = self.actor_critic.evaluate_pos(critic_obs_batch, masks=masks_batch, hidden_states=hid_states_batch[1])
+                pos_mu_batch               = self.actor_critic.pos_action_mean
+                pos_sigma_batch            = self.actor_critic.pos_action_std
+                pos_entropy_batch          = self.actor_critic.pos_entropy
+                #    - Torque Control
+                tau_actions_log_prob_batch = self.actor_critic.get_tau_actions_log_prob(tau_actions_batch)
+                tau_value_batch            = self.actor_critic.evaluate_tau(critic_obs_batch, masks=masks_batch, hidden_states=hid_states_batch[1])
+                tau_mu_batch               = self.actor_critic.tau_action_mean
+                tau_sigma_batch            = self.actor_critic.tau_action_std
+                tau_entropy_batch          = self.actor_critic.tau_entropy
 
-                # KL
-                if self.desired_kl != None and self.schedule == 'adaptive':
-                    with torch.inference_mode():
-                        kl = torch.sum(
-                            torch.log(sigma_batch / old_sigma_batch + 1.e-5) + (torch.square(old_sigma_batch) + torch.square(old_mu_batch - mu_batch)) / (2.0 * torch.square(sigma_batch)) - 0.5, axis=-1)
-                        kl_mean = torch.mean(kl)
-
-                        if kl_mean > self.desired_kl * 2.0:
-                            self.learning_rate = max(1e-5, self.learning_rate / 1.5)
-                        elif kl_mean < self.desired_kl / 2.0 and kl_mean > 0.0:
-                            self.learning_rate = min(1e-2, self.learning_rate * 1.5)
-                        
-                        for param_group in self.optimizer.param_groups:
-                            param_group['lr'] = self.learning_rate
-
-                # PPO stuff
-                # Surrogate loss
-                ratio = torch.exp(actions_log_prob_batch - torch.squeeze(old_actions_log_prob_batch))
-                # surrogate = -torch.squeeze(advantages_batch) * ratio
-                # surrogate_clipped = -torch.squeeze(advantages_batch) * torch.clamp(ratio, 1.0 - self.clip_param,
-                #                                                                 1.0 + self.clip_param)
-                # surrogate_loss = torch.max(surrogate, surrogate_clipped).mean()
-
-                # SPO loss
-                surrogate_loss = -(torch.squeeze(advantages_batch) * ratio - torch.abs(torch.squeeze(advantages_batch)) * torch.pow(ratio - 1, 2) / (2 * 0.2)).mean()
-
-                # PPO stuff
-                # Value function loss
-                if self.use_clipped_value_loss:
-                    value_clipped = target_values_batch + (value_batch - target_values_batch).clamp(-self.clip_param,
-                                                                                                    self.clip_param)
-                    value_losses = (value_batch - returns_batch).pow(2)
-                    value_losses_clipped = (value_clipped - returns_batch).pow(2)
-                    value_loss = torch.max(value_losses, value_losses_clipped).mean()
-                else:
-                    value_loss = (returns_batch - value_batch).pow(2).mean()
-
-                #Beta VAE loss
+                # First do the VAE loss function that is shared between both control modailities
                 #     Get the prediction from the decoder
                 self.decoder.eval()
                 dec_input = torch.cat((cenet_latent, cenet_torso_velo), dim=-1)
@@ -219,11 +216,99 @@ class PPODynamic:
                 # autoenc_loss = (nn.MSELoss()(cenet_torso_velo,vel_target) + nn.MSELoss()(enc_update_obs_decode,decode_target) + beta*(-0.5 * torch.sum(1 + logvar_latent - mean_latent.pow(2) - logvar_latent.exp())))/self.num_mini_batches
                 autoenc_loss = F.mse_loss(cenet_torso_velo,vel_target) + F.mse_loss(enc_update_obs_decode,decode_target) + beta*(-0.5 * torch.sum(1 + logvar_latent - mean_latent.pow(2) - logvar_latent.exp()))
 
-                loss = surrogate_loss + self.value_loss_coef * value_loss - self.entropy_coef * entropy_batch.mean() + autoenc_loss
+                # Now calculate the PPO/SPO losses for each RL task
+                #   - Position Control
+                # KL
+                if self.desired_kl != None and self.schedule == 'adaptive':
+                    with torch.inference_mode():
+                        pos_kl = torch.sum(
+                            torch.log(pos_sigma_batch / pos_old_sigma_batch + 1.e-5) + (torch.square(pos_old_sigma_batch) + torch.square(pos_old_mu_batch - pos_mu_batch)) / (2.0 * torch.square(pos_sigma_batch)) - 0.5, axis=-1)
+                        pos_kl_mean = torch.mean(pos_kl)
 
+                        if pos_kl_mean > self.desired_kl * 2.0:
+                            self.pos_learning_rate = max(1e-5, self.pos_learning_rate / 1.5)
+                        elif pos_kl_mean < self.desired_kl / 2.0 and pos_kl_mean > 0.0:
+                            self.pos_learning_rate = min(1e-2, self.pos_learning_rate * 1.5)
+                        
+                        for param_group in self.optimizer.optimizer.param_groups:
+                            # specifically modifies the learning rate of the position-control specific parameters
+                            if "name" in param_group.keys():
+                                if "pos_branch" in param_group["name"]:
+                                    param_group['lr'] = self.pos_learning_rate
+
+                # PPO stuff
+                # PPO Surrogate loss
+                pos_ratio = torch.exp(pos_actions_log_prob_batch - torch.squeeze(pos_old_actions_log_prob_batch))
+                # surrogate = -torch.squeeze(pos_advantages_batch) * pos_ratio
+                # surrogate_clipped = -torch.squeeze(pos_advantages_batch) * torch.clamp(pos_ratio, 1.0 - self.clip_param, 1.0 + self.clip_param)
+                # surrogate_loss = torch.max(surrogate, surrogate_clipped).mean()
+
+                # SPO Surrogate loss
+                pos_surrogate_loss = -(torch.squeeze(pos_advantages_batch) * pos_ratio - torch.abs(torch.squeeze(pos_advantages_batch)) * torch.pow(pos_ratio - 1, 2) / (2 * 0.2)).mean()
+
+                # PPO stuff
+                # Value function loss
+                if self.use_clipped_value_loss:
+                    pos_value_clipped = pos_target_values_batch + (pos_value_batch - pos_target_values_batch).clamp(-self.clip_param, self.clip_param)
+                    pos_value_losses = (pos_value_batch - pos_returns_batch).pow(2)
+                    pos_value_losses_clipped = (pos_value_clipped - pos_returns_batch).pow(2)
+                    pos_value_loss = torch.max(pos_value_losses, pos_value_losses_clipped).mean()
+                else:
+                    pos_value_loss = (pos_returns_batch - pos_value_batch).pow(2).mean()
+
+                pos_loss = pos_surrogate_loss + self.value_loss_coef * pos_value_loss - self.entropy_coef * pos_entropy_batch.mean()
+
+                #   - Torque Control
+                # KL
+                if self.desired_kl != None and self.schedule == 'adaptive':
+                    with torch.inference_mode():
+                        tau_kl = torch.sum(
+                            torch.log(tau_sigma_batch / tau_old_sigma_batch + 1.e-5) + (torch.square(tau_old_sigma_batch) + torch.square(tau_old_mu_batch - tau_mu_batch)) / (2.0 * torch.square(tau_sigma_batch)) - 0.5, axis=-1)
+                        tau_kl_mean = torch.mean(tau_kl)
+
+                        if tau_kl_mean > self.desired_kl * 2.0:
+                            self.tau_learning_rate = max(1e-5, self.tau_learning_rate / 1.5)
+                        elif tau_kl_mean < self.desired_kl / 2.0 and tau_kl_mean > 0.0:
+                            self.tau_learning_rate = min(1e-2, self.tau_learning_rate * 1.5)
+                        
+                        for param_group in self.optimizer.optimizer.param_groups:
+                            # Specifically modifies the parameters specific to the torque-control actions
+                            if "name" in param_group.keys():
+                                if "tau_branch" in param_group["name"]:
+                                    param_group['lr'] = self.tau_learning_rate
+
+
+                # Surrogate loss
+                tau_ratio = torch.exp(tau_actions_log_prob_batch - torch.squeeze(tau_old_actions_log_prob_batch))
+                # surrogate = -torch.squeeze(tau_advantages_batch) * tau_ratio
+                # surrogate_clipped = -torch.squeeze(tau_advantages_batch) * torch.clamp(tau_ratio, 1.0 - self.clip_param, 1.0 + self.clip_param)
+                # tau_surrogate_loss = torch.max(surrogate, surrogate_clipped).mean()
+
+                # SPO Surrogate loss
+                tau_surrogate_loss = -(torch.squeeze(tau_advantages_batch) * tau_ratio - torch.abs(torch.squeeze(tau_advantages_batch)) * torch.pow(tau_ratio - 1, 2) / (2 * 0.2)).mean()
+
+                # Value function loss
+                if self.use_clipped_value_loss:
+                    tau_value_clipped = tau_target_values_batch + (tau_value_batch - tau_target_values_batch).clamp(-self.clip_param, self.clip_param)
+                    tau_value_losses = (tau_value_batch - tau_returns_batch).pow(2)
+                    tau_value_losses_clipped = (tau_value_clipped - tau_returns_batch).pow(2)
+                    tau_value_loss = torch.max(tau_value_losses, tau_value_losses_clipped).mean()
+                else:
+                    tau_value_loss = (tau_returns_batch - tau_value_batch).pow(2).mean()
+
+                tau_loss = tau_surrogate_loss + self.value_loss_coef * tau_value_loss - self.entropy_coef * tau_entropy_batch.mean()
+
+                losses = [pos_loss, tau_loss, autoenc_loss]
+                
                 # Gradient step
-                loss.backward()
-                nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
+                # loss.backward()
+                # nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
+                # self.optimizer.step()
+                
+                # PCGrad - back-propigate the loss
+                self.optimizer.pc_backward(losses)
+                # nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
+                self.zclip.step(self.actor_critic)
                 self.optimizer.step()
 
                 # Perfrom a separate update on the decoder....
@@ -237,17 +322,21 @@ class PPODynamic:
                 nn.utils.clip_grad_norm_(self.decoder.parameters(), self.max_grad_norm)
                 self.decoder_optimizer.step()
 
-                mean_value_loss += value_loss.item()
-                mean_surrogate_loss += surrogate_loss.item()
+                mean_pos_value_loss += pos_value_loss.item()
+                mean_pos_surrogate_loss += pos_surrogate_loss.item()
+                mean_tau_value_loss += pos_value_loss.item()
+                mean_tau_surrogate_loss += pos_surrogate_loss.item()
                 mean_autoenc_loss += autoenc_loss.item()
                 mean_decoder_loss += dec_loss.item()
 
         num_updates = self.num_learning_epochs * self.num_mini_batches
-        mean_value_loss /= num_updates
-        mean_surrogate_loss /= num_updates
+        mean_pos_value_loss /= num_updates
+        mean_pos_surrogate_loss /= num_updates
+        mean_tau_value_loss /= num_updates
+        mean_tau_surrogate_loss /= num_updates
         mean_autoenc_loss /= num_updates
         mean_decoder_loss /= num_updates
 
         self.storage.clear()
 
-        return mean_value_loss, mean_surrogate_loss, mean_autoenc_loss, mean_decoder_loss
+        return mean_pos_value_loss, mean_pos_surrogate_loss, mean_tau_value_loss, mean_tau_surrogate_loss, mean_autoenc_loss, mean_decoder_loss

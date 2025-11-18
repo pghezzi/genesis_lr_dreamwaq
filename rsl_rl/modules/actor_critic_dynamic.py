@@ -310,17 +310,29 @@ class ActorCritic_Dynamic(nn.Module):
         #  Construct layers for the critic network
         ###
         #     critic layers...
-        self.critic_in  = nn.Linear(num_critic_obs, actor_shared_dim)
-        self.critic_h1  = nn.Linear(actor_shared_dim, actor_branch_layers[0])
-        self.critic_h2  = nn.Linear(actor_branch_layers[0], actor_branch_layers[1])
-        self.critic_h3  = nn.Linear(actor_branch_layers[1], actor_branch_layers[2])
-        self.critic_out = nn.Linear(actor_branch_layers[2], 1)
+        self.pos_critic_in  = nn.Linear(num_critic_obs, actor_shared_dim)
+        self.pos_critic_h1  = nn.Linear(actor_shared_dim, actor_branch_layers[0])
+        self.pos_critic_h2  = nn.Linear(actor_branch_layers[0], actor_branch_layers[1])
+        self.pos_critic_h3  = nn.Linear(actor_branch_layers[1], actor_branch_layers[2])
+        self.pos_critic_out = nn.Linear(actor_branch_layers[2], 1)
 
         #     dropout layers...
-        self.critic_in_drop = nn.Dropout(p=dropout)
-        self.critic_h1_drop = nn.Dropout(p=dropout)
-        self.critic_h2_drop = nn.Dropout(p=dropout)
-        self.critic_h3_drop = nn.Dropout(p=dropout)
+        self.pos_critic_in_drop = nn.Dropout(p=dropout)
+        self.pos_critic_h1_drop = nn.Dropout(p=dropout)
+        self.pos_critic_h2_drop = nn.Dropout(p=dropout)
+        self.pos_critic_h3_drop = nn.Dropout(p=dropout)
+
+        self.tau_critic_in  = nn.Linear(num_critic_obs, actor_shared_dim)
+        self.tau_critic_h1  = nn.Linear(actor_shared_dim, actor_branch_layers[0])
+        self.tau_critic_h2  = nn.Linear(actor_branch_layers[0], actor_branch_layers[1])
+        self.tau_critic_h3  = nn.Linear(actor_branch_layers[1], actor_branch_layers[2])
+        self.tau_critic_out = nn.Linear(actor_branch_layers[2], 1)
+
+        #     dropout layers...
+        self.tau_critic_in_drop = nn.Dropout(p=dropout)
+        self.tau_critic_h1_drop = nn.Dropout(p=dropout)
+        self.tau_critic_h2_drop = nn.Dropout(p=dropout)
+        self.tau_critic_h3_drop = nn.Dropout(p=dropout)
 
         # Used to track these values during training....
         #     These values will not be used during inference (sim or real)
@@ -342,64 +354,27 @@ class ActorCritic_Dynamic(nn.Module):
         self._init_weights()
 
     def _init_weights(self):
-        # Shared input encoding layer
-        nn.init.xavier_uniform_(self.actor_shared_input.weight)
-        # Actor position-control layers
-        nn.init.xavier_uniform_(self.act_pos_h1.weight)
-        nn.init.xavier_uniform_(self.act_pos_h2.weight)
-        nn.init.xavier_uniform_(self.act_pos_h3.weight)
-        nn.init.xavier_uniform_(self.act_pos_out.weight)
-        # nn.init.normal_(self.act_pos_out.weight, mean=0.0, std=2e-8)
-        # Actor torque control layers
-        nn.init.xavier_uniform_(self.act_tau_h1.weight)
-        nn.init.xavier_uniform_(self.act_tau_h2.weight)
-        nn.init.xavier_uniform_(self.act_tau_h3.weight)
-        # nn.init.normal_(self.act_tau_out.weight, mean=0.0, std=2e-8)
-        nn.init.xavier_uniform_(self.act_tau_out.weight)
-        # Critic layers
-        nn.init.xavier_uniform_(self.critic_in.weight)
-        nn.init.xavier_uniform_(self.critic_h1.weight)
-        nn.init.xavier_uniform_(self.critic_h2.weight)
-        nn.init.xavier_uniform_(self.critic_h3.weight)
-        nn.init.xavier_uniform_(self.critic_out.weight)
+        # Xavier for linears, zeros for biases
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
 
-        # Basis if they exists
-        #     Shared
-        if self.actor_shared_input.bias is not None:
-            nn.init.zeros_(self.actor_shared_input.bias)
-        #     Actor position
-        if self.act_pos_h1.bias is not None:
-            nn.init.zeros_(self.act_pos_h1.bias)
-        if self.act_pos_h2.bias is not None:
-            nn.init.zeros_(self.act_pos_h2.bias)
-        if self.act_pos_h3.bias is not None:
-            nn.init.zeros_(self.act_pos_h3.bias)
-        if self.act_pos_out.bias is not None:
-            nn.init.zeros_(self.act_pos_out.bias)
-        #     Actor torque
-        if self.act_tau_h1.bias is not None:
-            nn.init.zeros_(self.act_tau_h1.bias)
-        if self.act_tau_h2.bias is not None:
-            nn.init.zeros_(self.act_tau_h2.bias)
-        if self.act_tau_h3.bias is not None:
-            nn.init.zeros_(self.act_tau_h3.bias)
-        if self.act_tau_out.bias is not None:
-            nn.init.zeros_(self.act_tau_out.bias)
-        #     Critic layers
-        if self.critic_in.bias is not None:
-            nn.init.zeros_(self.critic_in.bias)
-        if self.critic_h1.bias is not None:
-            nn.init.zeros_(self.critic_h1.bias)
-        if self.critic_h2.bias is not None:
-            nn.init.zeros_(self.critic_h2.bias)
-        if self.critic_h3.bias is not None:
-            nn.init.zeros_(self.critic_h3.bias)
-        if self.critic_out.bias is not None:
-            nn.init.zeros_(self.critic_out.bias)
+        # # Optionally set small initial output weights (to reduce initial action magnitude)
+        # nn.init.uniform_(self.act_pos_out.weight, -3e-3, 3e-3)
+        # nn.init.uniform_(self.act_tau_out.weight, -3e-3, 3e-3)
+        # nn.init.zeros_(self.act_pos_out.bias)
+        # nn.init.zeros_(self.act_tau_out.bias)
         
 
     def get_optim_groups(self, weight_decay: float = 1e-4, strong_decay: float = 1e-1):
-        """Separate parameters into groups with and without weight decay.
+        """Separate parameters into groups:
+            (1) does not use weight decay
+            (2) uses extra strong weight decay (FiLM layers)
+            (3) shared parameters with weight decay
+            (4) parameters for the position control output with weight decay
+            (5) parameters for the torque control output with weight decay
         
         Args:
             weight_decay (float): Weight decay value for regularization. Default: 1e-4.
@@ -407,7 +382,9 @@ class ActorCritic_Dynamic(nn.Module):
         Returns:
             List of parameter groups for optimizer initialization.
         """
-        decay     = set()
+        tau_decay = set()
+        pos_decay = set()
+        shared_decay = set()
         no_decay  = set()
         special_decay = set()
         whitelist = (nn.Linear, nn.MultiheadAttention)
@@ -421,13 +398,23 @@ class ActorCritic_Dynamic(nn.Module):
                 elif pn.endswith("weight"):
                     if isinstance(m, blacklist):
                         no_decay.add(fpn)
+                    
                     elif isinstance(m, whitelist):
                         if "_2_" in fpn:
                             # Here is the name contains a "2" then it is a cross-conditioning
                             #    FILM layer, and we want a stronger weight reg on these values
                             special_decay.add(fpn)
+                        elif "shared" in fpn:
+                            # We do not want the shared layer's learning rate to be modified during multi-task PPO updates
+                            shared_decay.add(fpn)
                         else:
-                            decay.add(fpn)
+                            if "pos" in fpn:
+                                pos_decay.add(fpn)
+                            elif "tau" in fpn:
+                                tau_decay.add(fpn)
+                            else:
+                                # A catch for anything I missed above... 
+                                shared_decay.add(fpn)
 
         # for i in range(self.options["action_net"]["num_layers"]-1):
         #     no_decay.update([f"noise_decoder.cross_field_scales_pos.{i}", f"noise_decoder.cross_field_scales_tau.{i}"])
@@ -435,17 +422,19 @@ class ActorCritic_Dynamic(nn.Module):
 
         # Validate parameter separation
         param_dict   = {pn: p for pn, p in self.named_parameters()}
-        inter_params = decay & no_decay & special_decay        
+        inter_params = pos_decay & tau_decay & shared_decay & no_decay & special_decay        
         if inter_params:
             raise ValueError(f"Parameters in all sets: {inter_params}")
-        missing_params = param_dict.keys() - (decay | no_decay | special_decay)
+        missing_params = param_dict.keys() - (pos_decay | tau_decay | shared_decay | no_decay | special_decay)
         if missing_params:
             raise ValueError(f"Parameters not categorized: {missing_params}")
         
         # print(f"Parameters with extra strong weight decay{special_decay}")
 
         return [
-            {"params": [param_dict[pn] for pn in sorted(decay)], "weight_decay": weight_decay},
+            {"params": [param_dict[pn] for pn in sorted(pos_decay)], "weight_decay": weight_decay, "name":"pos_branch"},
+            {"params": [param_dict[pn] for pn in sorted(tau_decay)], "weight_decay": weight_decay, "name":"tau_branch"},
+            {"params": [param_dict[pn] for pn in sorted(shared_decay)], "weight_decay": weight_decay, "name":"shared"},
             {"params": [param_dict[pn] for pn in sorted(no_decay)], "weight_decay": 0.0},
             {"params": [param_dict[pn] for pn in sorted(special_decay)], "weight_decay": strong_decay}
         ]
@@ -563,23 +552,39 @@ class ActorCritic_Dynamic(nn.Module):
     
     # Functions that are specific to PPO training
     @property
-    def action_mean(self):
-        return self.distribution.mean
+    def pos_action_mean(self):
+        return self.distribution_pos.mean
 
     @property
-    def action_std(self):
-        return self.distribution.stddev
+    def pos_action_std(self):
+        return self.distribution_pos.stddev
 
     @property
-    def entropy(self):
-        return self.distribution.entropy().sum(dim=-1)
+    def pos_entropy(self):
+        return self.distribution_pos.entropy().sum(dim=-1)
     
-    def get_actions_log_prob(self, actions):
-        return self.distribution.log_prob(actions).sum(dim=-1)
+    @property
+    def tau_action_mean(self):
+        return self.distribution_tau.mean
+
+    @property
+    def tau_action_std(self):
+        return self.distribution_tau.stddev
+
+    @property
+    def tau_entropy(self):
+        return self.distribution_tau.entropy().sum(dim=-1)
+    
+    def get_pos_actions_log_prob(self, actions):
+        return self.distribution_pos.log_prob(actions).sum(dim=-1)
+
+    def get_tau_actions_log_prob(self, actions):
+        return self.distribution_tau.log_prob(actions).sum(dim=-1)
 
     def update_distribution(self, curr_obs):
-        mean = self.actor_forward(curr_obs)
-        self.distribution = Normal(mean, mean * 0.0 + self.std)
+        mean_pos, mean_tau = self.actor_forward(curr_obs)
+        self.distribution_pos = Normal(mean_pos, mean_pos * 0.0 + self.std_pos)
+        self.distribution_tau = Normal(mean_tau, mean_tau * 0.0 + self.std_tau)
 
     # method used during simulated training
     def act(self, obs, obs_history, **kwargs):
@@ -597,10 +602,16 @@ class ActorCritic_Dynamic(nn.Module):
         self.cenet_logvar = logvar
         self.cenet_z = z
         self.cenet_torso_velo = torso_velo
+
+        pos_sample = self.distribution_pos.sample()
+        tau_sample = self.distribution_tau.sample()
+
+        # The training code-base assumes a single output, and I will keep it as such for now...
+        total_sample = torch.cat([pos_sample, tau_sample])
         
         # return a sample from the distribution to be executed in simulation
-        return self.distribution.sample()
-
+        return total_sample
+    
     # Method using during simulated inference
     def act_inference(self,obs,obs_history):
         # Call the forward method of the context encoder
@@ -610,8 +621,8 @@ class ActorCritic_Dynamic(nn.Module):
         current_obs = torch.cat((obs,z,torso_velo), dim=-1)   
         
         # call the actors forward method and return it's results
-        actions_mean = self.actor_forward(current_obs)
-        return actions_mean
+        actions_pos, actions_tau = self.actor_forward(current_obs)
+        return actions_pos, actions_tau
     
     # Method to run inference on hardware WITHOUT logging the VAE's outputs
     @torch.jit.export
@@ -623,8 +634,8 @@ class ActorCritic_Dynamic(nn.Module):
         current_obs = torch.cat((obs,z,torso_velo), dim=-1)   
         
         # call the actors forward method and return it's results
-        actions_mean = self.actor_forward(current_obs)
-        return actions_mean
+        actions_pos, actions_tau = self.actor_forward(current_obs)
+        return actions_pos, actions_tau
     
     @torch.jit.export
     def act_inference_deploy_log(self, obs, obs_history):
@@ -635,27 +646,46 @@ class ActorCritic_Dynamic(nn.Module):
         current_obs = torch.cat((obs,z,torso_velo), dim=-1)   
         
         # call the actors forward method and return it's results
-        actions_mean = self.actor_forward(current_obs)
-        return actions_mean, z, torso_velo
+        actions_pos, actions_tau = self.actor_forward(current_obs)
+        
+        return actions_pos, actions_tau, z, torso_velo
 
 
     # Forward method for calculating the value of the current state
     #     using the privilged critic observation
-    def evaluate(self, critic_observations, **kwargs):
-        val = self.critic_in(critic_observations)
+    def evaluate_pos(self, critic_observations, **kwargs):
+        val = self.pos_critic_in(critic_observations)
         val = self.activation(val)
-        val = self.critic_in_drop(val)
-        val = self.critic_h1(val)
+        val = self.pos_critic_in_drop(val)
+        val = self.pos_critic_h1(val)
         val = self.activation(val)
-        val = self.critic_h1_drop(val)
-        val = self.critic_h2(val)
+        val = self.pos_critic_h1_drop(val)
+        val = self.pos_critic_h2(val)
         val = self.activation(val)
-        val = self.critic_h2_drop(val)
-        val = self.critic_h3(val)
+        val = self.pos_critic_h2_drop(val)
+        val = self.pos_critic_h3(val)
         val = self.activation(val)
-        val = self.critic_h3_drop(val)
+        val = self.pos_critic_h3_drop(val)
 
-        return self.critic_out(val)
+        return self.pos_critic_out(val)
+    
+    # Forward method for calculating the value of the current state
+    #     using the privilged critic observation
+    def evaluate_tau(self, critic_observations, **kwargs):
+        val = self.tau_critic_in(critic_observations)
+        val = self.activation(val)
+        val = self.tau_critic_in_drop(val)
+        val = self.tau_critic_h1(val)
+        val = self.activation(val)
+        val = self.tau_critic_h1_drop(val)
+        val = self.tau_critic_h2(val)
+        val = self.activation(val)
+        val = self.tau_critic_h2_drop(val)
+        val = self.tau_critic_h3(val)
+        val = self.activation(val)
+        val = self.tau_critic_h3_drop(val)
+
+        return self.tau_critic_out(val)
 
 
 def get_activation(act_name):
