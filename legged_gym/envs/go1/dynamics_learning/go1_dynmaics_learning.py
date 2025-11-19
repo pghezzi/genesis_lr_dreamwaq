@@ -100,7 +100,8 @@ class LeggedRobotGo1Dynamic(BaseTask):
             self.privileged_obs_buf = torch.clip(
                 self.privileged_obs_buf, -clip_obs, clip_obs)
         
-        return self.obs_buf, self.privileged_obs_buf, self.obs_history, self.rew_buf, self.reset_buf, self.extras, (self.grfs_buf * self.obs_scales.grf)
+        # Retunring some extra stuff and two separate reward functions
+        return self.obs_buf, self.privileged_obs_buf, self.obs_history, (self.rew_buf+self.pos_rew_buf), (self.rew_buf + self.tau_rew_buf), self.reset_buf, self.extras, (self.grfs_buf * self.obs_scales.grf)
 
     def post_physics_step(self):
         """ check terminations, compute observations and rewards
@@ -219,7 +220,10 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # compute observations, rewards, resets, ...
         self.check_base_pos_out_of_bound()
         self.check_termination()
+       
+        # TODO - reward modifications
         self.compute_reward()
+        
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
         if self.num_build_envs > 0:
             self.reset_idx(env_ids)
@@ -366,6 +370,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
             Calls each reward function which had a non-zero scale (processed in self._prepare_reward_function())
             adds each terms to the episode sums and to the total reward
         """
+        # Accumulate the shared general rewards
         self.rew_buf[:] = 0.
         for i in range(len(self.reward_functions)):
             name = self.reward_names[i]
@@ -373,6 +378,22 @@ class LeggedRobotGo1Dynamic(BaseTask):
             self.rew_buf += rew
             self.episode_sums[name] += rew
         
+        # Accumulate position control specific rewards
+        self.pos_rew_buf[:] = 0.
+        for i in range(len(self.pos_reward_functions)):
+            name = self.pos_reward_names[i]
+            rew = self.pos_reward_functions[i]() * self.pos_reward_scales[name]
+            self.pos_rew_buf += rew
+            self.episode_sums[name] += rew
+        
+        # Accumulate torqye control specific rewards
+        self.tau_rew_buf[:] = 0.
+        for i in range(len(self.tau_reward_functions)):
+            name = self.tau_reward_names[i]
+            rew = self.tau_reward_functions[i]() * self.tau_reward_scales[name]
+            self.tau_rew_buf += rew
+            self.episode_sums[name] += rew
+
         if self.cfg.rewards.only_positive_rewards:
             self.rew_buf[:] = torch.clip(self.rew_buf[:], min=0.)
         
@@ -914,6 +935,9 @@ class LeggedRobotGo1Dynamic(BaseTask):
         
         self.dof_tau = torch.zeros_like(self.dof_pos)
 
+        self.pos_rew_buf = torch.zeros(self.num_envs, device=self.device, dtype=gs.tc_float)
+        self.tau_rew_buf = torch.zeros(self.num_envs, device=self.device, dtype=gs.tc_float)
+
         # randomize action delay
         if self.cfg.domain_rand.randomize_ctrl_delay:
             self.action_queue = torch.zeros(
@@ -955,6 +979,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
     def _prepare_reward_function(self):
         """ Prepares a list of reward functions, whcih will be called to compute the total reward.
             Looks for self._reward_<REWARD_NAME>, where <REWARD_NAME> are names of all non zero reward scales in the cfg.
+            Splits into three reward groups (1) position control rewards (2) torque control rewards and (3) rewards shared between the two tasks
         """
         # remove zero scales + multiply non-zero ones by dt
         for key in list(self.reward_scales.keys()):
@@ -963,20 +988,58 @@ class LeggedRobotGo1Dynamic(BaseTask):
                 self.reward_scales.pop(key)
             else:
                 self.reward_scales[key] *= self.dt
+
+        for key in list(self.pos_reward_scales.keys()):
+            scale = self.pos_reward_scales[key]
+            if scale ==0:
+                self.pos_reward_scales.pop(key)
+            else:
+                self.pos_reward_scales[key] *= self.dt
+
+        for key in list(self.tau_reward_scales.keys()):
+            scale = self.tau_reward_scales[key]
+            if scale ==0:
+                self.tau_reward_scales.pop(key)
+            else:
+                self.tau_reward_scales[key] *= self.dt
         
         # prepare list of functions
+        # These are the general rewards....
         self.reward_functions = []
         self.reward_names = []
         for name, scale in self.reward_scales.items():
             if name =="termination":
                 continue
+            
             self.reward_names.append(name)
             name = '_reward_' + name
             self.reward_functions.append(getattr(self, name))
 
-        # reward episode sums
+        # position control rewards
+        self.pos_reward_functions = []
+        self.pos_reward_names = []
+        for name, scale in self.pos_reward_scales.items():
+            if name =="termination":
+                continue
+            
+            self.pos_reward_names.append(name)
+            name = '_reward_' + name
+            self.pos_reward_functions.append(getattr(self, name))
+        
+        # torque control rewards
+        self.tau_reward_functions = []
+        self.tau_reward_names = []
+        for name, scale in self.tau_reward_scales.items():
+            if name =="termination":
+                continue
+            
+            self.tau_reward_names.append(name)
+            name = '_reward_' + name
+            self.tau_reward_functions.append(getattr(self, name))
+
+        # reward episode sums, across all reward groups
         self.episode_sums = {name: torch.zeros(self.num_envs, dtype=gs.tc_float, device=self.device, requires_grad=False)
-                             for name in self.reward_scales.keys()}
+                             for name in (self.reward_scales.keys() & self.pos_reward_scales.keys() & self.tau_reward_scales.keys())}
 
     def _create_heightfield(self):
         """ Adds a heightfield terrain to the simulation, sets parameters based on the cfg.
@@ -1252,6 +1315,12 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.sim_substeps = 1
         self.obs_scales = self.cfg.normalization.obs_scales
         self.reward_scales = class_to_dict(self.cfg.rewards.scales)
+        
+        self.pos_reward_scales = class_to_dict(self.cfg.rewards.pos_scales)
+        self.tau_reward_scales = class_to_dict(self.cfg.rewards.tau_scales)
+        
+        
+        
         self.command_ranges = class_to_dict(self.cfg.commands.ranges)
         
         if self.cfg.terrain.mesh_type not in ['heightfield']:
@@ -1426,7 +1495,13 @@ class LeggedRobotGo1Dynamic(BaseTask):
 
     def _reward_torques(self):
         # Penalize the FeedForward torques
-        return torch.sum(torch.square(self.feedforward_torques), dim=1)
+        return torch.sum(torch.square(self.torques), dim=1)
+    
+    def _reward_feedback_torques(self):
+        return torch.sum(torch.square(self.feedback_torques),dim=1)
+    
+    def _reward_feedforward_torques(self):
+        return torch.sum(torch.square(self.feedforward_torques),dim=1)
 
     def _reward_dof_vel(self):
         # Penalize dof velocities
@@ -1439,11 +1514,31 @@ class LeggedRobotGo1Dynamic(BaseTask):
     def _reward_action_rate(self):
         # Penalize changes in actions
         return torch.sum(torch.square(self.last_actions - self.actions), dim=1)
+    
+    def _reward_pos_action_rate(self):
+        # Penalize changes in actions
+        return torch.sum(torch.square(self.last_actions[:,0:12] - self.actions[:,0:12]), dim=1)
+    
+    def _reward_tau_action_rate(self):
+        # Penalize changes in actions
+        return torch.sum(torch.square(self.last_actions[:,12:24] - self.actions[:,12:24]), dim=1)
 
     def _reward_action_smoothness(self):
         '''Penalize action smoothness'''
         action_smoothness_cost = torch.sum(torch.square(
             self.actions - 2*self.last_actions + self.llast_actions), dim=-1)
+        return action_smoothness_cost
+    
+    def _reward_pos_action_smoothness(self):
+        '''Penalize action smoothness'''
+        action_smoothness_cost = torch.sum(torch.square(
+            self.actions[:,0:12] - 2*self.last_actions[:,0:12] + self.llast_actions[:,0:12]), dim=-1)
+        return action_smoothness_cost
+    
+    def _reward_tau_action_smoothness(self):
+        '''Penalize action smoothness'''
+        action_smoothness_cost = torch.sum(torch.square(
+            self.actions[:,12:24] - 2*self.last_actions[:,12:24] + self.llast_actions[:,12:24]), dim=-1)
         return action_smoothness_cost
 
     def _reward_collision(self):
@@ -1547,5 +1642,5 @@ class LeggedRobotGo1Dynamic(BaseTask):
                 self.cfg.rewards.foot_height_offset
             ), dim=-1
         )
-        # return torch.exp(-clearance_error / self.cfg.rewards.foot_clearance_tracking_sigma)
-        return clearance_error
+        return torch.exp(-clearance_error / self.cfg.rewards.foot_clearance_tracking_sigma)
+        # return clearance_error

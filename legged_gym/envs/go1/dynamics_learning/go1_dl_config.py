@@ -134,14 +134,14 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         stiffness = {'joint': 20.0}   # [N*m/rad]
         damping = {'joint': 0.5}     # [N*m*s/rad]
         action_scale = 0.6               # action scale: target angle = action_scale * pose_action + defaultAngle
-        torque_scale = [0.1, 0.1, 0.2] # action scale:  target torque = torque_scale * tau_action + defaultTorque
+        torque_scale = [0.1, 0.1, 0.5] # action scale:  target torque = torque_scale * tau_action + defaultTorque
         dt =  0.02  # control frequency 50Hz
         decimation = 4 # decimation: Number of control action updates @ sim DT per policy DT
         
     class termination:
         termination_terms = ["roll", "pitch", "height_min", "height_max"]
-        roll_threshold = 1.5     # [rad] ~ 40 degrees
-        pitch_threshold = 1.5   # [rad] ~ 20 degrees
+        roll_threshold    = 1.5  # [rad] ~ 40 degrees
+        pitch_threshold   = 1.5  # [rad] ~ 20 degrees
         height_min = 0.10        # [m]
         height_max = 1.50        # [m]
     class viewer:
@@ -184,27 +184,25 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         foot_clearance_tracking_sigma = 0.01
         only_positive_rewards = False
         class scales( LeggedRobotCfg.rewards.scales ):
-            # limitation
-            termination = -10.0
-            dof_pos_limits = -1.0
-            torque_limits = -1.0
-            collision = -0.0001
-            dof_close_to_default = -1.0
+            # General
+            termination      = 0.0
+            collision        = -0.0001
             # command tracking
             tracking_lin_vel = 1.0
             tracking_ang_vel = 0.5
-            # smooth
-            lin_vel_z = -2.0
-            base_height = -1.0
-            ang_vel_xy = -0.05
-            orientation = -1.0
-            # dof_vel = -5.e-4
-            dof_acc = -2.5e-7
-            action_rate = -0.01
-            action_smoothness = -0.01
-            torques = -2.e-4
-            joint_power = -2.e-5
+            # smoothness and stability
+            lin_vel_z        = -2.0
+            base_height      = -1.0
+            ang_vel_xy       = -0.05
+            orientation      = -1.0
+            dof_acc          = -2.5e-7
+            joint_power      = -2.e-5
             joint_power_dist = -1.e-5
+            torques          = 0.0 # don't need to use this when we already have joint power above...
+
+            # Zero out some values that are used in the individual reward classes vbelow
+            action_rate = 0.0
+            action_smoothness = 0.0
 
             # Since we want to drive this loss to zero, I think we make it negative
             # We are using this to constrain the model... so negative, positive is when we want to accumulate a behavior
@@ -212,17 +210,24 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             # Might need to scale this a bit depending on the magnitude of the reward signal..
             # we want the reward to be large but not dominating....
             wb_dynamics = -1.e-3
-            task_alignment = -1e-2
-            # task_alignment = 0.0
-
-            # alive_bonus = 1.0
 
             # gait
-            # foot_contact = 0.01
             feet_air_time = 1.0
-            # foot_clearance = 0.5
-            foot_clearance = -0.01
-            foot_slip = -0.01
+            foot_clearance = 0.5
+            foot_slip      = -0.01
+        class pos_scales():
+            pos_action_rate       = -0.01   # new
+            pos_action_smoothness = -0.01   # new
+            feedback_torques      = -2.e-4  # new
+            dof_pos_limits        = -1.0
+            dof_close_to_default  = -1.0
+
+        class tau_scales():
+            task_alignment        = -1.e-2
+            tau_action_rate       = -0.01   # new
+            tau_action_smoothness = -0.01   # new
+            feedforward_torques   = -2.e-4  # new
+            torque_limits         = -1.0
     
     class commands( LeggedRobotCfg.commands ):
         curriculum = True

@@ -25,7 +25,7 @@ class _ShiftScaleMod(nn.Module):
 
     def __init__(self, dim: int) -> None:
         super().__init__()
-        self.act = nn.SiLU()
+        self.act = nn.ELU()
         self.scale = nn.Linear(dim, dim)
         self.shift = nn.Linear(dim, dim)
         self.reset_parameters()
