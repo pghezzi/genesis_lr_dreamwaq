@@ -71,9 +71,10 @@ class PPODynamic:
         self.actor_critic = actor_critic
         self.actor_critic.to(self.device)
         self.storage = None # initialized later
-        self.optimizer = actor_critic.configure_optimizers(learning_rate)
+        self.act_optimizer, self.enc_optimizer = actor_critic.configure_optimizers(learning_rate)
         self.transition = RolloutStorageDynamics.Transition()
-        self.optimizer = PCGrad(self.optimizer)
+        self.act_optimizer = PCGrad(self.act_optimizer)
+        self.enc_optimizer = PCGrad(self.enc_optimizer)
 
         self.decoder = decoder_network
         self.decoder_optimizer = optim.Adam(self.decoder.parameters(), lr=learning_rate)
@@ -117,7 +118,7 @@ class PPODynamic:
         #  - Torque Control
         self.transition.tau_actions =  all_actions[:,12:24]
         self.transition.tau_values = self.actor_critic.evaluate_tau(critic_obs).detach()
-        self.transition.tau_actions_log_prob = self.actor_critic.get_pos_actions_log_prob(self.transition.tau_actions).detach()
+        self.transition.tau_actions_log_prob = self.actor_critic.get_tau_actions_log_prob(self.transition.tau_actions).detach()
         self.transition.tau_action_mean = self.actor_critic.tau_action_mean.detach()
         self.transition.tau_action_sigma = self.actor_critic.tau_action_std.detach()
         
@@ -142,7 +143,8 @@ class PPODynamic:
         
         # Bootstrapping on time outs
         if 'time_outs' in infos:
-            self.transition.rewards += self.gamma * torch.squeeze(self.transition.values * infos['time_outs'].unsqueeze(1).to(self.device), 1)
+            self.transition.pos_rewards += self.gamma * torch.squeeze(self.transition.pos_values * infos['time_outs'].unsqueeze(1).to(self.device), 1)
+            self.transition.tau_rewards += self.gamma * torch.squeeze(self.transition.tau_values * infos['time_outs'].unsqueeze(1).to(self.device), 1)
 
         # Record the transition
         self.storage.add_transitions(self.transition)
@@ -213,6 +215,23 @@ class PPODynamic:
                 decode_target = obs_target
                 vel_target.requires_grad = False
                 
+
+
+                with torch.no_grad():
+                    mean_pred = torch.mean(decode_target, dim=0)
+                    mean_pred_error = F.mse_loss(mean_pred, decode_target)
+                    actual_pred_error = F.mse_loss(enc_update_obs_decode.clone().detach(),decode_target)
+                    ratio = mean_pred_error / actual_pred_error
+                    pboot = 1 - torch.tanh(ratio)
+                    print("Mean Pred Error: ", mean_pred_error)
+                    print("Prediction Error: ", actual_pred_error)
+                    print("Raio: ", ratio)
+                    print("boot probability: ", pboot)
+                    print()
+
+
+
+
                 # autoenc_loss = (nn.MSELoss()(cenet_torso_velo,vel_target) + nn.MSELoss()(enc_update_obs_decode,decode_target) + beta*(-0.5 * torch.sum(1 + logvar_latent - mean_latent.pow(2) - logvar_latent.exp())))/self.num_mini_batches
                 autoenc_loss = F.mse_loss(cenet_torso_velo,vel_target) + F.mse_loss(enc_update_obs_decode,decode_target) + beta*(-0.5 * torch.sum(1 + logvar_latent - mean_latent.pow(2) - logvar_latent.exp()))
 
@@ -324,8 +343,8 @@ class PPODynamic:
 
                 mean_pos_value_loss += pos_value_loss.item()
                 mean_pos_surrogate_loss += pos_surrogate_loss.item()
-                mean_tau_value_loss += pos_value_loss.item()
-                mean_tau_surrogate_loss += pos_surrogate_loss.item()
+                mean_tau_value_loss += tau_value_loss.item()
+                mean_tau_surrogate_loss += tau_surrogate_loss.item()
                 mean_autoenc_loss += autoenc_loss.item()
                 mean_decoder_loss += dec_loss.item()
 

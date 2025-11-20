@@ -3,7 +3,7 @@ from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobot
 class GO1DynamicCfg( LeggedRobotCfg ):
     
     class env( LeggedRobotCfg.env ):
-        num_envs = 2048
+        num_envs = 4096
         num_observations = 57
         num_privileged_obs = 82
         num_actions = 12
@@ -87,7 +87,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             grf = 0.01
             height_measurements = 5.0
         clip_observations = 100.
-        clip_actions = 50.
+        clip_actions = 100.
 
     class domain_rand(LeggedRobotCfg.domain_rand):
         randomize_friction = False
@@ -133,16 +133,16 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         #     default values are taken from - https://arxiv.org/pdf/1909.06586
         stiffness = {'joint': 20.0}   # [N*m/rad]
         damping = {'joint': 0.5}     # [N*m*s/rad]
-        action_scale = 0.6               # action scale: target angle = action_scale * pose_action + defaultAngle
-        torque_scale = [0.1, 0.1, 0.5] # action scale:  target torque = torque_scale * tau_action + defaultTorque
+        action_scale = 1.0               # action scale: target angle = action_scale * pose_action + defaultAngle
+        torque_scale = [1.0, 1.0, 2.5] # action scale:  target torque = torque_scale * tau_action + defaultTorque
         dt =  0.02  # control frequency 50Hz
         decimation = 4 # decimation: Number of control action updates @ sim DT per policy DT
         
     class termination:
         termination_terms = ["roll", "pitch", "height_min", "height_max"]
-        roll_threshold    = 1.5  # [rad] ~ 40 degrees
-        pitch_threshold   = 1.5  # [rad] ~ 20 degrees
-        height_min = 0.10        # [m]
+        roll_threshold    = 0.7  # [rad] ~ 40 degrees
+        pitch_threshold   = 0.7  # [rad] ~ 20 degrees
+        height_min = 0.20        # [m]
         height_max = 1.50        # [m]
     class viewer:
         ref_env = 0
@@ -185,23 +185,23 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         only_positive_rewards = False
         class scales( LeggedRobotCfg.rewards.scales ):
             # General
-            termination      = 0.0
-            collision        = -0.0001
+            termination      = -100.0
+            collision        = -0.01
             # command tracking
             tracking_lin_vel = 1.0
             tracking_ang_vel = 0.5
             # smoothness and stability
             lin_vel_z        = -2.0
-            base_height      = -1.0
+            base_height      = -2.0
             ang_vel_xy       = -0.05
-            orientation      = -1.0
+            orientation      = -2.0
             dof_acc          = -2.5e-7
             joint_power      = -2.e-5
             joint_power_dist = -1.e-5
             torques          = 0.0 # don't need to use this when we already have joint power above...
 
             # Zero out some values that are used in the individual reward classes vbelow
-            action_rate = 0.0
+            action_rate       = 0.0
             action_smoothness = 0.0
 
             # Since we want to drive this loss to zero, I think we make it negative
@@ -220,7 +220,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             pos_action_smoothness = -0.01   # new
             feedback_torques      = -2.e-4  # new
             dof_pos_limits        = -1.0
-            dof_close_to_default  = -1.0
+            dof_close_to_default  = -0.5
 
         class tau_scales():
             task_alignment        = -1.e-2
@@ -266,6 +266,17 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
     class algorithm( LeggedRobotCfgPPO.algorithm ):
         entropy_coef = 0.01
         learning_rate = 1.0e-4 #
+        value_loss_coef = 1.0
+        use_clipped_value_loss = True
+        clip_param = 0.2
+        num_learning_epochs = 5
+        num_mini_batches = 4 # mini batch size = num_envs*nsteps / nminibatches
+        schedule = 'adaptive' # could be adaptive, fixed
+        gamma = 0.99
+        lam = 0.95
+        desired_kl = 0.01
+        max_grad_norm = 1.
+
     
     class runner( LeggedRobotCfgPPO.runner ):
         policy_class_name = 'ActorCritic_Dynamic'

@@ -51,7 +51,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
     def reset(self):
         """ Reset all robots"""
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
-        obs, privileged_obs, _, _, _, _, _ = self.step(torch.zeros(self.num_envs, 2*self.num_actions, device=self.device, requires_grad=False))
+        obs, privileged_obs, _, _, _, _, _, _ = self.step(torch.zeros(self.num_envs, 2*self.num_actions, device=self.device, requires_grad=False))
         return obs, privileged_obs
 
     def step(self, actions):
@@ -99,6 +99,14 @@ class LeggedRobotGo1Dynamic(BaseTask):
         if self.privileged_obs_buf is not None:
             self.privileged_obs_buf = torch.clip(
                 self.privileged_obs_buf, -clip_obs, clip_obs)
+            
+        total_episodic_rewards = self.rew_buf+self.pos_rew_buf+self.tau_rew_buf
+
+        rew_cv = torch.std(total_episodic_rewards) / torch.mean(total_episodic_rewards)
+        pboot_rew = 1.0 - torch.abs(torch.tanh(rew_cv))
+        print("rew_cv: ", rew_cv)
+        print("pboot_rew: ", pboot_rew)
+        print()
         
         # Retunring some extra stuff and two separate reward functions
         return self.obs_buf, self.privileged_obs_buf, self.obs_history, (self.rew_buf+self.pos_rew_buf), (self.rew_buf + self.tau_rew_buf), self.reset_buf, self.extras, (self.grfs_buf * self.obs_scales.grf)
@@ -791,15 +799,21 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # leg joint velocities
         noise_vec[21:33] = noise_scales.dof_vel * \
             noise_level * self.obs_scales.dof_vel
-        # leg joint torques
-        noise_vec[33:45] = noise_scales.dof_tau * \
-            noise_level * self.obs_scales.dof_tau
+        # # leg joint torques
+        # noise_vec[33:45] = noise_scales.dof_tau * \
+        #     noise_level * self.obs_scales.dof_tau
+        
+        # # mightttt add noise to these, but will already be fairly noise from RL, thinking about it
+        # # previous joint position actions
+        # noise_vec[45:57] = 0.
+        # # previous joint torque actions
+        # noise_vec[57:69] = 0.
         
         # mightttt add noise to these, but will already be fairly noise from RL, thinking about it
         # previous joint position actions
-        noise_vec[45:57] = 0.
+        noise_vec[33:45] = 0.
         # previous joint torque actions
-        noise_vec[57:69] = 0.
+        noise_vec[45:57] = 0.
         
         if self.cfg.terrain.measure_heights:
             noise_vec[48:235] = noise_scales.height_measurements * noise_level * self.obs_scales.height_measurements
@@ -1037,9 +1051,11 @@ class LeggedRobotGo1Dynamic(BaseTask):
             name = '_reward_' + name
             self.tau_reward_functions.append(getattr(self, name))
 
+        # print( (self.reward_scales.keys() | self.pos_reward_scales.keys() | self.tau_reward_scales.keys()))
+
         # reward episode sums, across all reward groups
         self.episode_sums = {name: torch.zeros(self.num_envs, dtype=gs.tc_float, device=self.device, requires_grad=False)
-                             for name in (self.reward_scales.keys() & self.pos_reward_scales.keys() & self.tau_reward_scales.keys())}
+                             for name in (self.reward_scales.keys() | self.pos_reward_scales.keys() | self.tau_reward_scales.keys())}
 
     def _create_heightfield(self):
         """ Adds a heightfield terrain to the simulation, sets parameters based on the cfg.

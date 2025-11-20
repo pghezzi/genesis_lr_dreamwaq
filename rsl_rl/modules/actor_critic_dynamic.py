@@ -298,7 +298,7 @@ class ActorCritic_Dynamic(nn.Module):
         self.h3_tau_drop = nn.Dropout(p=dropout)
 
         # Normalization Layers
-        self.shared_norm = nn.LayerNorm(actor_input_dim)
+        self.shared_norm = nn.LayerNorm(actor_shared_dim)
         self.pos_norm_h1 = nn.LayerNorm(actor_branch_layers[0])
         self.tau_norm_h1 = nn.LayerNorm(actor_branch_layers[0])
         self.pos_norm_h2 = nn.LayerNorm(actor_branch_layers[1])
@@ -342,7 +342,7 @@ class ActorCritic_Dynamic(nn.Module):
         self.cenet_torso_velo = None
 
         self.std_pos = nn.Parameter(init_noise_std * torch.ones(num_actions))
-        self.std_tau = nn.Parameter(init_noise_std * torch.ones(num_actions))
+        self.std_tau = nn.Parameter(0.5 * torch.ones(num_actions))
         
         self.distribution_pos = None
         self.distribution_tau = None
@@ -361,11 +361,11 @@ class ActorCritic_Dynamic(nn.Module):
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
 
-        # # Optionally set small initial output weights (to reduce initial action magnitude)
-        # nn.init.uniform_(self.act_pos_out.weight, -3e-3, 3e-3)
-        # nn.init.uniform_(self.act_tau_out.weight, -3e-3, 3e-3)
-        # nn.init.zeros_(self.act_pos_out.bias)
-        # nn.init.zeros_(self.act_tau_out.bias)
+        # Optionally set small initial output weights (to reduce initial action magnitude)
+        nn.init.uniform_(self.act_pos_out.weight, -3e-3, 3e-3)
+        nn.init.uniform_(self.act_tau_out.weight, -3e-3, 3e-3)
+        nn.init.zeros_(self.act_pos_out.bias)
+        nn.init.zeros_(self.act_tau_out.bias)
         
 
     def get_optim_groups(self, weight_decay: float = 1e-4, strong_decay: float = 1e-1):
@@ -418,7 +418,7 @@ class ActorCritic_Dynamic(nn.Module):
 
         # for i in range(self.options["action_net"]["num_layers"]-1):
         #     no_decay.update([f"noise_decoder.cross_field_scales_pos.{i}", f"noise_decoder.cross_field_scales_tau.{i}"])
-        # no_decay.update([f"std_pos"])
+        no_decay.update([f"std_pos", f"std_tau"])
 
         # Validate parameter separation
         param_dict   = {pn: p for pn, p in self.named_parameters()}
@@ -432,18 +432,18 @@ class ActorCritic_Dynamic(nn.Module):
         # print(f"Parameters with extra strong weight decay{special_decay}")
 
         return [
-            {"params": [param_dict[pn] for pn in sorted(pos_decay)], "weight_decay": weight_decay, "name":"pos_branch"},
-            {"params": [param_dict[pn] for pn in sorted(tau_decay)], "weight_decay": weight_decay, "name":"tau_branch"},
-            {"params": [param_dict[pn] for pn in sorted(shared_decay)], "weight_decay": weight_decay, "name":"shared"},
-            {"params": [param_dict[pn] for pn in sorted(no_decay)], "weight_decay": 0.0},
+            {"params": [param_dict[pn] for pn in sorted(pos_decay)],     "weight_decay": weight_decay, "name":"pos_branch"},
+            {"params": [param_dict[pn] for pn in sorted(tau_decay)],     "weight_decay": weight_decay, "name":"tau_branch"},
+            {"params": [param_dict[pn] for pn in sorted(shared_decay)],  "weight_decay": weight_decay, "name":"shared"},
+            {"params": [param_dict[pn] for pn in sorted(no_decay)],      "weight_decay": 0.0},
             {"params": [param_dict[pn] for pn in sorted(special_decay)], "weight_decay": strong_decay}
         ]
 
     def configure_optimizers(self,
-                           learning_rate: float = 1e-4,
-                           weight_decay: float = 1e-4,
-                           strong_decay: float = 1e-1,
-                           betas: Tuple[float, float] = (0.9, 0.999)) -> torch.optim.Optimizer:
+                             learning_rate: float = 1e-4,
+                             weight_decay: float = 1e-4,
+                             strong_decay: float = 1e-1,
+                             betas: Tuple[float, float] = (0.9, 0.999)) -> torch.optim.Optimizer:
         """Configure the AdamW optimizer with parameter groups.
 
         Standard weights in Linear/Attention layers - weight_decay
@@ -453,8 +453,10 @@ class ActorCritic_Dynamic(nn.Module):
         Returns:
             Configured AdamW optimizer.
         """
-        optim_groups = self.get_optim_groups(weight_decay=weight_decay, strong_decay=strong_decay)
-        return torch.optim.AdamW(optim_groups, lr=learning_rate, betas=betas)
+        opt_groups_act, opt_groups_enc = self.get_optim_groups(weight_decay=weight_decay, strong_decay=strong_decay)
+        act_opt = torch.optim.AdamW(opt_groups_act, lr=learning_rate, betas=betas)
+        enc_opt = torch.optim.AdamW(opt_groups_enc, lr=learning_rate, betas=betas)
+        return act_opt, enc_opt
 
     def reset(self, dones=None):
         pass
@@ -607,7 +609,37 @@ class ActorCritic_Dynamic(nn.Module):
         tau_sample = self.distribution_tau.sample()
 
         # The training code-base assumes a single output, and I will keep it as such for now...
-        total_sample = torch.cat([pos_sample, tau_sample])
+        total_sample = torch.cat([pos_sample, tau_sample], dim=1)
+        
+        # return a sample from the distribution to be executed in simulation
+        return total_sample
+    
+
+    # method used during simulated training
+    def act_bootmask(self, obs, obs_history, **kwargs):
+        # Call the forward method of the context encoder
+        mean, logvar, z, torso_velo = self.cenet_enc_forward(obs_history)
+        
+        # Mask the latent/velo from the encoder with zeros
+        boot_mask = torch.zeros((z.shape[0], (z.shape[1] + torso_velo.shape[1])), device=obs.device)
+
+        # create the actors observation
+        current_obs = torch.cat((obs,boot_mask), dim=-1)   
+        
+        # Upated the PPO training distribution
+        self.update_distribution(current_obs)
+        
+        # log context-encoder values to be used in PPO class for calculating context encoder network
+        self.cenet_mean = mean
+        self.cenet_logvar = logvar
+        self.cenet_z = z
+        self.cenet_torso_velo = torso_velo
+
+        pos_sample = self.distribution_pos.sample()
+        tau_sample = self.distribution_tau.sample()
+
+        # The training code-base assumes a single output, and I will keep it as such for now...
+        total_sample = torch.cat([pos_sample, tau_sample], dim=1)
         
         # return a sample from the distribution to be executed in simulation
         return total_sample

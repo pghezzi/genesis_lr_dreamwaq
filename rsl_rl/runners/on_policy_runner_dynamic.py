@@ -231,7 +231,7 @@ class OnPolicyRunnerDynamic:
         self.writer.add_scalar('Perf/collection time', locs['collection_time'], locs['it'])
         self.writer.add_scalar('Perf/learning_time', locs['learn_time'], locs['it'])
         
-        if len(locs['rewbuffer']) > 0:
+        if len(locs['pos_rewbuffer']) > 0:
             self.writer.add_scalar('Train/mean_pos_reward', statistics.mean(locs['pos_rewbuffer']), locs['it'])
             self.writer.add_scalar('Train/mean_tau_reward', statistics.mean(locs['tau_rewbuffer']), locs['it'])
             self.writer.add_scalar('Train/mean_episode_length', statistics.mean(locs['lenbuffer']), locs['it'])
@@ -241,7 +241,7 @@ class OnPolicyRunnerDynamic:
 
         str = f" \033[1m Learning iteration {locs['it']}/{self.current_learning_iteration + locs['num_learning_iterations']} \033[0m "
 
-        if len(locs['rewbuffer']) > 0:
+        if len(locs['pos_rewbuffer']) > 0:
             log_string = (f"""{'#' * width}\n"""
                           f"""{str.center(width, ' ')}\n\n"""
                           f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
