@@ -32,6 +32,7 @@ import time
 import os
 from collections import deque
 import statistics
+import numpy as np
 
 from torch.utils.tensorboard import SummaryWriter
 import torch
@@ -81,6 +82,8 @@ class OnPolicyRunnerDynamic:
                                  self.policy_cfg["cenet_dec_layers"],
                                  self.policy_cfg["cenet_dec_out_dim"],
                                  self.policy_cfg["dropout"]).to(self.device)
+        
+        print("Created Parallel Actor-Critic Model. Parameter Count: ", np.sum(p.numel() for p in actor_critic.parameters() if p.requires_grad))
 
         alg_class = eval(self.cfg["algorithm_class_name"]) # PPO
         
@@ -93,6 +96,9 @@ class OnPolicyRunnerDynamic:
         self.alg.init_storage(self.env.num_envs, self.num_steps_per_env, [self.env.num_obs], [self.env.num_privileged_obs], [self.env.num_obs_hist*self.env.num_obs], \
                               [self.env.num_actions], [self.policy_cfg["cenet_velo_dim"]], [self.cfg["grf_dim"]])
 
+        if "pretrained_path" in self.policy_cfg.keys():
+            self._load_pretrained_model()
+
         # Log
         self.log_dir = log_dir
         self.writer = None
@@ -101,6 +107,19 @@ class OnPolicyRunnerDynamic:
         self.current_learning_iteration = 0
 
         _, _ = self.env.reset()
+
+    # 'action': action_network.state_dict(),
+    # 'decoder': decoder.state_dict(),
+    def _load_pretrained_model(self):
+        pretrained_path = self.policy_cfg["pretrained_path"]
+        print(pretrained_path)
+        loaded_dict = torch.load(pretrained_path)
+        # Load the pretrained action-network and encoder
+        self.alg.actor_critic.load_state_dict(loaded_dict['action'])
+        # re-initalize the critic network weights which where not pretrained (to be safe)
+        self.alg.actor_critic._init_critic_weights()
+        # Load the pretrained decoder network
+        self.alg.decoder.load_state_dict(loaded_dict['decoder'])
     
     def learn(self, num_learning_iterations, init_at_random_ep_len=False):
         # initialize writer
@@ -110,7 +129,6 @@ class OnPolicyRunnerDynamic:
         if init_at_random_ep_len:
             self.env.episode_length_buf = torch.randint_like(self.env.episode_length_buf, high=int(self.env.max_episode_length))
         
-        # TODO - update this env function
         obs,obs_hist,torso_velo = self.env.get_observations()
         
         privileged_obs = self.env.get_privileged_observations()
@@ -139,7 +157,7 @@ class OnPolicyRunnerDynamic:
                     #prev_critic_obs = critic_obs
                     # print("######prev_critic_obs =====",prev_critic_obs)
                     
-                    # Submit the predicted action and extract the resulting state... TODO - update this env function
+                    # Submit the predicted action and extract the resulting state... 
                     obs, privileged_obs, obs_hist, pos_rewards, tau_rewards, dones, infos, grfs = self.env.step(actions)
                     
                     # Create privileged obs
@@ -178,6 +196,9 @@ class OnPolicyRunnerDynamic:
                 self.alg.compute_returns(critic_obs)
             
             mean_pos_value_loss, mean_pos_surrogate_loss, mean_tau_value_loss, mean_tau_surrogate_loss, mean_autoenc_loss, mean_decoder_loss = self.alg.update()
+
+            self.env.step_tradeoff_curriculum()
+            self.env.num_iters += 1
             
             
             stop = time.time()
@@ -285,7 +306,10 @@ class OnPolicyRunnerDynamic:
     def save(self, path, infos=None):
         torch.save({
             'model_state_dict': self.alg.actor_critic.state_dict(),
-            'optimizer_state_dict': self.alg.optimizer.optimizer.state_dict(),
+            # 'act_optimizer_state_dict': self.alg.act_optimizer.optimizer.state_dict(),
+            # 'enc_optimizer_state_dict': self.alg.enc_optimizer.optimizer.state_dict(),
+            'act_optimizer_state_dict': self.alg.act_optimizer.state_dict(),
+            'enc_optimizer_state_dict': self.alg.enc_optimizer.state_dict(),
             'decoder_state_dict': self.alg.decoder.state_dict(),
             'decoder_opt_state_dict': self.alg.decoder_optimizer.state_dict(),
             'iter': self.current_learning_iteration,
@@ -296,7 +320,8 @@ class OnPolicyRunnerDynamic:
         loaded_dict = torch.load(path)
         self.alg.actor_critic.load_state_dict(loaded_dict['model_state_dict'])
         if load_optimizer:
-            self.alg.optimizer.optimizer.load_state_dict(loaded_dict['optimizer_state_dict'])
+            # self.alg.optimizer.optimizer.load_state_dict(loaded_dict['optimizer_state_dict'])
+            self.alg.optimizer.load_state_dict(loaded_dict['optimizer_state_dict'])
         self.current_learning_iteration = loaded_dict['iter']
         return loaded_dict['infos']
 

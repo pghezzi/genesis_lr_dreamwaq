@@ -32,6 +32,10 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+from torch import linalg as LA
+
+import numpy as np
+import random
 
 from rsl_rl.modules import ActorCritic_Dynamic, ContextDecoder
 from rsl_rl.storage import RolloutStorageDynamics
@@ -73,14 +77,18 @@ class PPODynamic:
         self.storage = None # initialized later
         self.act_optimizer, self.enc_optimizer = actor_critic.configure_optimizers(learning_rate)
         self.transition = RolloutStorageDynamics.Transition()
-        self.act_optimizer = PCGrad(self.act_optimizer)
-        self.enc_optimizer = PCGrad(self.enc_optimizer)
+        # self.act_optimizer = PCGrad(self.act_optimizer)
+        # self.enc_optimizer = PCGrad(self.enc_optimizer)
 
         self.decoder = decoder_network
         self.decoder_optimizer = optim.Adam(self.decoder.parameters(), lr=learning_rate)
 
-        # Initialize ZClip
-        self.zclip = ZClip(alpha=0.97, z_thresh=2.5)
+        self.boot_mult = 1.0
+        self.use_boot = False
+
+        # # Initialize ZClip
+        # self.act_zclip = ZClip(alpha=0.97, z_thresh=2.5)
+        # self.enc_zclip = ZClip(alpha=0.97, z_thresh=2.5)
 
         # PPO parameters
         self.clip_param = clip_param
@@ -107,7 +115,11 @@ class PPODynamic:
     def act(self, obs, critic_obs, obs_history, torso_velo):
         # if self.actor_critic.is_recurrent:
         #     self.transition.hidden_states = self.actor_critic.get_hidden_states()
-        all_actions = self.actor_critic.act(obs,obs_history).detach()
+        if self.use_boot:
+            all_actions = self.actor_critic.act(obs,obs_history).detach()
+        else:
+            all_actions = self.actor_critic.act_bootmask(obs,obs_history).detach()
+
         # Compute the actions and values
         #  - Position Control
         self.transition.pos_actions =  all_actions[:,0:12]
@@ -150,6 +162,34 @@ class PPODynamic:
         self.storage.add_transitions(self.transition)
         self.transition.clear()
         self.actor_critic.reset(dones)
+
+    def spectral_normalization(self, model):
+        """Applies spectral normalization to linear and attention layers.
+        
+        Normalizes weights such that their spectral norm (2-norm) doesn't exceed
+        the specified bound. Only affects Linear and MultiheadAttention layers.
+
+        Args:
+            model: The neural network model to normalize.
+
+        Note:
+            - Operates in-place on the model parameters
+            - Only processes weights (not biases)
+            - Only affects parameters with ndim > 1
+        """
+        whitelist = (nn.Linear, nn.MultiheadAttention)
+
+        for module in model.modules():
+            if isinstance(module, whitelist):
+                for name, param in module.named_parameters():
+                    if name.endswith("weight") and param.ndim > 1:
+                        with torch.no_grad():
+                            weight = param.data
+                            norm = LA.matrix_norm(weight, ord=2)
+                            
+                            # Normalize if exceeds bound
+                            if norm > 2.0:
+                                param.data = (weight / norm) * 2.0
     
     def compute_returns(self, last_critic_obs):
         last_values_pos = self.actor_critic.evaluate_pos(last_critic_obs).detach()
@@ -166,6 +206,9 @@ class PPODynamic:
         mean_autoenc_loss = 0
         mean_decoder_loss = 0
 
+        all_enc_obs_targets = []
+        all_enc_recons     = []
+
         # if self.actor_critic.is_recurrent:
         #     generator = self.storage.reccurent_mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
         # else:
@@ -178,9 +221,14 @@ class PPODynamic:
             tau_old_sigma_batch, hid_states_batch, masks_batch in generator:
 
                 self.actor_critic.train()
-                self.optimizer.zero_grad()
-                # PPO stuff
-                self.actor_critic.act(obs_batch, obs_hist_batch, masks=masks_batch, hidden_states=hid_states_batch[0])
+                self.enc_optimizer.zero_grad()
+                self.act_optimizer.zero_grad()
+
+                if self.use_boot:
+                    self.actor_critic.act(obs_batch, obs_hist_batch, masks=masks_batch, hidden_states=hid_states_batch[0])
+                else:
+                    self.actor_critic.act_bootmask(obs_batch, obs_hist_batch, masks=masks_batch, hidden_states=hid_states_batch[0])
+                
                 # Encoder stuff
                 # pull out some values from the actor that I want to use in the decoder...
                 #    avoids a second separate run through the encoder + aligns RL update with enc update...
@@ -215,22 +263,9 @@ class PPODynamic:
                 decode_target = obs_target
                 vel_target.requires_grad = False
                 
-
-
                 with torch.no_grad():
-                    mean_pred = torch.mean(decode_target, dim=0)
-                    mean_pred_error = F.mse_loss(mean_pred, decode_target)
-                    actual_pred_error = F.mse_loss(enc_update_obs_decode.clone().detach(),decode_target)
-                    ratio = mean_pred_error / actual_pred_error
-                    pboot = 1 - torch.tanh(ratio)
-                    print("Mean Pred Error: ", mean_pred_error)
-                    print("Prediction Error: ", actual_pred_error)
-                    print("Raio: ", ratio)
-                    print("boot probability: ", pboot)
-                    print()
-
-
-
+                    all_enc_obs_targets.extend(decode_target.detach().cpu().numpy())
+                    all_enc_recons.extend(enc_update_obs_decode.clone().detach().cpu().numpy())
 
                 # autoenc_loss = (nn.MSELoss()(cenet_torso_velo,vel_target) + nn.MSELoss()(enc_update_obs_decode,decode_target) + beta*(-0.5 * torch.sum(1 + logvar_latent - mean_latent.pow(2) - logvar_latent.exp())))/self.num_mini_batches
                 autoenc_loss = F.mse_loss(cenet_torso_velo,vel_target) + F.mse_loss(enc_update_obs_decode,decode_target) + beta*(-0.5 * torch.sum(1 + logvar_latent - mean_latent.pow(2) - logvar_latent.exp()))
@@ -249,7 +284,8 @@ class PPODynamic:
                         elif pos_kl_mean < self.desired_kl / 2.0 and pos_kl_mean > 0.0:
                             self.pos_learning_rate = min(1e-2, self.pos_learning_rate * 1.5)
                         
-                        for param_group in self.optimizer.optimizer.param_groups:
+                        # for param_group in self.act_optimizer.optimizer.param_groups:
+                        for param_group in self.act_optimizer.param_groups:
                             # specifically modifies the learning rate of the position-control specific parameters
                             if "name" in param_group.keys():
                                 if "pos_branch" in param_group["name"]:
@@ -290,7 +326,8 @@ class PPODynamic:
                         elif tau_kl_mean < self.desired_kl / 2.0 and tau_kl_mean > 0.0:
                             self.tau_learning_rate = min(1e-2, self.tau_learning_rate * 1.5)
                         
-                        for param_group in self.optimizer.optimizer.param_groups:
+                        # for param_group in self.act_optimizer.optimizer.param_groups:
+                        for param_group in self.act_optimizer.param_groups:
                             # Specifically modifies the parameters specific to the torque-control actions
                             if "name" in param_group.keys():
                                 if "tau_branch" in param_group["name"]:
@@ -317,18 +354,46 @@ class PPODynamic:
 
                 tau_loss = tau_surrogate_loss + self.value_loss_coef * tau_value_loss - self.entropy_coef * tau_entropy_batch.mean()
 
-                losses = [pos_loss, tau_loss, autoenc_loss]
-                
+                # ppo_losses = [pos_loss, tau_loss]
+                # encoder_losses = [autoenc_loss]
+
+                total_ppo_loss = pos_loss + tau_loss
+                # total_ppo_loss = pos_loss
+
+                total_enc_loss = autoenc_loss
+
+
+                # # If we used the encoder to bootstrap the actor policy, then added the PPO losses
+                # #    to the losses used to update the encoder
+                # if self.use_boot:
+                #     encoder_losses.append(pos_loss)
+                #     encoder_losses.append(tau_loss)
+
+                #     total_enc_loss += pos_loss + tau_loss
+
+
                 # Gradient step
                 # loss.backward()
                 # nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
                 # self.optimizer.step()
                 
                 # PCGrad - back-propigate the loss
-                self.optimizer.pc_backward(losses)
-                # nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
-                self.zclip.step(self.actor_critic)
-                self.optimizer.step()
+                # self.act_optimizer.pc_backward(ppo_losses)
+                total_ppo_loss.backward(retain_graph=True)
+                nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
+                # self.act_zclip.step(self.actor_critic)
+
+                # self.enc_optimizer.pc_backward(encoder_losses)
+                total_enc_loss.backward()
+                # self.enc_zclip.step(self.actor_critic)
+                nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
+
+                # Step both optimizers AFTER calling the backwards pass for both
+                #    This is to account for the fact that the enc-losses may include PPO updates
+                #    so if we steped Act before Enc, then it will cause an error
+                #    NOTE - PCGrad includes 'retain_graph=True' in it's backward calls. So the comp.-graph is still valid.
+                self.act_optimizer.step()
+                self.enc_optimizer.step()
 
                 # Perfrom a separate update on the decoder....
                 self.decoder.train()
@@ -340,6 +405,10 @@ class PPODynamic:
                 dec_loss.backward()
                 nn.utils.clip_grad_norm_(self.decoder.parameters(), self.max_grad_norm)
                 self.decoder_optimizer.step()
+
+                # self.spectral_normalization(self.actor_critic)
+                # self.spectral_normalization(self.decoder)
+
 
                 mean_pos_value_loss += pos_value_loss.item()
                 mean_pos_surrogate_loss += pos_surrogate_loss.item()
@@ -355,6 +424,19 @@ class PPODynamic:
         mean_tau_surrogate_loss /= num_updates
         mean_autoenc_loss /= num_updates
         mean_decoder_loss /= num_updates
+
+        # Calculate the total bootstrapping probability over the performance of the autoencoder on all of the above
+        mean_pred = np.mean(all_enc_obs_targets, axis=0)
+        mean_pred_error = np.mean(np.square(mean_pred - all_enc_obs_targets))
+        actual_pred_error = np.mean(np.square(np.array(all_enc_recons) - np.array(all_enc_obs_targets)))
+        ratio = mean_pred_error / (actual_pred_error * self.boot_mult)
+        pboot = np.tanh(ratio)
+
+        # Use the (scaled) ratio of mean-prediction performance to actual prediction performance
+        #     to determine if encoder bootstrapping is performed.
+        self.use_boot = random.random() < pboot
+
+        print(self.use_boot)
 
         self.storage.clear()
 
