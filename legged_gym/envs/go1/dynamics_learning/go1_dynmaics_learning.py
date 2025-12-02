@@ -124,15 +124,17 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # prepare quantities
         self.base_pos[:] = self.robot.get_pos()
         self.base_quat[:] = self.robot.get_quat()
-        base_quat_rel = gs_quat_mul(self.base_quat, gs_inv_quat(
-            self.base_init_quat.reshape(1, -1).repeat(self.num_envs, 1)))
+        
+        base_quat_rel = gs_quat_mul(self.base_quat, gs_inv_quat(self.base_init_quat.reshape(1, -1).repeat(self.num_envs, 1)))
+        
         self.base_euler = gs_quat2euler(base_quat_rel)
         inv_base_quat = inv_quat(self.base_quat)
+        
         self.base_lin_vel[:] = transform_by_quat(self.robot.get_vel(), inv_base_quat)  # trasform to base frame
-        self.base_ang_vel[:] = transform_by_quat(
-            self.robot.get_ang(), inv_base_quat)
-        self.projected_gravity = transform_by_quat(
-            self.global_gravity, inv_base_quat)
+        self.base_ang_vel[:] = transform_by_quat(self.robot.get_ang(), inv_base_quat)
+        
+        self.projected_gravity = transform_by_quat(self.global_gravity, inv_base_quat)
+        
         self.dof_pos[:] = self.robot.get_dofs_position(self.motors_dof_idx)
         self.dof_vel[:] = self.robot.get_dofs_velocity(self.motors_dof_idx)
         self.link_contact_forces[:] = self.robot.get_links_net_contact_force()
@@ -146,84 +148,87 @@ class LeggedRobotGo1Dynamic(BaseTask):
 
         # All the below is done in the pinocchio indexing scheme [FL, FR, RL, RR]
         # Use the Pinocchio library to calculate the (1) contact forces and (2) whole-body dynamics of the robot for use
-        #     in the dynamic consistency reward
+        #     in the dynamic consistency reward. All done in WORLD FRAME!
         
-        # #     extract the contact forces in pinocchio order
-        # contact_temp = self.robot.get_links_net_contact_force()[:, self.pino_feet_indices, :]
-        # wb_dynamics_list = []
-        # wb_contact_forces_list = []
+        #     extract the contact forces in pinocchio order
+        contact_temp = self.robot.get_links_net_contact_force()[:, self.pino_feet_indices, :]
+        wb_dynamics_list = []
+        wb_contact_forces_list = []
         
-        # # indexing scheme used to return the wb_value back into the model's indexing scheme
-        # correct_pino_2_model_wb_idxs = [0,1,2,3,4,5]
-        # correct_pino_2_model_wb_idxs.extend(self.pino_2_model_joint_act_map)
+        # indexing scheme used to return the wb_value back into the model's indexing scheme
+        correct_pino_2_model_wb_idxs = [0,1,2,3,4,5]
+        correct_pino_2_model_wb_idxs.extend(self.pino_2_model_joint_act_map)
 
-        # for i in range(self.dof_pos.shape[0]):
-        #     # print(self.dof_pos[0])
-        #     pino_dof_pos = self.dof_pos[i,self.model_2_pino_joint_map].cpu().numpy().tolist()
-        #     pino_dof_vel = self.dof_vel[i,self.model_2_pino_joint_map].cpu().numpy().tolist()
-        #     # print(pino_dof_pos)
-        #     # Used for approximating the accelerations...
-        #     pino_prev_dof_velo = self.last_dof_vel[i,self.model_2_pino_joint_map].cpu().numpy().tolist()
+        base_velo_world = self.robot.get_vel()
+        base_ang_velo_world = self.robot.get_ang()
+
+        for i in range(self.dof_pos.shape[0]):
+            # print(self.dof_pos[0])
+            pino_dof_pos = self.dof_pos[i,self.model_2_pino_joint_map].cpu().numpy().tolist()
+            pino_dof_vel = self.dof_vel[i,self.model_2_pino_joint_map].cpu().numpy().tolist()
+            # print(pino_dof_pos)
+            # Used for approximating the accelerations...
+            pino_prev_dof_velo = self.last_dof_vel[i,self.model_2_pino_joint_map].cpu().numpy().tolist()
             
-        #     # construct the whole body pose
-        #     pino_wb_pose = []
-        #     pino_wb_pose.extend(self.base_pos[i].cpu().numpy().tolist())
-        #     # Genesis is w,x,y,z quat, Pinocchio wants x,y,z,w    https://gepettoweb.laas.fr/doc/stack-of-tasks/pinocchio/devel/doxygen-html/md_doc_2d-practical-exercises_23-invkine.html
-        #     temp_quat = self.base_quat[i].cpu().numpy()[1:].tolist()
-        #     temp_quat.append(float(self.base_quat[i].cpu().numpy()[0]))
-        #     pino_wb_pose.extend(temp_quat)
-        #     pino_wb_pose.extend(pino_dof_pos)
-        #     pino_wb_pose = np.array(pino_wb_pose)
+            # construct the whole body pose
+            pino_wb_pose = []
+            pino_wb_pose.extend(self.base_pos[i].cpu().numpy().tolist())
+            # Genesis is w,x,y,z quat, Pinocchio wants x,y,z,w    https://gepettoweb.laas.fr/doc/stack-of-tasks/pinocchio/devel/doxygen-html/md_doc_2d-practical-exercises_23-invkine.html
+            temp_quat = self.base_quat[i].cpu().numpy()[1:].tolist()
+            temp_quat.append(float(self.base_quat[i].cpu().numpy()[0]))
+            pino_wb_pose.extend(temp_quat)
+            pino_wb_pose.extend(pino_dof_pos)
+            pino_wb_pose = np.array(pino_wb_pose)
 
-        #     # construct the whole body velocity
-        #     pino_wb_velo = []
-        #     pino_wb_velo.extend(self.base_lin_vel[i].cpu().numpy().tolist())
-        #     pino_wb_velo.extend(self.base_ang_vel[i].cpu().numpy().tolist())
-        #     pino_wb_velo.extend(pino_dof_vel)
-        #     pino_wb_velo = np.array(pino_wb_velo)
+            # construct the whole body velocity
+            pino_wb_velo = []
+            pino_wb_velo.extend(base_velo_world[i].cpu().numpy().tolist())
+            pino_wb_velo.extend(base_ang_velo_world[i].cpu().numpy().tolist())
+            pino_wb_velo.extend(pino_dof_vel)
+            pino_wb_velo = np.array(pino_wb_velo)
 
-        #     # construct the previous whole body velocity (used to approximate accelerations)
-        #     pino_prev_wb_velo = []
-        #     pino_prev_wb_velo.extend(self.last_base_lin_vel[i].cpu().numpy().tolist())
-        #     pino_prev_wb_velo.extend(self.last_base_ang_vel[i].cpu().numpy().tolist())
-        #     pino_prev_wb_velo.extend(pino_prev_dof_velo)
-        #     pino_prev_wb_velo = np.array(pino_prev_wb_velo)
+            # construct the previous whole body velocity (used to approximate accelerations)
+            pino_prev_wb_velo = []
+            pino_prev_wb_velo.extend(self.last_base_world_lin_vel[i].cpu().numpy().tolist())
+            pino_prev_wb_velo.extend(self.last_base_world_ang_vel[i].cpu().numpy().tolist())
+            pino_prev_wb_velo.extend(pino_prev_dof_velo)
+            pino_prev_wb_velo = np.array(pino_prev_wb_velo)
 
-        #     # now use a simple backwards finite-difference for acceleration approximation
-        #     pino_wb_acc = (pino_wb_velo - pino_prev_wb_velo) / self.dt
+            # now use a simple backwards finite-difference for acceleration approximation
+            pino_wb_acc = (pino_wb_velo - pino_prev_wb_velo) / self.dt
 
-        #     # Calculate the generalized mass matrix and bias forces
-        #     aq0 = np.zeros(self.pino_model.nv)
-        #     #     compute dynamic drift -- Coriolis, centrifugal, gravity
-        #     b = pn.rnea(self.pino_model, self.pino_data, pino_wb_pose, pino_wb_velo, aq0)   # batch_size x 18
-        #     #     compute mass matrix M
-        #     M = pn.crba(self.pino_model, self.pino_data, pino_wb_pose)   # batch_size, (18x18)
+            # Calculate the generalized mass matrix and bias forces
+            aq0 = np.zeros(self.pino_model.nv)
+            #     compute dynamic drift -- Coriolis, centrifugal, gravity
+            b = pn.rnea(self.pino_model, self.pino_data, pino_wb_pose, pino_wb_velo, aq0)   # batch_size x 18
+            #     compute mass matrix M
+            M = pn.crba(self.pino_model, self.pino_data, pino_wb_pose)   # batch_size, (18x18)
 
-        #     # use the calculated values to approximate the whole-body dynamics
-        #     wb_dynamics = np.squeeze(np.matmul(M,pino_wb_acc) + b)
+            # use the calculated values to approximate the whole-body dynamics
+            wb_dynamics = np.squeeze(np.matmul(M,pino_wb_acc) + b)
 
-        #     # reshape and append to the batch-list
-        #     wb_dynamics_list.append(torch.from_numpy(wb_dynamics[correct_pino_2_model_wb_idxs]))
+            # reshape and append to the batch-list
+            wb_dynamics_list.append(torch.from_numpy(wb_dynamics[correct_pino_2_model_wb_idxs]))
 
-        #     # Now calculate the contact forces impact on the dynamics
-        #     pino_jacobains = []
-        #     for i, foot_name in enumerate(self.pino_foot_names):
-        #         # print(foot_name)
-        #         foot_frame_id = self.pino_model.getFrameId(foot_name)
-        #         pino_jacobains.append(pn.computeFrameJacobian(self.pino_model, self.pino_data, pino_wb_pose, foot_frame_id, pn.ReferenceFrame.LOCAL_WORLD_ALIGNED)[0:3,:])
+            # Now calculate the contact forces impact on the dynamics
+            pino_jacobains = []
+            for i, foot_name in enumerate(self.pino_foot_names):
+                # print(foot_name)
+                foot_frame_id = self.pino_model.getFrameId(foot_name)
+                pino_jacobains.append(pn.computeFrameJacobian(self.pino_model, self.pino_data, pino_wb_pose, foot_frame_id, pn.ReferenceFrame.LOCAL_WORLD_ALIGNED)[0:3,:])
 
-        #     full_jacobian = np.concatenate(pino_jacobains, axis=0) # 12x18
+            full_jacobian = np.concatenate(pino_jacobains, axis=0) # 12x18
 
-        #     reshaped_contacts = contact_temp.reshape(contact_temp.shape[0], 12).unsqueeze(2)[i].cpu().numpy()  # 12x1
+            reshaped_contacts = contact_temp.reshape(contact_temp.shape[0], 12).unsqueeze(2)[i].cpu().numpy()  # 12x1
 
-        #     contact_forces = np.squeeze(np.matmul(full_jacobian.transpose(), reshaped_contacts)) # 18
+            contact_forces = np.squeeze(np.matmul(full_jacobian.transpose(), reshaped_contacts)) # 18
 
-        #     wb_contact_forces_list.append(torch.from_numpy(contact_forces[correct_pino_2_model_wb_idxs]))
-        # # end pinocchio loop
+            wb_contact_forces_list.append(torch.from_numpy(contact_forces[correct_pino_2_model_wb_idxs]))
+        # end pinocchio loop
 
-        # # now stack the tensor lists to get the necessary state values
-        # self.wb_dynamics_buff = torch.stack(wb_dynamics_list).to(self.device)               # batch x 18
-        # self.contact_forces_buff = torch.stack(wb_contact_forces_list).to(self.device)      # batch x 18
+        # now stack the tensor lists to get the necessary state values
+        self.wb_dynamics_buff = torch.stack(wb_dynamics_list).to(self.device)               # batch x 18
+        self.contact_forces_buff = torch.stack(wb_contact_forces_list).to(self.device)      # batch x 18
 
         # print(self.wb_dynamics_buff.shape)
         # print(self.contact_forces_buff.shape)
@@ -246,8 +251,8 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.llast_actions[:] = self.last_actions[:]
         self.last_actions[:] = self.actions[:]
         self.last_dof_vel[:] = self.dof_vel[:]
-        self.last_base_lin_vel[:] = self.base_lin_vel[:]
-        self.last_base_ang_vel[:] = self.base_ang_vel[:]
+        self.last_base_world_lin_vel[:] = base_velo_world[:]
+        self.last_base_world_ang_vel[:] = base_ang_velo_world[:]
 
         if self.debug_viz:
             self._draw_debug_vis()
@@ -351,8 +356,8 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.last_actions[env_ids] = 0.
         self.last_dof_vel[env_ids] = 0.
 
-        self.last_base_lin_vel[env_ids] = 0.
-        self.last_base_ang_vel[env_ids] = 0.
+        self.last_base_world_lin_vel[env_ids] = 0.
+        self.last_base_world_ang_vel[env_ids] = 0.
 
         self.feet_air_time[env_ids] = 0.
         self.episode_length_buf[env_ids] = 0
@@ -876,9 +881,9 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.base_ang_vel = torch.zeros(
             (self.num_envs, 3), device=self.device, dtype=gs.tc_float)
         
-        self.last_base_lin_vel = torch.zeros_like(self.base_lin_vel)
+        self.last_base_world_lin_vel = torch.zeros_like(self.base_lin_vel)
 
-        self.last_base_ang_vel = torch.zeros_like(self.base_ang_vel)
+        self.last_base_world_ang_vel = torch.zeros_like(self.base_ang_vel)
 
         self.projected_gravity = torch.zeros(
             (self.num_envs, 3), device=self.device, dtype=gs.tc_float)
@@ -1675,7 +1680,8 @@ class LeggedRobotGo1Dynamic(BaseTask):
         #     this also "guides" the policy to select complimentary position and torque values
         # augment the torques vector to include 6 zeros for the unactuated torso DOF's
         wb_torques = torch.concatenate((torch.zeros((self.torques.shape[0], 6), device=self.device, dtype=gs.tc_float), self.torques), dim=1)
-        return torch.sum(torch.square((self.wb_dynamics_buff - self.contact_forces_buff - wb_torques)*self.obs_scales.dof_tau),dim=1)
+        
+        return torch.norm(self.wb_dynamics_buff - self.contact_forces_buff - wb_torques, dim=1)
 
     def _reward_feet_air_time(self):
         # Reward long steps
@@ -1691,7 +1697,95 @@ class LeggedRobotGo1Dynamic(BaseTask):
 
     def _reward_stand_still(self):
         # Penalize motion at zero commands
-        return torch.sum(torch.abs(self.dof_pos - self.default_dof_pos), dim=1) * (torch.norm(self.commands[:, :2], dim=1) < 0.1)        
+        return torch.sum(torch.abs(self.dof_pos - self.default_dof_pos), dim=1) * (torch.norm(self.commands[:, :2], dim=1) < 0.1)
+    
+    def _reward_feet_contact_forces(self):
+        # penalize high contact forces
+        return torch.sum((torch.norm(self.link_contact_forces[:, self.feet_indices, :], dim=-1) -  self.cfg.rewards.max_contact_force).clip(min=0.), dim=1)
+
+    def _reward_raibert(self):
+        # Some constants. Will optimize later...
+        # Assume a decent "walk ~1m/s" stance time of 0.5 seconds
+        stance_time = 0.5
+        width_offset = 0.06
+        raibert_gain = 0.03
+        side_signs = torch.from_numpy(np.array([-1,1,-1,1])).float().to(self.device)
+        hip_offsets = torch.from_numpy(np.array([[0.19, -0.047, 0.0], [0.19, 0.047, 0.0], [-0.19, -0.047, 0.0], [-0.19, 0.047, 0.0]])).float().to(self.device)
+        
+        # contact filtering...
+        contact = self.link_contact_forces[:, self.feet_indices, 2] > 1.
+        contact_filt = torch.logical_or(contact, self.last_contacts)
+        self.last_contacts = contact
+        first_contact = (self.feet_air_time > 0.) * contact_filt
+
+        inv_base_quat = inv_quat(self.base_quat)
+
+        # calculate the Raibert Hueristic footstep location
+        # Perform for each foot in order or FR, FL, RR, RL
+        #     eventually want (num_env, 4, 2) - raibert is only concerned with x/y position
+        feet_pose_base = []
+        raibert_foot_pos = []
+        for i in range(len(self.feet_indices)):
+            # convert foot positions to base-frame
+            feet_pose_base_ = transform_by_quat(self.feet_pos[:,i,:], inv_base_quat)  # trasform to base frame
+            feet_pose_base.append(feet_pose_base_)
+
+            # Calculate Raibert huersitic foot contact locations in x/y-plane
+            offset = torch.zeros((self.feet_pos.shape[0], 3),dtype=gs.tc_float).to(self.device)     # (num_env, 3)
+            offset[:,1] = side_signs[i] * width_offset                                              # (num_env, 3)
+            probot_frame = hip_offsets[i] * offset                                                  # (num_env, 3)
+            z_rot_mats = self._build_raibert_rew_rot_mat(-self.commands[:,2] * stance_time * 0.5)   # (num_env, 3, 3)
+            corrected_probot_frame = torch.bmm(z_rot_mats, probot_frame.unsqueeze(-1)).squeeze(-1)  # (num_env, 3)
+            
+            # This is the result of eq. 13
+            basic_foot_pose = self.base_pos + transform_by_quat(corrected_probot_frame, inv_base_quat)  # (num_env, 3)
+
+            # now calculate the more complicated Raibert hueristic
+            #     symmetry hueristic
+            raibert_xy = self.base_lin_vel[:,:2] * (0.5 * stance_time) + raibert_gain * (self.base_lin_vel[:,:2] - self.commands[:,:2])  # (num_env, 2)
+            #     centrifugal hueristic
+            raibert_xy[:,0] += 0.5 * (self.base_pos[:,2]/9.81) *   self.base_lin_vel[:,1] * self.commands[:,2]   # x-axis 
+            raibert_xy[:,1] += 0.5 * (self.base_pos[:,2]/9.81) * (-self.base_lin_vel[:,0] * self.commands[:,2])  # y-axis
+
+            # now we can calculate the final heursitic foot placement in the base-frame 
+            heuristic_foot_pos = torch.zeros((self.num_envs, 3), dtype=gs.tc_float)                    # (num_env, 3)
+            heuristic_foot_pos[:,0] = basic_foot_pose[:,0] + raibert_xy[:,0]
+            heuristic_foot_pos[:,1] = basic_foot_pose[:,1] + raibert_xy[:,1]
+            
+            # Append the calculations for this foot
+            raibert_foot_pos.append(heuristic_foot_pos)
+
+        # Now we have a list like (4, num_env, 3), we want (num_env, 4, 3)
+        feet_pose_base = torch.stack(feet_pose_base).to(self.device)   # (4, num_env, 3)
+        feet_pose_base = feet_pose_base.permute(1,0,2)                 # (num_env, 4, 3)
+
+        raibert_foot_pos = torch.stack(raibert_foot_pos).to(self.device)   # (4, num_env, 3)
+        raibert_foot_pos = raibert_foot_pos.permute(1,0,2)                 # (num_env, 4, 3)
+
+        # Calculate the error, ignore height, that is covered elsewhere
+        foot_error_xy = torch.sum(feet_pose_base[:,:,:2] - raibert_foot_pos[:,:,:2], dim=-1)  # (num_env, 4)
+
+        # filter by the first contact AND square the error
+        raibert_error = torch.sum(first_contact * torch.square(foot_error_xy), dim=-1)
+
+        return torch.exp(-raibert_error / self.cfg.rewards.foot_clearance_tracking_sigma)
+
+
+    # A rotation about the z-axis
+    def _build_raibert_rew_rot_mat(self, theta):
+        s = torch.sin(theta)        # (num_env,)
+        c = torch.cos(theta)        # (num_env,)
+
+        batch_rot_mats = torch.zeros((self.num_envs, 3, 3), dtype=gs.tc_float).to(self.device)
+
+        # Fill in the non-zero entries
+        batch_rot_mats[:,0,0] = c[:]
+        batch_rot_mats[:,0,1] = s[:]
+        batch_rot_mats[:,1,0] = -s[:]
+        batch_rot_mats[:,1,1] = c[:]
+        batch_rot_mats[:,2,2] = 1.0
+
+        return batch_rot_mats
 
     def _reward_no_motion_penalty(self):
         cmd_mag = torch.norm(self.commands[:, :2], dim=1)
@@ -1700,7 +1794,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         vel_mag = torch.norm(self.base_lin_vel[:, :2], dim=1)
 
         # negative distance from movement threshold
-        lack_of_motion = (0.2 - vel_mag).clamp(min=0.0)
+        lack_of_motion = (0.1 - vel_mag).clamp(min=0.0)
 
         penalty = lack_of_motion * should_move.float()
         

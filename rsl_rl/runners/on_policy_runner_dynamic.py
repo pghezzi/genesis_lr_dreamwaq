@@ -70,6 +70,7 @@ class OnPolicyRunnerDynamic:
                                                                self.env.num_actions,
                                                                self.policy_cfg["actor_shared_dim"],
                                                                self.policy_cfg["actor_branch_layers"],
+                                                               self.policy_cfg["critic_layers"],
                                                                cenet_input_dim,
                                                                self.policy_cfg["cenet_enc_latent_dim"],
                                                                self.policy_cfg["cenet_velo_dim"],
@@ -318,10 +319,16 @@ class OnPolicyRunnerDynamic:
 
     def load(self, path, load_optimizer=True):
         loaded_dict = torch.load(path)
+        # Load actor/critic model(s)
         self.alg.actor_critic.load_state_dict(loaded_dict['model_state_dict'])
+        # Load optimizer(s)
         if load_optimizer:
             # self.alg.optimizer.optimizer.load_state_dict(loaded_dict['optimizer_state_dict'])
-            self.alg.optimizer.load_state_dict(loaded_dict['optimizer_state_dict'])
+            self.alg.act_optimizer.load_state_dict(loaded_dict['act_optimizer_state_dict'])
+            self.alg.enc_optimizer.load_state_dict(loaded_dict['enc_optimizer_state_dict'])
+            self.alg.decoder_optimizer.load_state_dict(loaded_dict['decoder_opt_state_dict'])
+        # Load the VAE decoder model...
+        self.alg.decoder.load_state_dict(loaded_dict['decoder_state_dict'])
         self.current_learning_iteration = loaded_dict['iter']
         return loaded_dict['infos']
 

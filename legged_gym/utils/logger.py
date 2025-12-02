@@ -3,7 +3,11 @@ from collections import defaultdict
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
+import pandas as pd
 import xlsxwriter
+
+import matplotlib
+matplotlib.use("Agg")
 
 # Fix font issues
 plt.rcParams.update({
@@ -45,6 +49,7 @@ class Logger:
         self.rew_log.clear()
 
     def plot_states(self):
+        print("&&&&&&&&&&&&&&&&&&&&&&&&&&& Plotting States &&&&&&&&&&&&&&&&&&&&&&")
         self.plot_process = Process(target=self._plot)
         self.plot_process.start()
 

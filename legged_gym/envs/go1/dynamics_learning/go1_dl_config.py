@@ -191,26 +191,29 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         
         foot_clearance_tracking_sigma = 0.01
         only_positive_rewards = False
+
+        max_contact_force = 200.0
         class scales( LeggedRobotCfg.rewards.scales ):
             # General
             termination      = -200.0
-            collision        = -10.0
+            collision        = -1.0
             dof_pos_limits        = -10.0
-            dof_close_to_default  = -0.5
+            dof_close_to_default  = -0.1
             torque_limits         = -10.0
+            stand_still           = -0.1
 
             # command tracking
             tracking_lin_vel  = 1.0
             tracking_ang_vel  = 0.5
-            no_motion_penalty = -10.00
+            no_motion_penalty = -1.00
 
-            alive_bonus = 0.5
+            alive_bonus = 0.0
 
             # smoothness and stability
             lin_vel_z        = -2.0
-            base_height      = -10.0
-            ang_vel_xy       = -0.05
-            orientation      = -10.0
+            base_height      = -2.0
+            ang_vel_xy       = -0.5
+            orientation      = -3.0
             dof_acc          = -2.5e-7
             joint_power      = -2.e-5
             joint_power_dist = -1.e-5
@@ -225,23 +228,27 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             # whereas here we are trying to discourage this error signal (promoting stable WB locomotion).
             # Might need to scale this a bit depending on the magnitude of the reward signal..
             # we want the reward to be large but not dominating....
-            wb_dynamics = 0.0
+            wb_dynamics = -1.0e-3
 
             # gait
             feet_air_time  = 1.0
             foot_clearance = 0.5
-            foot_slip      = -0.01
+            foot_slip      = -1.0e-2
+            feet_contact_forces = -1e-4
+
+            # new....
+            raibert     = 1.0e-4
 
         class pos_scales():
-            pos_action_rate       = -0.01   # new
-            pos_action_smoothness = -0.01   # new
+            pos_action_rate       = -0.001   # new
+            pos_action_smoothness = -0.001   # new
             feedback_torques      = -2.e-4  # new
 
         class tau_scales():
             # task_alignment        = -1.e-3
             task_alignment        = 0.0
-            tau_action_rate       = -0.01   # new
-            tau_action_smoothness = -0.01   # new
+            tau_action_rate       = -0.001   # new
+            tau_action_smoothness = -0.001   # new
             feedforward_torques   = -2.e-4  # new
 
     class commands( LeggedRobotCfg.commands ):
@@ -277,6 +284,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         # Actor/critic
         actor_shared_dim = 512
         actor_branch_layers = [256,128]
+        critic_layers = [512,256,128,64]
         
         # Shared
         dropout = 0.1
@@ -285,7 +293,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
 
     class algorithm( LeggedRobotCfgPPO.algorithm ):
         entropy_coef = 0.01
-        learning_rate = 1.0e-3 #
+        learning_rate = 1.0e-4 #
         value_loss_coef = 1.0
         use_clipped_value_loss = True
         clip_param = 0.2
@@ -304,8 +312,8 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         max_iterations = 5000 # number of policy updates
         grf_dim = 12
         
-        run_name = 'test_01'
+        run_name = 'raibert_wbdyn'
         experiment_name = 'go1_dynamic'
         save_interval = 50
-        load_run = "Jul21_17-07-50_"
-        checkpoint = -1
+        # load_run = "Dec01_18-26-31_test_01"
+        # checkpoint = 3000

@@ -18,17 +18,22 @@ def play(args):
     # override some parameters for testing
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, 5)
     env_cfg.viewer.rendered_envs_idx = list(range(env_cfg.env.num_envs))
+    
     for i in range(2):
         env_cfg.viewer.pos[i] = env_cfg.viewer.pos[i] - env_cfg.terrain.plane_length / 4
         env_cfg.viewer.lookat[i] = env_cfg.viewer.lookat[i] - env_cfg.terrain.plane_length / 4
+    
     env_cfg.env.debug_viz = True
+    
     if RECORD_FRAMES or FOLLOW_ROBOT:
         env_cfg.viewer.add_camera = True  # use a extra camera for moving
+    
     env_cfg.terrain.border_size = 5
     env_cfg.terrain.num_rows = 2
     env_cfg.terrain.num_cols = 5
     env_cfg.noise.add_noise = True
     env_cfg.asset.fix_base_link = False
+    
     # initial state randomization
     env_cfg.init_state.yaw_angle_range = [0., 0.]
     # velocity range
@@ -44,7 +49,9 @@ def play(args):
         obs = obs[0]
     # load policy
     train_cfg.runner.resume = True
+    
     ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
+    
     policy = ppo_runner.get_inference_policy(device=env.device)
     
     # export policy as a jit module (used to run it from C++)
@@ -56,7 +63,7 @@ def play(args):
     logger = Logger(env.dt)
     robot_index = 0 # which robot is used for logging
     joint_index = 2 # which joint is used for logging
-    stop_state_log = 300 # number of steps before plotting states
+    stop_state_log = 400 # number of steps before plotting states
     stop_rew_log = env.max_episode_length + 1 # number of steps before print average episode rewards
     
     # for MOVE_CAMERA
@@ -75,10 +82,12 @@ def play(args):
     for i in range(10*int(env.max_episode_length)):
         actions = policy(obs.detach())
         obs, _, rews, dones, infos = env.step(actions.detach())
+        
         if MOVE_CAMERA:
             camera_position += camera_vel * env.dt
             env.set_camera(camera_position, camera_position + camera_direction)
             env.floating_camera.render()
+        
         if FOLLOW_ROBOT:
             # refresh where camera looks at(robot 0 base)
             camera_lookat_follow = env.base_pos[robot_index, :].cpu().numpy()
@@ -86,12 +95,14 @@ def play(args):
             camera_position_follow = camera_lookat_follow - camera_deviation_follow
             env.set_camera(camera_position_follow, camera_lookat_follow)
             env.floating_camera.render()
+        
         if RECORD_FRAMES and i == stop_record:
             try:
                 filename_mp4 = f"{train_cfg.runner.experiment_name}_{train_cfg.runner.run_name}.mp4"
             except:
                 from datetime import datetime
                 filename_mp4 = f"{datetime.now().timestamp()}"
+            
             env.floating_camera.stop_recording(save_to_filename=filename_mp4, fps=30)
             print("Saved recording to " + filename_mp4)
         

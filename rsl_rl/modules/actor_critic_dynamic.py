@@ -214,6 +214,7 @@ class ActorCritic_Dynamic(nn.Module):
                  num_actions=12,
                  actor_shared_dim=512,
                  actor_branch_layers=[256,128,64],
+                 critic_layers=[512,256,128,64],
                  cenet_in_dim=350,
                  cenet_latent_dim=29,
                  cenet_velo_dim=3, 
@@ -266,14 +267,16 @@ class ActorCritic_Dynamic(nn.Module):
         #  Construct layers for the critic network
         ###
         self.pos_critic_in  = nn.Linear(num_critic_obs, actor_shared_dim)
-        self.pos_critic_h1  = nn.Linear(num_critic_obs, actor_branch_layers[0])
-        self.pos_critic_h2  = nn.Linear(actor_branch_layers[0], actor_branch_layers[1])
-        self.pos_critic_out = nn.Linear(actor_branch_layers[1], 1)
+        self.pos_critic_h1  = nn.Linear(actor_shared_dim, critic_layers[0])
+        self.pos_critic_h2  = nn.Linear(critic_layers[0], critic_layers[1])
+        self.pos_critic_h3  = nn.Linear(critic_layers[1], critic_layers[2])
+        self.pos_critic_out = nn.Linear(critic_layers[2], 1)
 
         self.tau_critic_in  = nn.Linear(num_critic_obs, actor_shared_dim)
-        self.tau_critic_h1  = nn.Linear(num_critic_obs, actor_branch_layers[0])
-        self.tau_critic_h2  = nn.Linear(actor_branch_layers[0], actor_branch_layers[1])
-        self.tau_critic_out = nn.Linear(actor_branch_layers[1], 1)
+        self.tau_critic_h1  = nn.Linear(actor_shared_dim, critic_layers[0])
+        self.tau_critic_h2  = nn.Linear(critic_layers[0], critic_layers[1])
+        self.tau_critic_h3  = nn.Linear(critic_layers[1], critic_layers[2])
+        self.tau_critic_out = nn.Linear(critic_layers[2], 1)
 
         # Used to track these values during training....
         #     These values will not be used during inference (sim or real)
@@ -313,7 +316,7 @@ class ActorCritic_Dynamic(nn.Module):
 
     def _init_critic_weights(self):
         # Xavier for linears, zeros for biases
-        critic_layers = [self.pos_critic_in, self.pos_critic_h1, self.pos_critic_h2,
+        critic_layers = [self.pos_critic_in, self.pos_critic_h1, self.pos_critic_h2, self.pos_critic_h3, self.tau_critic_h3,
                          self.pos_critic_out, self.tau_critic_in, self.tau_critic_h1, self.tau_critic_h2, self.tau_critic_out]
         for critic_layer in critic_layers:
             # nn.init.xavier_uniform_(critic_layer.weight)
@@ -604,7 +607,10 @@ class ActorCritic_Dynamic(nn.Module):
         
         # call the actors forward method and return it's results
         actions_pos, actions_tau = self.actor_forward(current_obs)
-        return actions_pos, actions_tau
+
+        total_sample = torch.cat([actions_pos, actions_tau], dim=1)
+
+        return total_sample
     
     # Method to run inference on hardware WITHOUT logging the VAE's outputs
     @torch.jit.export
@@ -632,15 +638,16 @@ class ActorCritic_Dynamic(nn.Module):
         
         return actions_pos, actions_tau, z, torso_velo
 
-
     # Forward method for calculating the value of the current state
     #     using the privilged critic observation
     def evaluate_pos(self, critic_observations, **kwargs):
         val = self.pos_critic_in(critic_observations)
         val = self.activation(val)
-        val = self.pos_critic_h1(critic_observations)
+        val = self.pos_critic_h1(val)
         val = self.activation(val)
         val = self.pos_critic_h2(val)
+        val = self.activation(val)
+        val = self.pos_critic_h3(val)
         val = self.activation(val)
 
         return self.pos_critic_out(val)
@@ -650,9 +657,11 @@ class ActorCritic_Dynamic(nn.Module):
     def evaluate_tau(self, critic_observations, **kwargs):
         val = self.tau_critic_in(critic_observations)
         val = self.activation(val)
-        val = self.tau_critic_h1(critic_observations)
+        val = self.tau_critic_h1(val)
         val = self.activation(val)
         val = self.tau_critic_h2(val)
+        val = self.activation(val)
+        val = self.tau_critic_h3(val)
         val = self.activation(val)
 
         return self.tau_critic_out(val)
