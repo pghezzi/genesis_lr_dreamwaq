@@ -63,7 +63,7 @@ def play(args):
     logger = Logger(env.dt)
     robot_index = 0 # which robot is used for logging
     joint_index = 2 # which joint is used for logging
-    stop_state_log = 400 # number of steps before plotting states
+    stop_state_log = 10000 # number of steps before plotting states
     stop_rew_log = env.max_episode_length + 1 # number of steps before print average episode rewards
     
     # for MOVE_CAMERA
@@ -75,7 +75,7 @@ def play(args):
     camera_deviation_follow = np.array([0., 3., -1.])
     camera_position_follow = camera_lookat_follow - camera_deviation_follow
     # for RECORD_FRAMES
-    stop_record = 400
+    stop_record = 10000
     if RECORD_FRAMES:
         env.floating_camera.start_recording()
 

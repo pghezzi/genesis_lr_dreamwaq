@@ -17,16 +17,16 @@ def play(args):
     args.task = "go1_dynamic"
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
-    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 1)
+    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 5)
     env_cfg.viewer.rendered_envs_idx = list(range(env_cfg.env.num_envs))
     
-    # for i in range(2):
-    #     env_cfg.viewer.pos[i] = env_cfg.viewer.pos[i] - env_cfg.terrain.plane_length / 4
-    #     env_cfg.viewer.lookat[i] = env_cfg.viewer.lookat[i] - env_cfg.terrain.plane_length / 4
+    for i in range(2):
+        env_cfg.viewer.pos[i] = env_cfg.viewer.pos[i] - env_cfg.terrain.plane_length / 4
+        env_cfg.viewer.lookat[i] = env_cfg.viewer.lookat[i] - env_cfg.terrain.plane_length / 4
     
-    env_cfg.terrain.border_size = 1
-    env_cfg.terrain.num_rows = 1
-    env_cfg.terrain.num_cols = 1
+    env_cfg.terrain.border_size = 5
+    env_cfg.terrain.num_rows = 2
+    env_cfg.terrain.num_cols = 5
     
     
     env_cfg.noise.add_noise = True
@@ -69,7 +69,7 @@ def play(args):
     logger = Logger(env.dt)
     robot_index = 0 # which robot is used for logging
     joint_index = 2 # which joint is used for logging
-    stop_state_log = 400 # number of steps before plotting states
+    stop_state_log = 2000 # number of steps before plotting states
     
     stop_rew_log = env.max_episode_length + 1 # number of steps before print average episode rewards
     
@@ -84,7 +84,7 @@ def play(args):
     camera_position_follow = camera_lookat_follow - camera_deviation_follow
     
     # for RECORD_FRAMES
-    stop_record = 1000
+    stop_record = 2000
 
 
     if RECORD_FRAMES:

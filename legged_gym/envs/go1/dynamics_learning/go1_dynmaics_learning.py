@@ -414,7 +414,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
             self.pos_rew_buf += rew
             self.episode_sums[name] += rew
         
-        # Accumulate torqye control specific rewards
+        # Accumulate torque control specific rewards
         self.tau_rew_buf[:] = 0.
         for i in range(len(self.tau_reward_functions)):
             name = self.tau_reward_names[i]
@@ -470,6 +470,9 @@ class LeggedRobotGo1Dynamic(BaseTask):
 
         if self.num_privileged_obs is not None:
             # TODO for liquid payloads -> added liquid mass + vscosity values to priv. obs.
+
+            # Clip the GRF values to help stablize the critic...
+
             self.privileged_obs_buf = torch.cat(
                 (   
                     self.obs_buf,                 # 57 DOF
@@ -1680,7 +1683,6 @@ class LeggedRobotGo1Dynamic(BaseTask):
         #     this also "guides" the policy to select complimentary position and torque values
         # augment the torques vector to include 6 zeros for the unactuated torso DOF's
         wb_torques = torch.concatenate((torch.zeros((self.torques.shape[0], 6), device=self.device, dtype=gs.tc_float), self.torques), dim=1)
-        
         return torch.norm(self.wb_dynamics_buff - self.contact_forces_buff - wb_torques, dim=1)
 
     def _reward_feet_air_time(self):
@@ -1702,90 +1704,6 @@ class LeggedRobotGo1Dynamic(BaseTask):
     def _reward_feet_contact_forces(self):
         # penalize high contact forces
         return torch.sum((torch.norm(self.link_contact_forces[:, self.feet_indices, :], dim=-1) -  self.cfg.rewards.max_contact_force).clip(min=0.), dim=1)
-
-    def _reward_raibert(self):
-        # Some constants. Will optimize later...
-        # Assume a decent "walk ~1m/s" stance time of 0.5 seconds
-        stance_time = 0.5
-        width_offset = 0.06
-        raibert_gain = 0.03
-        side_signs = torch.from_numpy(np.array([-1,1,-1,1])).float().to(self.device)
-        hip_offsets = torch.from_numpy(np.array([[0.19, -0.047, 0.0], [0.19, 0.047, 0.0], [-0.19, -0.047, 0.0], [-0.19, 0.047, 0.0]])).float().to(self.device)
-        
-        # contact filtering...
-        contact = self.link_contact_forces[:, self.feet_indices, 2] > 1.
-        contact_filt = torch.logical_or(contact, self.last_contacts)
-        self.last_contacts = contact
-        first_contact = (self.feet_air_time > 0.) * contact_filt
-
-        inv_base_quat = inv_quat(self.base_quat)
-
-        # calculate the Raibert Hueristic footstep location
-        # Perform for each foot in order or FR, FL, RR, RL
-        #     eventually want (num_env, 4, 2) - raibert is only concerned with x/y position
-        feet_pose_base = []
-        raibert_foot_pos = []
-        for i in range(len(self.feet_indices)):
-            # convert foot positions to base-frame
-            feet_pose_base_ = transform_by_quat(self.feet_pos[:,i,:], inv_base_quat)  # trasform to base frame
-            feet_pose_base.append(feet_pose_base_)
-
-            # Calculate Raibert huersitic foot contact locations in x/y-plane
-            offset = torch.zeros((self.feet_pos.shape[0], 3),dtype=gs.tc_float).to(self.device)     # (num_env, 3)
-            offset[:,1] = side_signs[i] * width_offset                                              # (num_env, 3)
-            probot_frame = hip_offsets[i] * offset                                                  # (num_env, 3)
-            z_rot_mats = self._build_raibert_rew_rot_mat(-self.commands[:,2] * stance_time * 0.5)   # (num_env, 3, 3)
-            corrected_probot_frame = torch.bmm(z_rot_mats, probot_frame.unsqueeze(-1)).squeeze(-1)  # (num_env, 3)
-            
-            # This is the result of eq. 13
-            basic_foot_pose = self.base_pos + transform_by_quat(corrected_probot_frame, inv_base_quat)  # (num_env, 3)
-
-            # now calculate the more complicated Raibert hueristic
-            #     symmetry hueristic
-            raibert_xy = self.base_lin_vel[:,:2] * (0.5 * stance_time) + raibert_gain * (self.base_lin_vel[:,:2] - self.commands[:,:2])  # (num_env, 2)
-            #     centrifugal hueristic
-            raibert_xy[:,0] += 0.5 * (self.base_pos[:,2]/9.81) *   self.base_lin_vel[:,1] * self.commands[:,2]   # x-axis 
-            raibert_xy[:,1] += 0.5 * (self.base_pos[:,2]/9.81) * (-self.base_lin_vel[:,0] * self.commands[:,2])  # y-axis
-
-            # now we can calculate the final heursitic foot placement in the base-frame 
-            heuristic_foot_pos = torch.zeros((self.num_envs, 3), dtype=gs.tc_float)                    # (num_env, 3)
-            heuristic_foot_pos[:,0] = basic_foot_pose[:,0] + raibert_xy[:,0]
-            heuristic_foot_pos[:,1] = basic_foot_pose[:,1] + raibert_xy[:,1]
-            
-            # Append the calculations for this foot
-            raibert_foot_pos.append(heuristic_foot_pos)
-
-        # Now we have a list like (4, num_env, 3), we want (num_env, 4, 3)
-        feet_pose_base = torch.stack(feet_pose_base).to(self.device)   # (4, num_env, 3)
-        feet_pose_base = feet_pose_base.permute(1,0,2)                 # (num_env, 4, 3)
-
-        raibert_foot_pos = torch.stack(raibert_foot_pos).to(self.device)   # (4, num_env, 3)
-        raibert_foot_pos = raibert_foot_pos.permute(1,0,2)                 # (num_env, 4, 3)
-
-        # Calculate the error, ignore height, that is covered elsewhere
-        foot_error_xy = torch.sum(feet_pose_base[:,:,:2] - raibert_foot_pos[:,:,:2], dim=-1)  # (num_env, 4)
-
-        # filter by the first contact AND square the error
-        raibert_error = torch.sum(first_contact * torch.square(foot_error_xy), dim=-1)
-
-        return torch.exp(-raibert_error / self.cfg.rewards.foot_clearance_tracking_sigma)
-
-
-    # A rotation about the z-axis
-    def _build_raibert_rew_rot_mat(self, theta):
-        s = torch.sin(theta)        # (num_env,)
-        c = torch.cos(theta)        # (num_env,)
-
-        batch_rot_mats = torch.zeros((self.num_envs, 3, 3), dtype=gs.tc_float).to(self.device)
-
-        # Fill in the non-zero entries
-        batch_rot_mats[:,0,0] = c[:]
-        batch_rot_mats[:,0,1] = s[:]
-        batch_rot_mats[:,1,0] = -s[:]
-        batch_rot_mats[:,1,1] = c[:]
-        batch_rot_mats[:,2,2] = 1.0
-
-        return batch_rot_mats
 
     def _reward_no_motion_penalty(self):
         cmd_mag = torch.norm(self.commands[:, :2], dim=1)
@@ -1826,3 +1744,89 @@ class LeggedRobotGo1Dynamic(BaseTask):
         )
         return torch.exp(-clearance_error / self.cfg.rewards.foot_clearance_tracking_sigma)
         # return clearance_error
+
+    # The definition and calculation of this reward is inspired by the footstep selection calculations in https://arxiv.org/pdf/1909.06586
+    def _reward_raibert(self):
+        # Some constants. Will optimize later...
+        # Assume a decent "walk" (~1m/s) stance time of 0.5 seconds
+        stance_time = 0.5
+        width_offset = 0.06
+        raibert_gain = 0.03
+        # The arrays below assume the foot ordering of FR, FL, RR, RL
+        side_signs = torch.from_numpy(np.array([-1,1,-1,1])).float().to(self.device)
+        hip_offsets = torch.from_numpy(np.array([[0.19, -0.047, 0.0], [0.19, 0.047, 0.0], [-0.19, -0.047, 0.0], [-0.19, 0.047, 0.0]])).float().to(self.device)
+        
+        # contact filtering...
+        contact = self.link_contact_forces[:, self.feet_indices, 2] > 1.
+        contact_filt = torch.logical_or(contact, self.last_contacts)
+        self.last_contacts = contact
+        first_contact = (self.feet_air_time > 0.) * contact_filt
+
+        inv_base_quat = inv_quat(self.base_quat)
+
+        # calculate the Raibert Hueristic footstep location
+        # Perform for each foot in order or FR, FL, RR, RL
+        #     eventually want (num_env, 4, 2) - raibert is only concerned with x/y position
+        feet_pose_base = []
+        raibert_foot_pos = []
+        for i in range(len(self.feet_indices)):
+            # convert foot positions to base-frame
+            feet_pose_base_ = transform_by_quat(self.feet_pos[:,i,:], inv_base_quat)  # trasform to base frame (num_env, 3)
+            feet_pose_base.append(feet_pose_base_)
+
+            # Calculate Raibert huersitic foot contact locations in x/y-plane
+            offset = torch.zeros((self.feet_pos.shape[0], 3),dtype=gs.tc_float).to(self.device)     # (num_env, 3)
+            offset[:,1] = side_signs[i] * width_offset                                              # (num_env, 3)
+            probot_frame = hip_offsets[i] + offset                                                  # (num_env, 3)
+            z_rot_mats = self._build_raibert_rew_rot_mat(-self.commands[:,2] * stance_time * 0.5)   # (num_env, 3, 3)
+            corrected_probot_frame = torch.bmm(z_rot_mats, probot_frame.unsqueeze(-1)).squeeze(-1)  # (num_env, 3)
+            
+            # This is the result of eq. 13
+            basic_foot_pose = self.base_pos + transform_by_quat(corrected_probot_frame, inv_base_quat)  # (num_env, 3)
+
+            # now calculate the more complicated Raibert hueristic
+            #     symmetry hueristic
+            raibert_xy = self.base_lin_vel[:,:2] * (0.5 * stance_time) + raibert_gain * (self.base_lin_vel[:,:2] - self.commands[:,:2])  # (num_env, 2)
+            #     centrifugal hueristic
+            raibert_xy[:,0] += 0.5 * (self.base_pos[:,2]/9.81) *   self.base_lin_vel[:,1] * self.commands[:,2]   # x-axis 
+            raibert_xy[:,1] += 0.5 * (self.base_pos[:,2]/9.81) * (-self.base_lin_vel[:,0] * self.commands[:,2])  # y-axis
+
+            # now we can calculate the final heursitic foot placement on the ground(xy)-plane in the base-frame 
+            heuristic_foot_pos = torch.zeros((self.num_envs, 3), dtype=gs.tc_float)                    # (num_env, 3)
+            heuristic_foot_pos[:,0] = basic_foot_pose[:,0] + raibert_xy[:,0]
+            heuristic_foot_pos[:,1] = basic_foot_pose[:,1] + raibert_xy[:,1]
+            
+            # Append the calculations for this foot
+            raibert_foot_pos.append(heuristic_foot_pos)
+
+        # Now we have a list like (4, num_env, 3), we want (num_env, 4, 3)
+        feet_pose_base = torch.stack(feet_pose_base).to(self.device)   # (4, num_env, 3)
+        feet_pose_base = feet_pose_base.permute(1,0,2)                 # (num_env, 4, 3)
+
+        raibert_foot_pos = torch.stack(raibert_foot_pos).to(self.device)   # (4, num_env, 3)
+        raibert_foot_pos = raibert_foot_pos.permute(1,0,2)                 # (num_env, 4, 3)
+
+        # Calculate the error, ignore height, that is covered elsewhere
+        foot_error_xy = torch.sum(feet_pose_base[:,:,:2] - raibert_foot_pos[:,:,:2], dim=-1)  # (num_env, 4)
+
+        # filter by the first contact AND square the error
+        raibert_error = torch.sum(first_contact * torch.square(foot_error_xy), dim=-1)
+
+        # return torch.exp(-raibert_error / self.cfg.rewards.foot_clearance_tracking_sigma)
+        return raibert_error
+
+    # A rotation about the z-axis
+    def _build_raibert_rew_rot_mat(self, theta):
+        s = torch.sin(theta)        # (num_env,)
+        c = torch.cos(theta)        # (num_env,)
+
+        batch_rot_mats = torch.zeros((self.num_envs, 3, 3), dtype=gs.tc_float).to(self.device)
+
+        # Fill in the non-zero entries
+        batch_rot_mats[:,0,0] = c[:]
+        batch_rot_mats[:,0,1] = s[:]
+        batch_rot_mats[:,1,0] = -s[:]
+        batch_rot_mats[:,1,1] = c[:]
+        batch_rot_mats[:,2,2] = 1.0
+
+        return batch_rot_mats

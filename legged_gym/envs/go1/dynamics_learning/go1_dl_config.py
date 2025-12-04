@@ -201,13 +201,14 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             dof_close_to_default  = -0.1
             torque_limits         = -10.0
             stand_still           = -0.1
+            no_motion_penalty     = -1.00
+            alive_bonus           = 0.5
+
 
             # command tracking
             tracking_lin_vel  = 1.0
             tracking_ang_vel  = 0.5
-            no_motion_penalty = -1.00
 
-            alive_bonus = 0.0
 
             # smoothness and stability
             lin_vel_z        = -2.0
@@ -223,12 +224,8 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             action_rate       = 0.0
             action_smoothness = 0.0
 
-            # Since we want to drive this loss to zero, I think we make it negative
-            # We are using this to constrain the model... so negative, positive is when we want to accumulate a behavior
-            # whereas here we are trying to discourage this error signal (promoting stable WB locomotion).
-            # Might need to scale this a bit depending on the magnitude of the reward signal..
-            # we want the reward to be large but not dominating....
-            wb_dynamics = -1.0e-3
+            # promot stable WB locomotion
+            wb_dynamics = -1.0e-4
 
             # gait
             feet_air_time  = 1.0
@@ -237,7 +234,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             feet_contact_forces = -1e-4
 
             # new....
-            raibert     = 1.0e-4
+            raibert     = -1.0e-4
 
         class pos_scales():
             pos_action_rate       = -0.001   # new
@@ -315,5 +312,12 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         run_name = 'raibert_wbdyn'
         experiment_name = 'go1_dynamic'
         save_interval = 50
+        load_run = "Dec02_18-42-41_raibert_wbdyn"
+        checkpoint = 2000
+
+        # Load parameters for first function policy
+        # run_name = 'test_01'
+        # experiment_name = 'go1_dynamic'
+        # save_interval = 50
         # load_run = "Dec01_18-26-31_test_01"
         # checkpoint = 3000

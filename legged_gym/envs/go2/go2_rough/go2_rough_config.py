@@ -108,7 +108,19 @@ class GO2RoughCfg( LeggedRobotCfg ):
             # gait
             feet_air_time = 1.0
             # dof_close_to_default = -0.05
-    
+
+    class viewer:
+        ref_env = 0
+        pos = [2, 2, 2]       # [m]
+        lookat = [0., 0, 1.]  # [m]
+        rendered_envs_idx = [i for i in range(0,10)]  # number of environments to be rendered
+        rendered_envs_idx.extend([i for i in range(1000,1010)])
+        rendered_envs_idx.extend([i for i in range(2000,2010)])
+        rendered_envs_idx.extend([i for i in range(3000,3010)])
+        rendered_envs_idx.extend([i for i in range(4000,4010)])
+        # rendered_envs_idx = [0, 1000, 3500]
+        add_camera = False
+
     class commands( LeggedRobotCfg.commands ):
         curriculum = True
         max_curriculum = 1.
@@ -140,6 +152,6 @@ class GO2RoughCfgPPO( LeggedRobotCfgPPO ):
         run_name = ''
         experiment_name = 'go2_rough'
         save_interval = 100
-        load_run = "Feb10_18-54-11_"
+        load_run = "Dec04_10-42-12_"
         checkpoint = -1
         max_iterations = 2500
