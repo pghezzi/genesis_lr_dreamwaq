@@ -138,6 +138,8 @@ class OnPolicyRunnerDynamic:
         obs, critic_obs, obs_hist, torso_velo = obs.to(self.device), critic_obs.to(self.device),obs_hist.to(self.device), torso_velo.to(self.device)
         self.alg.actor_critic.train() # switch to train mode (for dropout for example)
 
+        self.env.step_tradeoff_curriculum()
+
         ep_infos = []
         pos_rewbuffer = deque(maxlen=100)
         tau_rewbuffer = deque(maxlen=100)

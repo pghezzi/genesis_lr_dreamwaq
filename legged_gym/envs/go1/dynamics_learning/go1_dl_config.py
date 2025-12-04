@@ -127,8 +127,8 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         ref_env = 0
         pos = [2, 2, 2]       # [m]
         lookat = [0., 0, 1.]  # [m]
-        # rendered_envs_idx = [i for i in range(5)]  # number of environments to be rendered
-        rendered_envs_idx = [0, 1000, 3500]
+        rendered_envs_idx = [i for i in range(25)]  # number of environments to be rendered
+        # rendered_envs_idx = [0, 1000, 3500]
         add_camera = False
 
     class asset( LeggedRobotCfg.asset ):
@@ -186,7 +186,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         base_height_target = 0.30
         tracking_sigma = 0.25 # tracking reward = exp(-error^2/sigma)
         
-        foot_clearance_target = 0.075 # desired foot clearance above ground [m]
+        foot_clearance_target = 0.055 # desired foot clearance above ground [m]
         foot_height_offset = 0.022   # height of the foot coordinate origin above ground [m]
         
         foot_clearance_tracking_sigma = 0.01
@@ -225,7 +225,8 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             action_smoothness = 0.0
 
             # promot stable WB locomotion
-            wb_dynamics = -1.0e-4
+            # wb_dynamics = -1.0e-4
+            wb_dynamics = 0.0
 
             # gait
             feet_air_time  = 1.0
@@ -234,7 +235,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             feet_contact_forces = -1e-4
 
             # new....
-            raibert     = -1.0e-4
+            raibert     = 0.0
 
         class pos_scales():
             pos_action_rate       = -0.001   # new
