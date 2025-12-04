@@ -127,8 +127,8 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         ref_env = 0
         pos = [2, 2, 2]       # [m]
         lookat = [0., 0, 1.]  # [m]
-        # rendered_envs_idx = [i for i in range(5)]  # number of environments to be rendered
-        rendered_envs_idx = [0, 1000, 3500]
+        rendered_envs_idx = [i for i in range(15)]  # number of environments to be rendered
+        # rendered_envs_idx = [0, 1000, 3500]
         add_camera = False
 
     class asset( LeggedRobotCfg.asset ):
@@ -234,7 +234,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             feet_contact_forces = -1e-4
 
             # new....
-            raibert     = -1.0e-4
+            raibert     = 0.0
 
         class pos_scales():
             pos_action_rate       = -0.001   # new
@@ -286,6 +286,8 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         # Shared
         dropout = 0.1
 
+        pinn_loss_weight = 0.0001
+
         # pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/rsl_rl/modules/pretrained_models/dynamic/11_22_202511_53_49_no_pinn/no_pinn_epoch_199.pth"
 
     class algorithm( LeggedRobotCfgPPO.algorithm ):
@@ -309,7 +311,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         max_iterations = 5000 # number of policy updates
         grf_dim = 12
         
-        run_name = 'raibert_wbdyn'
+        run_name = 'test_pinn'
         experiment_name = 'go1_dynamic'
         save_interval = 50
         load_run = "Dec02_18-42-41_raibert_wbdyn"

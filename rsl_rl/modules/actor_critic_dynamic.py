@@ -285,6 +285,10 @@ class ActorCritic_Dynamic(nn.Module):
         self.cenet_z = None
         self.cenet_torso_velo = None
 
+        self.mean_pos = None
+        self.mean_tau = None
+
+
         self.std_pos = nn.Parameter(init_noise_std * torch.ones(num_actions))
         self.std_tau = nn.Parameter(init_noise_std * torch.ones(num_actions))
 
@@ -530,6 +534,8 @@ class ActorCritic_Dynamic(nn.Module):
 
     def update_distribution(self, curr_obs):
         mean_pos, mean_tau = self.actor_forward(curr_obs)
+        self.mean_pos = mean_pos
+        self.mean_tau = mean_tau
 
         # # Clamp Global STD parameters to be safe
         # std_pos = torch.clamp(self.std_pos, 0.05, 1.1)

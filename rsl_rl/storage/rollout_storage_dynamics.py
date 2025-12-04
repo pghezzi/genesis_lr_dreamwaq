@@ -58,7 +58,17 @@ class RolloutStorageDynamics:
             self.tau_actions_log_prob = None
             self.tau_action_mean = None
             self.tau_action_sigma = None
-           
+
+            #  PINN stuff
+            self.prev_obs      = None
+            self.prev_obs_hist = None
+            self.pprev_obs      = None
+            self.pprev_obs_hist = None
+
+            self.wb_contact_forces = None
+            self.wb_mass_mat = None
+            self.wb_bias_vec = None
+            self.torso_acc = None
             
             self.hidden_states = None
         
@@ -66,7 +76,7 @@ class RolloutStorageDynamics:
             self.__init__()
 
     # We want all of the actions and associated data formatted in the Model kinematic definition - [FR, FL, RR, RL]
-    def __init__(self, num_envs, num_transitions_per_env, obs_shape, critic_obs_shape, obs_hist_shape, actions_shape, torso_velo_shape, grf_shape, device="cpu"):
+    def __init__(self, num_envs, num_transitions_per_env, obs_shape, critic_obs_shape, obs_hist_shape, actions_shape, torso_velo_shape, grf_shape, wb_shape, device="cpu"):
 
         self.device = device
 
@@ -110,6 +120,17 @@ class RolloutStorageDynamics:
         self.num_transitions_per_env = num_transitions_per_env
         self.num_envs = num_envs
 
+        # PINN specific stuff
+        self.prev_obs      = torch.zeros(num_transitions_per_env, num_envs, *obs_shape, device=self.device)
+        self.prev_obs_hist = torch.zeros(num_transitions_per_env, num_envs, *obs_hist_shape, device=self.device)
+        self.pprev_obs      = torch.zeros(num_transitions_per_env, num_envs, *obs_shape, device=self.device)
+        self.pprev_obs_hist = torch.zeros(num_transitions_per_env, num_envs, *obs_hist_shape, device=self.device)
+
+        self.wb_contact_forces = torch.zeros(num_transitions_per_env, num_envs, *wb_shape, device=self.device)
+        self.wb_mass_mats      = torch.zeros(num_transitions_per_env, num_envs, *wb_shape, *wb_shape, device=self.device)
+        self.wb_bias_vecs      = torch.zeros(num_transitions_per_env, num_envs, *wb_shape, device=self.device)
+        self.torso_accelerations = torch.zeros(num_transitions_per_env, num_envs, 6, device=self.device) # TODO - remove hardcoded value
+
         # rnn
         self.saved_hidden_states_a = None
         self.saved_hidden_states_c = None
@@ -145,6 +166,19 @@ class RolloutStorageDynamics:
         self.tau_actions_log_prob[self.step].copy_(transition.tau_actions_log_prob.view(-1, 1))
         self.tau_mu[self.step].copy_(transition.tau_action_mean)
         self.tau_sigma[self.step].copy_(transition.tau_action_sigma)
+
+        #  - PINN stuff
+        self.prev_obs[self.step].copy_(transition.prev_obs)
+        self.prev_obs_hist[self.step].copy_(transition.prev_obs_hist)
+
+        self.pprev_obs[self.step].copy_(transition.pprev_obs)
+        self.pprev_obs_hist[self.step].copy_(transition.pprev_obs_hist)
+        
+        self.wb_contact_forces[self.step].copy_(transition.wb_contact_forces)
+        self.wb_mass_mats[self.step].copy_(transition.wb_mass_mat)
+        self.wb_bias_vecs[self.step].copy_(transition.wb_bias_vec)
+        self.torso_accelerations[self.step].copy_(transition.torso_acc)
+
         
         self._save_hidden_states(transition.hidden_states)
         self.step += 1
@@ -238,6 +272,17 @@ class RolloutStorageDynamics:
         tau_old_mu = self.tau_mu.flatten(0, 1)
         tau_old_sigma = self.tau_sigma.flatten(0, 1)
 
+        # PINN stuff
+        prev_obs      = self.prev_obs.flatten(0, 1)
+        prev_obs_hist = self.prev_obs_hist.flatten(0, 1)
+        pprev_obs      = self.pprev_obs.flatten(0, 1)
+        pprev_obs_hist = self.pprev_obs_hist.flatten(0, 1)
+
+        gt_forces     = self.wb_contact_forces.flatten(0,1)
+        wb_mass_mats  = self.wb_mass_mats.flatten(0,1)
+        wb_bias_vecs  = self.wb_bias_vecs.flatten(0,1)
+        torso_accs    = self.torso_accelerations.flatten(0,1)
+
         for epoch in range(num_epochs):
             for i in range(num_mini_batches):
 
@@ -272,13 +317,26 @@ class RolloutStorageDynamics:
                 tau_advantages_batch = tau_advantages[batch_idx]
                 tau_old_mu_batch = tau_old_mu[batch_idx]
                 tau_old_sigma_batch = tau_old_sigma[batch_idx]
+
+                # PINN stuff
+                prev_obs_batch      = prev_obs[batch_idx]
+                prev_obs_hist_batch = prev_obs_hist[batch_idx]
+                gt_forces_batch     = gt_forces[batch_idx]
+                mass_mat_batch      = wb_mass_mats[batch_idx]
+                bias_vec_batch      = wb_bias_vecs[batch_idx]
+                torso_accs_batch    = torso_accs[batch_idx]
+
+                pprev_obs_batch = pprev_obs[batch_idx]
+                pprev_obs_hist_batch = pprev_obs_hist[batch_idx]
+
                 
                 yield obs_batch, critic_observations_batch, obs_hist_batch, torso_velo_labels_batch, \
                         grf_labels_batch, obs_labels_batch, pos_actions_batch, pos_target_values_batch, \
                         pos_advantages_batch, pos_returns_batch, pos_old_actions_log_prob_batch, pos_old_mu_batch, \
                         pos_old_sigma_batch,  tau_actions_batch, tau_target_values_batch, \
                         tau_advantages_batch, tau_returns_batch, tau_old_actions_log_prob_batch, tau_old_mu_batch, \
-                        tau_old_sigma_batch,(None, None), None
+                        tau_old_sigma_batch, prev_obs_batch, prev_obs_hist_batch, gt_forces_batch, mass_mat_batch, \
+                        bias_vec_batch, torso_accs_batch, pprev_obs_batch, pprev_obs_hist_batch
 
     # for RNNs only
     def reccurent_mini_batch_generator(self, num_mini_batches, num_epochs=8):

@@ -113,6 +113,13 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # Retunring some extra stuff and two separate reward functions
         return self.obs_buf, self.privileged_obs_buf, self.obs_history, (self.rew_buf+self.pos_rew_buf), (self.rew_buf + self.tau_rew_buf), self.reset_buf, self.extras, (self.grfs_buf * self.obs_scales.grf)
 
+    def get_prev_obs(self):
+        return self.last_obs_buf, self.last_obs_hist, self.llast_obs_buf, self.llast_obs_hist
+    
+    def get_pinn_wb_dynamics(self):
+        #           total GT forces  ,  generalized mass mat, bias vector
+        return self.contact_forces_buff, self.wb_mass_mat_buff, self.wb_bias_vec_buff, self.torso_6dof_acceleration
+
     def post_physics_step(self):
         """ check terminations, compute observations and rewards
             calls self._post_physics_step_callback() for common computations 
@@ -154,7 +161,10 @@ class LeggedRobotGo1Dynamic(BaseTask):
         contact_temp = self.robot.get_links_net_contact_force()[:, self.pino_feet_indices, :]
         wb_dynamics_list = []
         wb_contact_forces_list = []
-        
+        pinn_mass_mats = []
+        pinn_bias_vecs = []
+        torso_accelerations = []
+
         # indexing scheme used to return the wb_value back into the model's indexing scheme
         correct_pino_2_model_wb_idxs = [0,1,2,3,4,5]
         correct_pino_2_model_wb_idxs.extend(self.pino_2_model_joint_act_map)
@@ -197,6 +207,9 @@ class LeggedRobotGo1Dynamic(BaseTask):
             # now use a simple backwards finite-difference for acceleration approximation
             pino_wb_acc = (pino_wb_velo - pino_prev_wb_velo) / self.dt
 
+            # necessary for PINN updates
+            torso_accelerations.append(torch.from_numpy(pino_wb_acc[0:6]))
+
             # Calculate the generalized mass matrix and bias forces
             aq0 = np.zeros(self.pino_model.nv)
             #     compute dynamic drift -- Coriolis, centrifugal, gravity
@@ -209,6 +222,13 @@ class LeggedRobotGo1Dynamic(BaseTask):
 
             # reshape and append to the batch-list
             wb_dynamics_list.append(torch.from_numpy(wb_dynamics[correct_pino_2_model_wb_idxs]))
+
+            # Log the dyanmics values for use in the external PINN loss
+            reshaped_M = M[correct_pino_2_model_wb_idxs,:]
+            reshaped_M = reshaped_M[:,correct_pino_2_model_wb_idxs]
+            reshaped_b = b[correct_pino_2_model_wb_idxs]
+            pinn_mass_mats.append(torch.from_numpy(reshaped_M))
+            pinn_bias_vecs.append(torch.from_numpy(reshaped_b))
 
             # Now calculate the contact forces impact on the dynamics
             pino_jacobains = []
@@ -227,11 +247,15 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # end pinocchio loop
 
         # now stack the tensor lists to get the necessary state values
-        self.wb_dynamics_buff = torch.stack(wb_dynamics_list).to(self.device)               # batch x 18
-        self.contact_forces_buff = torch.stack(wb_contact_forces_list).to(self.device)      # batch x 18
+        self.wb_dynamics_buff[:]    = torch.stack(wb_dynamics_list).to(self.device)               # batch x 18
+        self.contact_forces_buff[:] = torch.stack(wb_contact_forces_list).to(self.device)      # batch x 18
 
         # print(self.wb_dynamics_buff.shape)
         # print(self.contact_forces_buff.shape)
+
+        self.wb_mass_mat_buff[:] = torch.stack(pinn_mass_mats).to(self.device)
+        self.wb_bias_vec_buff[:] = torch.stack(pinn_bias_vecs).to(self.device)
+        self.torso_6dof_acceleration[:] = torch.stack(torso_accelerations).to(self.device)
 
         self._post_physics_step_callback()
 
@@ -367,8 +391,17 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.wb_dynamics_buff[env_ids] = 0.
         # clear obs history for the envs that are reset
         self.last_obs_buf[env_ids] = 0.
+        self.llast_obs_buf[env_ids] = 0.
+        
         for i in range(self.obs_history_deque.maxlen):
             self.obs_history_deque[i][env_ids] *= 0
+
+        # PINN stuff
+        self.wb_mass_mat_buff[env_ids]  = 0.
+        self.wb_bias_vec_buff[env_ids]  = 0.
+        self.last_obs_hist[env_ids]     = 0. 
+        self.llast_obs_hist[env_ids]     = 0. 
+        self.torso_6dof_acceleration[env_ids] = 0.
 
         # fill extras
         self.extras["episode"] = {}
@@ -435,6 +468,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
     def compute_observations(self):
         """ Computes observations
         """
+        self.llast_obs_buf = self.last_obs_buf.clone().detach()
         self.last_obs_buf = self.obs_buf.clone().detach()
         self.obs_buf = torch.cat((self.commands[:,:3]*self.commands_scale,     # 3 DOF
                                   self.projected_gravity,                      # 3 DOF
@@ -456,6 +490,9 @@ class LeggedRobotGo1Dynamic(BaseTask):
                              1) * self.noise_scale_vec
             
         # push last_obs_buf to obs_history
+        self.llast_obs_hist = self.last_obs_hist.clone().detach()
+        self.last_obs_hist = self.obs_history.clone().detach()
+        
         self.obs_history_deque.append(self.last_obs_buf)
         self.obs_history = torch.cat(
             [self.obs_history_deque[i]
@@ -670,6 +707,25 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # return torch.clip(torques, -self.torque_limits, self.torque_limits)
         return torques
         # return self.feedback_torques
+
+    def _get_pinn_actions(self, actions):
+        # apply the tanh activation to scale between [-1, 1]
+        actions = F.tanh(actions)
+        # Pull out the position control actions
+        pos_actions = actions[:,0:12]
+        # pull out the torque control actions
+        tau_actions = actions[:,12:24]
+        
+        # Scale and shift the position actions
+        actions_scaled = pos_actions * self.cfg.control.action_scale     
+        target_dof_pos = actions_scaled + self.default_dof_pos
+        
+        # Scale and shift the torque actions
+        repeat_torque_scales = torch.from_numpy(np.array(self.cfg.control.torque_scale)).repeat(1,4).to(self.device)
+        feedforward_torques = (tau_actions * repeat_torque_scales + self.default_dof_tau)
+
+        return target_dof_pos, feedforward_torques
+
 
     def _compute_target_dof_pos(self, actions):
         # control_type = 'P'
@@ -963,8 +1019,17 @@ class LeggedRobotGo1Dynamic(BaseTask):
             dtype=gs.tc_float,
             device=self.device,
         )
+
+        self.llast_obs_buf = torch.zeros(
+            (self.num_envs, self.cfg.env.num_observations),
+            dtype=gs.tc_float,
+            device=self.device,
+        )
         
         self.obs_history_deque = deque(maxlen=self.cfg.env.num_obs_hist)
+
+        self.obs_history = torch.zeros(
+            (self.num_envs, self.num_obs * self.num_obs_hist), device=self.device, dtype=gs.tc_float)
         
         for _ in range(self.cfg.env.num_obs_hist):
             self.obs_history_deque.append(
@@ -984,6 +1049,22 @@ class LeggedRobotGo1Dynamic(BaseTask):
         
         self.wb_dynamics_buff = torch.zeros(
             (self.num_envs, self.wb_dim), device=self.device, dtype=gs.tc_float)
+        
+        # Holds the generalized mass matrix computed by pinocchio, reshaped to match the model order (FR, FL, RR, RL)
+        self.wb_mass_mat_buff = torch.zeros(
+            (self.num_envs, self.wb_dim, self.wb_dim), device=self.device, dtype=gs.tc_float)
+        
+        # Hold the bias vector (gravity, corilis, centerfugal) calculated by pinocchio, reshaped to match the model order
+        self.wb_bias_vec_buff = torch.zeros(
+            (self.num_envs, self.wb_dim), device=self.device, dtype=gs.tc_float)
+        
+        self.last_obs_hist = torch.zeros(
+            (self.num_envs, self.num_obs * self.num_obs_hist), device=self.device, dtype=gs.tc_float)
+        
+        self.llast_obs_hist = torch.zeros(
+            (self.num_envs, self.num_obs * self.num_obs_hist), device=self.device, dtype=gs.tc_float)
+        
+        self.torso_6dof_acceleration = torch.zeros(self.num_envs, 6, device=self.device, dtype=gs.tc_float)
         
         self.dof_tau = torch.zeros_like(self.dof_pos)
 

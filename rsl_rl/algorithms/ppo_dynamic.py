@@ -62,6 +62,7 @@ class PPODynamic:
                  schedule="fixed",
                  desired_kl=0.01,
                  device='cpu',
+                 pinn_lambda=0.001
                  ):
 
         self.device = device
@@ -86,6 +87,8 @@ class PPODynamic:
         self.boot_mult = 1.0
         self.use_boot = False
 
+        self.pinn_weight = pinn_lambda
+
         # # Initialize ZClip
         # self.act_zclip = ZClip(alpha=0.97, z_thresh=2.5)
         # self.enc_zclip = ZClip(alpha=0.97, z_thresh=2.5)
@@ -101,9 +104,9 @@ class PPODynamic:
         self.max_grad_norm = max_grad_norm
         self.use_clipped_value_loss = use_clipped_value_loss
 
-    def init_storage(self, num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, obs_hist_shape, action_shape, torso_velo_shape, grf_shape):
+    def init_storage(self, num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, obs_hist_shape, action_shape, torso_velo_shape, grf_shape, wb_shape):
         self.storage = RolloutStorageDynamics(num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, obs_hist_shape, \
-                                              action_shape, torso_velo_shape, grf_shape, self.device)
+                                              action_shape, torso_velo_shape, grf_shape, wb_shape, self.device)
 
     def test_mode(self):
         self.actor_critic.test()
@@ -112,7 +115,7 @@ class PPODynamic:
         self.actor_critic.train()
 
     # TODO - Try to prevent any crashes by replacing nans and other bad values....
-    def act(self, obs, critic_obs, obs_history, torso_velo):
+    def act(self, obs, critic_obs, obs_history, torso_velo, prev_obs, prev_obs_hist, pprev_obs, pprev_obs_hist):
         # if self.actor_critic.is_recurrent:
         #     self.transition.hidden_states = self.actor_critic.get_hidden_states()
         if self.use_boot:
@@ -141,10 +144,16 @@ class PPODynamic:
         
         # The current torso velocities, used as a target for part of the encoders output
         self.transition.torso_velo_targets = torso_velo
+
+        # PINN stuff
+        self.transition.prev_obs      = prev_obs
+        self.transition.prev_obs_hist = prev_obs_hist
+        self.transition.pprev_obs      = pprev_obs
+        self.transition.pprev_obs_hist = pprev_obs_hist
         
         return all_actions
     
-    def process_env_step(self, pos_rewards, tau_rewards, dones, infos, grf_labels, obs_labels):
+    def process_env_step(self, pos_rewards, tau_rewards, dones, infos, grf_labels, obs_labels, gt_forces, mass_mats, bias_vecs, torso_acc):
         self.transition.pos_rewards = pos_rewards.clone()
         self.transition.tau_rewards = tau_rewards.clone()
         
@@ -158,6 +167,12 @@ class PPODynamic:
             self.transition.pos_rewards += self.gamma * torch.squeeze(self.transition.pos_values * infos['time_outs'].unsqueeze(1).to(self.device), 1)
             self.transition.tau_rewards += self.gamma * torch.squeeze(self.transition.tau_values * infos['time_outs'].unsqueeze(1).to(self.device), 1)
 
+        # PINN stuff
+        self.transition.wb_contact_forces = gt_forces
+        self.transition.wb_mass_mat = mass_mats
+        self.transition.wb_bias_vec = bias_vecs
+        self.transition.torso_acc = torso_acc
+        
         # Record the transition
         self.storage.add_transitions(self.transition)
         self.transition.clear()
@@ -198,13 +213,14 @@ class PPODynamic:
         last_values_tau = self.actor_critic.evaluate_tau(last_critic_obs).detach()
         self.storage.compute_returns_tau(last_values_tau, self.gamma, self.lam)
 
-    def update(self,beta=1):
+    def update(self, action_func, dt, beta=1):
         mean_pos_value_loss = 0
         mean_pos_surrogate_loss = 0
         mean_tau_value_loss = 0
         mean_tau_surrogate_loss = 0
         mean_autoenc_loss = 0
         mean_decoder_loss = 0
+        mean_pinn_loss = 0
 
         all_enc_obs_targets = []
         all_enc_recons     = []
@@ -218,16 +234,19 @@ class PPODynamic:
             pos_advantages_batch, pos_returns_batch, pos_old_actions_log_prob_batch, pos_old_mu_batch, \
             pos_old_sigma_batch,  tau_actions_batch, tau_target_values_batch, \
             tau_advantages_batch, tau_returns_batch, tau_old_actions_log_prob_batch, tau_old_mu_batch, \
-            tau_old_sigma_batch, hid_states_batch, masks_batch in generator:
+            tau_old_sigma_batch, prev_obs_batch, prev_obs_hist_batch, gt_forces_batch, mass_mat_batch, \
+            bias_vec_batch, torso_accs_batch,  pprev_obs_batch, pprev_obs_hist_batch  in generator:
 
                 self.actor_critic.train()
                 self.enc_optimizer.zero_grad()
                 self.act_optimizer.zero_grad()
 
                 if self.use_boot:
-                    self.actor_critic.act(obs_batch, obs_hist_batch, masks=masks_batch, hidden_states=hid_states_batch[0])
+                    self.actor_critic.act(obs_batch, obs_hist_batch)
                 else:
-                    self.actor_critic.act_bootmask(obs_batch, obs_hist_batch, masks=masks_batch, hidden_states=hid_states_batch[0])
+                    self.actor_critic.act_bootmask(obs_batch, obs_hist_batch)
+
+                current_actions = torch.cat([self.actor_critic.mean_pos, self.actor_critic.mean_tau], dim=-1)
                 
                 # Encoder stuff
                 # pull out some values from the actor that I want to use in the decoder...
@@ -236,16 +255,17 @@ class PPODynamic:
                 logvar_latent = self.actor_critic.cenet_logvar
                 cenet_latent = self.actor_critic.cenet_z
                 cenet_torso_velo = self.actor_critic.cenet_torso_velo
+
                 # PPO stuff
                 #    - Position Control
                 pos_actions_log_prob_batch = self.actor_critic.get_pos_actions_log_prob(pos_actions_batch)
-                pos_value_batch            = self.actor_critic.evaluate_pos(critic_obs_batch, masks=masks_batch, hidden_states=hid_states_batch[1])
+                pos_value_batch            = self.actor_critic.evaluate_pos(critic_obs_batch)
                 pos_mu_batch               = self.actor_critic.pos_action_mean
                 pos_sigma_batch            = self.actor_critic.pos_action_std
                 pos_entropy_batch          = self.actor_critic.pos_entropy
                 #    - Torque Control
                 tau_actions_log_prob_batch = self.actor_critic.get_tau_actions_log_prob(tau_actions_batch)
-                tau_value_batch            = self.actor_critic.evaluate_tau(critic_obs_batch, masks=masks_batch, hidden_states=hid_states_batch[1])
+                tau_value_batch            = self.actor_critic.evaluate_tau(critic_obs_batch)
                 tau_mu_batch               = self.actor_critic.tau_action_mean
                 tau_sigma_batch            = self.actor_critic.tau_action_std
                 tau_entropy_batch          = self.actor_critic.tau_entropy
@@ -354,12 +374,56 @@ class PPODynamic:
 
                 tau_loss = tau_surrogate_loss + self.value_loss_coef * tau_value_loss - self.entropy_coef * tau_entropy_batch.mean()
 
-                # ppo_losses = [pos_loss, tau_loss]
-                # encoder_losses = [autoenc_loss]
+                # ###
+                # #  PINN Loss
+                # ###
+                # # Use the model to generate the "previous" actions (action-pred using previous obs)
+                # if self.use_boot:
+                #     self.actor_critic.act(prev_obs_batch, prev_obs_hist_batch)
+                # else:
+                #     self.actor_critic.act_bootmask(prev_obs_batch, prev_obs_hist_batch)
+                # prev_actions = torch.cat([self.actor_critic.mean_pos, self.actor_critic.mean_tau], dim=-1)
+
+
+                # pprev_actions = None
+                # if self.use_boot:
+                #     self.actor_critic.act(pprev_obs_batch, pprev_obs_hist_batch)
+                # else:
+                #     self.actor_critic.act_bootmask(pprev_obs_batch, pprev_obs_hist_batch)
+                # pprev_actions = torch.cat([self.actor_critic.mean_pos, self.actor_critic.mean_tau], dim=-1)
+
+                # # Process current and previous actions into the action-space
+                # q_des_curr, tau_des_curr  = action_func(current_actions)
+                # q_des_prev, _             = action_func(prev_actions)     # we do not need the tau from the prev. timestep
+                # q_des_pprev, _            = action_func(pprev_actions)    # we do not need the tau from the prev.-prev. timestep
+
+                # # Use 1st order backwards finite differences to approximate models command acceleration
+                # dof_acc = (q_des_curr - 2.0*q_des_prev + q_des_pprev) / np.power(dt,2)
+                # # Create the whole-body acceleration vector
+                # wb_acc = torch.cat([torso_accs_batch, dof_acc], dim=1)
+                # # Create the whole-boyd tau vector 
+                # wb_tau = torch.cat([torch.zeros(torso_accs_batch.shape[0], 6).float().to(self.device), tau_des_curr], dim=1)
+
+                # # Calculate the models wb-dynamics
+                # model_wb_dynamics = torch.bmm(mass_mat_batch, wb_acc.unsqueeze(-1)).squeeze(-1) + bias_vec_batch
+
+                # error = model_wb_dynamics - gt_forces_batch - wb_tau
+
+                # # Calculate the whole-body PINN loss
+                # pinn_loss = torch.mean(torch.square(error[:,6:]))
+
+                
+                ###
+                #   END loss calculations, start gradient updates
+                ### 
+
+                # ppo_losses = [pos_loss, tau_loss, self.pinn_weight * pinn_loss]
+                # encoder_losses = [autoenc_loss, self.pinn_weight * pinn_loss]
+
+                # total_ppo_loss = pos_loss + tau_loss + self.pinn_weight * pinn_loss
+                # total_enc_loss = autoenc_loss + self.pinn_weight * pinn_loss
 
                 total_ppo_loss = pos_loss + tau_loss
-                # total_ppo_loss = pos_loss
-
                 total_enc_loss = autoenc_loss
 
 
@@ -416,6 +480,7 @@ class PPODynamic:
                 mean_tau_surrogate_loss += tau_surrogate_loss.item()
                 mean_autoenc_loss += autoenc_loss.item()
                 mean_decoder_loss += dec_loss.item()
+                # mean_pinn_loss += pinn_loss.item()
 
         num_updates = self.num_learning_epochs * self.num_mini_batches
         mean_pos_value_loss /= num_updates
@@ -424,6 +489,7 @@ class PPODynamic:
         mean_tau_surrogate_loss /= num_updates
         mean_autoenc_loss /= num_updates
         mean_decoder_loss /= num_updates
+        mean_pinn_loss /= num_updates
 
         # Calculate the total bootstrapping probability over the performance of the autoencoder on all of the above
         mean_pred = np.mean(all_enc_obs_targets, axis=0)
@@ -440,4 +506,4 @@ class PPODynamic:
 
         self.storage.clear()
 
-        return mean_pos_value_loss, mean_pos_surrogate_loss, mean_tau_value_loss, mean_tau_surrogate_loss, mean_autoenc_loss, mean_decoder_loss
+        return mean_pos_value_loss, mean_pos_surrogate_loss, mean_tau_value_loss, mean_tau_surrogate_loss, mean_autoenc_loss, mean_decoder_loss, mean_pinn_loss
