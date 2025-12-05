@@ -310,7 +310,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         max_iterations = 5000 # number of policy updates
         grf_dim = 12
         
-        run_name = 'raibert_wbdyn'
+        run_name = 'test_without_wb_or_pinn'
         experiment_name = 'go1_dynamic'
         save_interval = 50
         load_run = "Dec02_18-42-41_raibert_wbdyn"
