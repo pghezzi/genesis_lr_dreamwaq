@@ -322,6 +322,8 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         dropout = 0.1
 
         pinn_loss_weight = 1e-5
+        pinn_warmup = 1000
+        pinn_init_steps = 500
 
         # pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/rsl_rl/modules/pretrained_models/dynamic/11_22_202511_53_49_no_pinn/no_pinn_epoch_199.pth"
 
@@ -346,7 +348,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         max_iterations = 5000 # number of policy updates
         grf_dim = 12
         
-        run_name = 'debug_pinn_wb'
+        run_name = 'debug_warmpinn_wb'
         experiment_name = 'go1_dynamic'
         save_interval = 50
         load_run = "Dec02_18-42-41_raibert_wbdyn"

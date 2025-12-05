@@ -62,7 +62,9 @@ class PPODynamic:
                  schedule="fixed",
                  desired_kl=0.01,
                  device='cpu',
-                 pinn_lambda=0.001
+                 pinn_lambda=0.001,
+                 pinn_warmup=1000,
+                 pinn_init_steps=500,
                  ):
 
         self.device = device
@@ -87,7 +89,10 @@ class PPODynamic:
         self.boot_mult = 1.0
         self.use_boot = False
 
-        self.pinn_weight = pinn_lambda
+        self.pinn_weight_final = pinn_lambda
+        self.pinn_weight = 0.0
+        self.pinn_warmup_steps = pinn_warmup
+        self.pinn_init = pinn_init_steps
 
         # # Initialize ZClip
         # self.act_zclip = ZClip(alpha=0.97, z_thresh=2.5)
@@ -213,7 +218,7 @@ class PPODynamic:
         last_values_tau = self.actor_critic.evaluate_tau(last_critic_obs).detach()
         self.storage.compute_returns_tau(last_values_tau, self.gamma, self.lam)
 
-    def update(self, action_func, dt, beta=1):
+    def update(self, action_func, dt, itr, beta=1):
         mean_pos_value_loss = 0
         mean_pos_surrogate_loss = 0
         mean_tau_value_loss = 0
@@ -224,6 +229,11 @@ class PPODynamic:
 
         all_enc_obs_targets = []
         all_enc_recons     = []
+
+        if itr > self.pinn_init and itr <= self.pinn_warmup_steps:
+            self.pinn_weight = (float(itr)/float(self.pinn_warmup_steps))*self.pinn_weight_final 
+
+        print(self.pinn_weight)
 
         # if self.actor_critic.is_recurrent:
         #     generator = self.storage.reccurent_mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
@@ -378,48 +388,52 @@ class PPODynamic:
                 #  PINN Loss
                 ###
                 # Use the model to generate the "previous" actions (action-pred using previous obs)
-                if self.use_boot:
-                    self.actor_critic.act(prev_obs_batch, prev_obs_hist_batch)
-                else:
-                    self.actor_critic.act_bootmask(prev_obs_batch, prev_obs_hist_batch)
-                prev_actions = torch.cat([self.actor_critic.mean_pos, self.actor_critic.mean_tau], dim=-1)
+                pinn_loss = 0.0
+                if self.pinn_weight > 0.0:
+                    if self.use_boot:
+                        self.actor_critic.act(prev_obs_batch, prev_obs_hist_batch)
+                    else:
+                        self.actor_critic.act_bootmask(prev_obs_batch, prev_obs_hist_batch)
+                    prev_actions = torch.cat([self.actor_critic.mean_pos, self.actor_critic.mean_tau], dim=-1)
 
 
-                pprev_actions = None
-                if self.use_boot:
-                    self.actor_critic.act(pprev_obs_batch, pprev_obs_hist_batch)
-                else:
-                    self.actor_critic.act_bootmask(pprev_obs_batch, pprev_obs_hist_batch)
-                pprev_actions = torch.cat([self.actor_critic.mean_pos, self.actor_critic.mean_tau], dim=-1)
+                    pprev_actions = None
+                    if self.use_boot:
+                        self.actor_critic.act(pprev_obs_batch, pprev_obs_hist_batch)
+                    else:
+                        self.actor_critic.act_bootmask(pprev_obs_batch, pprev_obs_hist_batch)
+                    pprev_actions = torch.cat([self.actor_critic.mean_pos, self.actor_critic.mean_tau], dim=-1)
 
-                # Process current and previous actions into the action-space
-                q_des_curr, tau_des_curr  = action_func(current_actions)
-                q_des_prev, _             = action_func(prev_actions)     # we do not need the tau from the prev. timestep
-                q_des_pprev, _            = action_func(pprev_actions)    # we do not need the tau from the prev.-prev. timestep
+                    # Process current and previous actions into the action-space
+                    q_des_curr, tau_des_curr  = action_func(current_actions)
+                    q_des_prev, _             = action_func(prev_actions)     # we do not need the tau from the prev. timestep
+                    q_des_pprev, _            = action_func(pprev_actions)    # we do not need the tau from the prev.-prev. timestep
 
-                # Use 1st order backwards finite differences to approximate models command acceleration
-                dof_acc = (q_des_curr - 2.0*q_des_prev + q_des_pprev) / np.power(dt,2)
-                # Create the whole-body acceleration vector
-                wb_acc = torch.cat([torso_accs_batch, dof_acc], dim=1)
-                # Create the whole-boyd tau vector 
-                wb_tau = torch.cat([torch.zeros(torso_accs_batch.shape[0], 6).float().to(self.device), tau_des_curr], dim=1)
+                    # Use 1st order backwards finite differences to approximate models command acceleration
+                    dof_acc = (q_des_curr - 2.0*q_des_prev + q_des_pprev) / np.power(dt,2)
+                    # Create the whole-body acceleration vector
+                    wb_acc = torch.cat([torso_accs_batch, dof_acc], dim=1)
+                    # Create the whole-boyd tau vector 
+                    wb_tau = torch.cat([torch.zeros(torso_accs_batch.shape[0], 6).float().to(self.device), tau_des_curr], dim=1)
 
-                # Calculate the models wb-dynamics
-                model_wb_dynamics = torch.bmm(mass_mat_batch, wb_acc.unsqueeze(-1)).squeeze(-1) + bias_vec_batch
+                    # Calculate the models wb-dynamics
+                    model_wb_dynamics = torch.bmm(mass_mat_batch, wb_acc.unsqueeze(-1)).squeeze(-1) + bias_vec_batch
 
-                error = model_wb_dynamics - gt_forces_batch - wb_tau
+                    error = model_wb_dynamics - gt_forces_batch - wb_tau
 
-                # Calculate the whole-body PINN loss
-                pinn_loss = torch.mean(torch.square(error[:,6:]))
+                    # Calculate the whole-body PINN loss
+                    pinn_loss = torch.mean(torch.square(error[:,6:]))
 
                 
                 ###
                 #   END loss calculations, start gradient updates
                 ### 
-
-                ppo_losses = [pos_loss+tau_loss, self.pinn_weight * pinn_loss]
-                encoder_losses = [autoenc_loss, self.pinn_weight * pinn_loss]
-
+                if self.pinn_weight > 0.0:
+                    ppo_losses = [pos_loss+tau_loss, self.pinn_weight * pinn_loss]
+                    encoder_losses = [autoenc_loss, self.pinn_weight * pinn_loss]
+                else:
+                    ppo_losses = [pos_loss+tau_loss]
+                    encoder_losses = [autoenc_loss]
                 # total_ppo_loss = pos_loss + tau_loss + self.pinn_weight * pinn_loss
                 # total_enc_loss = autoenc_loss + self.pinn_weight * pinn_loss
 
@@ -480,7 +494,10 @@ class PPODynamic:
                 mean_tau_surrogate_loss += tau_surrogate_loss.item()
                 mean_autoenc_loss += autoenc_loss.item()
                 mean_decoder_loss += dec_loss.item()
-                mean_pinn_loss += pinn_loss.item()
+                if self.pinn_weight > 0.0:
+                    mean_pinn_loss += pinn_loss.item()
+                else:
+                    mean_pinn_loss += pinn_loss
 
         num_updates = self.num_learning_epochs * self.num_mini_batches
         mean_pos_value_loss /= num_updates

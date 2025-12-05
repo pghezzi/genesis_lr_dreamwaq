@@ -88,7 +88,11 @@ class OnPolicyRunnerDynamic:
 
         alg_class = eval(self.cfg["algorithm_class_name"]) # PPO
         
-        self.alg: PPODynamic = alg_class(actor_critic, decoder, pinn_lambda=self.policy_cfg["pinn_loss_weight"], device=self.device, **self.alg_cfg)
+        self.alg: PPODynamic = alg_class(actor_critic, decoder, 
+                                         pinn_lambda=self.policy_cfg["pinn_loss_weight"], 
+                                         pinn_warmup=self.policy_cfg["pinn_warmup"], 
+                                         pinn_init_steps=self.policy_cfg["pinn_init_steps"],
+                                         device=self.device, **self.alg_cfg)
         
         self.num_steps_per_env = self.cfg["num_steps_per_env"]
         self.save_interval = self.cfg["save_interval"]
@@ -205,7 +209,7 @@ class OnPolicyRunnerDynamic:
                 start = stop
                 self.alg.compute_returns(critic_obs)
             
-            mean_pos_value_loss, mean_pos_surrogate_loss, mean_tau_value_loss, mean_tau_surrogate_loss, mean_autoenc_loss, mean_decoder_loss, mean_pinn_loss = self.alg.update(self.env._get_pinn_actions,self.env.dt)
+            mean_pos_value_loss, mean_pos_surrogate_loss, mean_tau_value_loss, mean_tau_surrogate_loss, mean_autoenc_loss, mean_decoder_loss, mean_pinn_loss = self.alg.update(self.env._get_pinn_actions,self.env.dt,self.env.num_iters)
 
             self.env.step_tradeoff_curriculum()
             if self.env.use_reward_curriculum:
