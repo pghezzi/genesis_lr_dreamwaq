@@ -384,6 +384,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.last_base_world_ang_vel[env_ids] = 0.
 
         self.feet_air_time[env_ids] = 0.
+        self.feet_air_time_raibert[env_ids] = 0.
         self.episode_length_buf[env_ids] = 0
         self.reset_buf[env_ids] = 1
         self.grfs_buf[env_ids] = 0.
@@ -979,7 +980,12 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.feet_air_time = torch.zeros(
             (self.num_envs, len(self.feet_indices)), device=self.device, dtype=gs.tc_float)
         
+        self.feet_air_time_raibert = torch.zeros(
+            (self.num_envs, len(self.feet_indices)), device=self.device, dtype=gs.tc_float)
+        
         self.last_contacts = torch.zeros((self.num_envs, len(self.feet_indices)), device=self.device, dtype=gs.tc_int)
+
+        self.raibert_last_contacts = torch.zeros((self.num_envs, len(self.feet_indices)), device=self.device, dtype=gs.tc_int) 
         
         self.link_contact_forces = torch.zeros(
             (self.num_envs, self.robot.n_links, 3), device=self.device, dtype=gs.tc_float
@@ -1171,6 +1177,9 @@ class LeggedRobotGo1Dynamic(BaseTask):
             self.tau_reward_functions.append(getattr(self, name))
 
         # print( (self.reward_scales.keys() | self.pos_reward_scales.keys() | self.tau_reward_scales.keys()))
+
+        if self.use_reward_curriculum:
+            self.step_reward_curriculum()
 
         # reward episode sums, across all reward groups
         self.episode_sums = {name: torch.zeros(self.num_envs, dtype=gs.tc_float, device=self.device, requires_grad=False)
@@ -1461,6 +1470,31 @@ class LeggedRobotGo1Dynamic(BaseTask):
         print("self.feedforward_tau_weight: ", self.feedforward_tau_weight)
         print("self.feedback_tau_weight: ", self.feedback_tau_weight)
 
+    def step_reward_curriculum(self):
+        # Safety catch
+        if not self.use_reward_curriculum:
+            return 
+        
+        # by default set the reward to the upper bound
+        for key in self.reward_curr_keys:
+            self.reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
+            if key in self.pos_reward_scales.keys():
+                self.reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
+            if key in self.tau_reward_scales:
+                self.reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
+        
+        if self.num_iters < self.reward_curr_steps:
+            print("Stepping Reward Curriculum")
+            for key in self.reward_curr_keys:
+                self.reward_scales[key] = ((float(self.num_iters)/float(self.reward_curr_steps))*self.reward_bound_diffs[key] + self.reward_curr_bounds[key][0])*self.dt
+            if key in self.pos_reward_scales.keys():
+                self.pos_reward_scales[key] = ((float(self.num_iters)/float(self.reward_curr_steps))*self.reward_bound_diffs[key] + self.reward_curr_bounds[key][0])*self.dt
+            if key in self.tau_reward_scales:
+                self.tau_reward_scales[key] = ((float(self.num_iters)/float(self.reward_curr_steps))*self.reward_bound_diffs[key] + self.reward_curr_bounds[key][0])*self.dt
+
+        for key in self.reward_curr_keys:
+            print("Reward - ", key, " is scaled by ", self.reward_scales[key])
+
     def _parse_cfg(self, cfg):
         self.dt = self.cfg.control.dt
         # use self-implemented pd controller
@@ -1471,6 +1505,16 @@ class LeggedRobotGo1Dynamic(BaseTask):
         
         self.pos_reward_scales = class_to_dict(self.cfg.rewards.pos_scales)
         self.tau_reward_scales = class_to_dict(self.cfg.rewards.tau_scales)
+
+        self.use_reward_curriculum = self.cfg.rewards.reward_curriculum
+
+        self.reward_curr_keys = self.cfg.rewards.reward_curriculum.curr_reward_keys
+        self.reward_curr_bounds = self.cfg.rewards.reward_curriculum.curr_reward_bounds
+        self.reward_curr_steps = self.cfg.rewards.reward_curriculum.curr_steps
+
+        self.reward_bound_diffs = {}
+        for key in self.reward_curr_keys:
+            self.reward_bound_diffs[key] = self.reward_curr_bounds[key][1] - self.reward_curr_bounds[key][0]
 
         self.command_ranges = class_to_dict(self.cfg.commands.ranges)
         
@@ -1839,9 +1883,11 @@ class LeggedRobotGo1Dynamic(BaseTask):
         
         # contact filtering...
         contact = self.link_contact_forces[:, self.feet_indices, 2] > 1.
-        contact_filt = torch.logical_or(contact, self.last_contacts)
-        self.last_contacts = contact
-        first_contact = (self.feet_air_time > 0.) * contact_filt
+        contact_filt = torch.logical_or(contact, self.raibert_last_contacts)
+        self.raibert_last_contacts = contact
+        first_contact = (self.feet_air_time_raibert > 0.) * contact_filt
+        self.feet_air_time_raibert += self.dt
+        self.feet_air_time_raibert *= ~contact_filt
 
         inv_base_quat = inv_quat(self.base_quat)
 
@@ -1891,7 +1937,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         foot_error_xy = torch.sum(feet_pose_base[:,:,:2] - raibert_foot_pos[:,:,:2], dim=-1)  # (num_env, 4)
 
         # filter by the first contact AND square the error
-        raibert_error = torch.sum(first_contact * torch.square(foot_error_xy), dim=-1)
+        raibert_error = torch.norm(first_contact * foot_error_xy, dim=-1)
 
         # return torch.exp(-raibert_error / self.cfg.rewards.foot_clearance_tracking_sigma)
         return raibert_error

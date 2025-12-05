@@ -3,7 +3,7 @@ from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobot
 class GO1DynamicCfg( LeggedRobotCfg ):
     
     class env( LeggedRobotCfg.env ):
-        num_envs = 4096
+        num_envs = 1000
         num_observations = 57
         num_privileged_obs = 82
         num_actions = 12
@@ -91,7 +91,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
 
     class domain_rand(LeggedRobotCfg.domain_rand):
         randomize_friction = True
-        friction_range = [0.5, 1.25]
+        friction_range = [0.2, 1.25]
         randomize_base_mass = True
         added_mass_range = [-1.0, 2.0]
         push_robots = True
@@ -111,6 +111,9 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         randomize_joint_damping = False
         joint_damping_range = [0.25, 0.3]
 
+        enable_additional_ratio = 0.5
+
+
     class noise (LeggedRobotCfg.noise):
         add_noise = True
         noise_level = 1.0 # scales other values
@@ -127,7 +130,16 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         ref_env = 0
         pos = [2, 2, 2]       # [m]
         lookat = [0., 0, 1.]  # [m]
-        rendered_envs_idx = [i for i in range(15)]  # number of environments to be rendered
+        rendered_envs_idx = [i for i in range(0, 5, 1)]  # number of environments to be rendered
+        rendered_envs_idx.extend([i for i in range(200, 205, 1)])  # number of environments to be rendered
+        rendered_envs_idx.extend([i for i in range(500, 505, 1)])  # number of environments to be rendered
+        rendered_envs_idx.extend([i for i in range(750, 755, 1)])  # number of environments to be rendered
+        rendered_envs_idx.extend([i for i in range(900, 905, 1)])  # number of environments to be rendered
+
+        # rendered_envs_idx.extend([i for i in range(1500, 1505, 1)])
+        # rendered_envs_idx.extend([i for i in range(1900, 1905, 1)])
+        # rendered_envs_idx.extend([i for i in range(3500, 3505, 1)])
+        # rendered_envs_idx.extend([i for i in range(4000, 4005, 1)])
         # rendered_envs_idx = [0, 1000, 3500]
         add_camera = False
 
@@ -192,6 +204,8 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         foot_clearance_tracking_sigma = 0.01
         only_positive_rewards = False
 
+        reward_curriculum = True
+
         max_contact_force = 200.0
         class scales( LeggedRobotCfg.rewards.scales ):
             # General
@@ -231,9 +245,10 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             feet_air_time  = 1.0
             foot_clearance = 0.5
             foot_slip      = -1.0e-2
-            feet_contact_forces = -1e-4
+            feet_contact_forces = -1e-2
 
             # new....
+            # raibert     = -1.0e-4
             raibert     = 0.0
 
         class pos_scales():
@@ -248,6 +263,26 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             tau_action_smoothness = -0.001   # new
             feedforward_torques   = -2.e-4  # new
 
+        class reward_curriculum():
+            curr_reward_keys = ["tau_action_rate", "tau_action_smoothness", "feedforward_torques",
+                                "pos_action_rate", "pos_action_smoothness", "feedback_torques",
+                                "dof_close_to_default", "dof_acc", "joint_power", "joint_power_dist",
+                                "wb_dynamics"]
+            
+            curr_reward_bounds = {"tau_action_rate":[-1.0e-5, -1.0e-2],
+                                  "tau_action_smoothness":[-1.0e-5, -1.0e-2],
+                                  "pos_action_rate":[-1.0e-5, -1.0e-2],
+                                  "pos_action_smoothness":[-1.0e-5, -1.0e-2],
+                                  "feedforward_torques":[-2.0e-4, -2.0e-3],
+                                  "feedback_torques":[-2.0e-4, -2.0e-3],
+                                  "dof_close_to_default":[-1.0e-4, -0.1],
+                                  "dof_acc":[-1.0e-9, -2.5e-7],
+                                  "joint_power":[-2.0e-5, -2.0e-3],
+                                  "joint_power_dist":[-1.0e-5, -1.0e-3],
+                                  "wb_dynamics":[-1e-8, -1e-3]
+                                  }
+
+            curr_steps = 2000
     class commands( LeggedRobotCfg.commands ):
         curriculum = True
         max_curriculum = 1.
@@ -286,7 +321,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         # Shared
         dropout = 0.1
 
-        pinn_loss_weight = 0.0001
+        pinn_loss_weight = 1e-5
 
         # pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/rsl_rl/modules/pretrained_models/dynamic/11_22_202511_53_49_no_pinn/no_pinn_epoch_199.pth"
 
@@ -311,7 +346,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         max_iterations = 5000 # number of policy updates
         grf_dim = 12
         
-        run_name = 'test_pinn'
+        run_name = 'debug_pinn_wb'
         experiment_name = 'go1_dynamic'
         save_interval = 50
         load_run = "Dec02_18-42-41_raibert_wbdyn"

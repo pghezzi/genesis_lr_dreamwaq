@@ -131,6 +131,9 @@ class OnPolicyRunnerDynamic:
             self.env.episode_length_buf = torch.randint_like(self.env.episode_length_buf, high=int(self.env.max_episode_length))
         
         obs,obs_hist,torso_velo = self.env.get_observations()
+        self.env.step_tradeoff_curriculum()
+        if self.env.use_reward_curriculum:
+            self.env.step_reward_curriculum()
         
         privileged_obs = self.env.get_privileged_observations()
         critic_obs = privileged_obs if privileged_obs is not None else obs
@@ -205,7 +208,15 @@ class OnPolicyRunnerDynamic:
             mean_pos_value_loss, mean_pos_surrogate_loss, mean_tau_value_loss, mean_tau_surrogate_loss, mean_autoenc_loss, mean_decoder_loss, mean_pinn_loss = self.alg.update(self.env._get_pinn_actions,self.env.dt)
 
             self.env.step_tradeoff_curriculum()
+            if self.env.use_reward_curriculum:
+                self.env.step_reward_curriculum()
             self.env.num_iters += 1
+
+            # enable additional domain randomizations
+            if (self.env.cfg.domain_rand.enable_additional_ratio < (float(self.env.num_iters)/float(tot_iter))):
+                self.env.cfg.domain_rand.randomize_joint_armature = True
+                self.env.cfg.domain_rand.randomize_joint_stiffness = True
+                self.env.cfg.domain_rand.randomize_joint_damping = True
             
             
             stop = time.time()
@@ -253,7 +264,7 @@ class OnPolicyRunnerDynamic:
         self.writer.add_scalar('Loss/tau_value_function', locs['mean_tau_value_loss'], locs['it'])
         self.writer.add_scalar('Loss/tau_surrogate', locs['mean_tau_surrogate_loss'], locs['it'])
         self.writer.add_scalar('Loss/tau_learning_rate', self.alg.tau_learning_rate, locs['it'])
-        self.writer.add_scalar('Loss/tau_learning_rate', locs['mean_pinn_loss'], locs['it'])
+        self.writer.add_scalar('Loss/pinn_loss', locs['mean_pinn_loss'], locs['it'])
         self.writer.add_scalar('Policy/mean_pos_noise_std', mean_pos_std.item(), locs['it'])        
         self.writer.add_scalar('Policy/mean_tau_noise_std', mean_tau_std.item(), locs['it'])
         self.writer.add_scalar('Perf/total_fps', fps, locs['it'])
@@ -316,10 +327,10 @@ class OnPolicyRunnerDynamic:
     def save(self, path, infos=None):
         torch.save({
             'model_state_dict': self.alg.actor_critic.state_dict(),
-            # 'act_optimizer_state_dict': self.alg.act_optimizer.optimizer.state_dict(),
-            # 'enc_optimizer_state_dict': self.alg.enc_optimizer.optimizer.state_dict(),
-            'act_optimizer_state_dict': self.alg.act_optimizer.state_dict(),
-            'enc_optimizer_state_dict': self.alg.enc_optimizer.state_dict(),
+            'act_optimizer_state_dict': self.alg.act_optimizer.optimizer.state_dict(),
+            'enc_optimizer_state_dict': self.alg.enc_optimizer.optimizer.state_dict(),
+            # 'act_optimizer_state_dict': self.alg.act_optimizer.state_dict(),
+            # 'enc_optimizer_state_dict': self.alg.enc_optimizer.state_dict(),
             'decoder_state_dict': self.alg.decoder.state_dict(),
             'decoder_opt_state_dict': self.alg.decoder_optimizer.state_dict(),
             'iter': self.current_learning_iteration,
@@ -332,10 +343,10 @@ class OnPolicyRunnerDynamic:
         self.alg.actor_critic.load_state_dict(loaded_dict['model_state_dict'])
         # Load optimizer(s)
         if load_optimizer:
-            # self.alg.act_optimizer.optimizer.load_state_dict(loaded_dict['act_optimizer_state_dict'])
-            # self.alg.enc_optimizer.optimizer.load_state_dict(loaded_dict['enc_optimizer_state_dict'])
-            self.alg.act_optimizer.load_state_dict(loaded_dict['act_optimizer_state_dict'])
-            self.alg.enc_optimizer.load_state_dict(loaded_dict['enc_optimizer_state_dict'])
+            self.alg.act_optimizer.optimizer.load_state_dict(loaded_dict['act_optimizer_state_dict'])
+            self.alg.enc_optimizer.optimizer.load_state_dict(loaded_dict['enc_optimizer_state_dict'])
+            # self.alg.act_optimizer.load_state_dict(loaded_dict['act_optimizer_state_dict'])
+            # self.alg.enc_optimizer.load_state_dict(loaded_dict['enc_optimizer_state_dict'])
             self.alg.decoder_optimizer.load_state_dict(loaded_dict['decoder_opt_state_dict'])
         # Load the VAE decoder model...
         self.alg.decoder.load_state_dict(loaded_dict['decoder_state_dict'])
