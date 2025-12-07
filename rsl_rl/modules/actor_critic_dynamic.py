@@ -346,6 +346,7 @@ class ActorCritic_Dynamic(nn.Module):
         Returns:
             List of parameter groups for optimizer initialization.
         """
+        critic_set = set()
         tau_decay = set()
         pos_decay = set()
         shared_decay = set()
@@ -374,6 +375,8 @@ class ActorCritic_Dynamic(nn.Module):
                             shared_decay.add(fpn)
                         elif "context_encoder" in fpn:
                             encoder.add(fpn)
+                        elif "critic" in fpn:
+                            critic_set.add(fpn)
                         else:
                             if "pos" in fpn:
                                 pos_decay.add(fpn)
@@ -389,10 +392,10 @@ class ActorCritic_Dynamic(nn.Module):
 
         # Validate parameter separation
         param_dict   = {pn: p for pn, p in self.named_parameters()}
-        inter_params = pos_decay & tau_decay & shared_decay & no_decay & special_decay & encoder
+        inter_params = pos_decay & tau_decay & shared_decay & no_decay & special_decay & encoder & critic_set
         if inter_params:
             raise ValueError(f"Parameters in all sets: {inter_params}")
-        missing_params = param_dict.keys() - (pos_decay | tau_decay | shared_decay | no_decay | special_decay | encoder)
+        missing_params = param_dict.keys() - (pos_decay | tau_decay | shared_decay | no_decay | special_decay | encoder | critic_set)
         if missing_params:
             raise ValueError(f"Parameters not categorized: {missing_params}")
         
@@ -401,6 +404,7 @@ class ActorCritic_Dynamic(nn.Module):
         params_act = [{"params": [param_dict[pn] for pn in sorted(pos_decay)],     "weight_decay": weight_decay, "name":"pos_branch"},
                       {"params": [param_dict[pn] for pn in sorted(tau_decay)],     "weight_decay": weight_decay, "name":"tau_branch"},
                       {"params": [param_dict[pn] for pn in sorted(shared_decay)],  "weight_decay": weight_decay, "name":"shared"},
+                      {"params": [param_dict[pn] for pn in sorted(critic_set)],    "weight_decay": weight_decay, "name":"critic"},
                       {"params": [param_dict[pn] for pn in sorted(no_decay)],      "weight_decay": 0.0},
                       {"params": [param_dict[pn] for pn in sorted(special_decay)], "weight_decay": strong_decay}]
         
@@ -463,8 +467,8 @@ class ActorCritic_Dynamic(nn.Module):
         #     torque
         tau_latent = self.act_tau_h2(tau_latent)
         #     now perform the cross-conditioning
-        # pos_latent = self.act_tau_2_pos_h2(pos_latent, tau_latent)  # perform FiLM on pos_latent using tau_latent
-        # tau_latent = self.act_pos_2_tau_h2(tau_latent, pos_latent)  # perform FiLM on tau_latent using pos_latent
+        pos_latent = self.act_tau_2_pos_h2(pos_latent, tau_latent)  # perform FiLM on pos_latent using tau_latent
+        tau_latent = self.act_pos_2_tau_h2(tau_latent, pos_latent)  # perform FiLM on tau_latent using pos_latent
         # perform activation
         pos_latent = self.activation(pos_latent)
         tau_latent = self.activation(tau_latent)

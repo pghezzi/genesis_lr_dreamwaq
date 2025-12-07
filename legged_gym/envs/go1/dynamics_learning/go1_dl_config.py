@@ -3,7 +3,7 @@ from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobot
 class GO1DynamicCfg( LeggedRobotCfg ):
     
     class env( LeggedRobotCfg.env ):
-        num_envs = 1000
+        num_envs = 4096
         num_observations = 57
         num_privileged_obs = 82
         num_actions = 12
@@ -130,7 +130,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         ref_env = 0
         pos = [2, 2, 2]       # [m]
         lookat = [0., 0, 1.]  # [m]
-        rendered_envs_idx = [i for i in range(0, 5, 1)]  # number of environments to be rendered
+        rendered_envs_idx = [i for i in range(0, 10, 1)]  # number of environments to be rendered
         rendered_envs_idx.extend([i for i in range(200, 205, 1)])  # number of environments to be rendered
         rendered_envs_idx.extend([i for i in range(500, 505, 1)])  # number of environments to be rendered
         rendered_envs_idx.extend([i for i in range(750, 755, 1)])  # number of environments to be rendered
@@ -160,7 +160,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             'RL_calf_joint',]
         foot_name = ["foot"]
         penalize_contacts_on = ["hip", "thigh", "calf"]
-        terminate_after_contacts_on = ["base"]
+        terminate_after_contacts_on = ["base","hip"]
         links_to_keep = ['FR_foot', 'FL_foot', 'RR_foot', 'RL_foot']
         self_collisions = True
   
@@ -190,7 +190,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         termination_terms = ["roll", "pitch", "height_min", "height_max"]
         roll_threshold    = 0.7  # [rad] ~ 40 degrees
         pitch_threshold   = 0.7  # [rad] ~ 20 degrees
-        height_min = 0.10        # [m]
+        height_min = 0.22        # [m]
         height_max = 1.50        # [m]
     class rewards( LeggedRobotCfg.rewards ):
         soft_dof_pos_limit = 0.90
@@ -234,12 +234,15 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             joint_power_dist = -1.e-5
             torques          = 0.0 # don't need to use this when we already have joint power above...
 
-            # Zero out some values that are used in the individual reward classes vbelow
+            # Zero out some values that are used in the individual reward classes below
             action_rate       = 0.0
             action_smoothness = 0.0
 
             # promot stable WB locomotion
-            wb_dynamics = -1.0e-4
+            # wb_dynamics = -1.0e-4
+            wb_dynamics = 0.0
+            stable_grf_dynamics      = 0.01
+            floating_base_stability  = 0.01
 
             # gait
             feet_air_time  = 1.0
@@ -248,8 +251,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             feet_contact_forces = -1e-2
 
             # new....
-            # raibert     = -1.0e-4
-            raibert     = 0.0
+            raibert     = -0.1
 
         class pos_scales():
             pos_action_rate       = -0.001   # new
@@ -267,19 +269,28 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             curr_reward_keys = ["tau_action_rate", "tau_action_smoothness", "feedforward_torques",
                                 "pos_action_rate", "pos_action_smoothness", "feedback_torques",
                                 "dof_close_to_default", "dof_acc", "joint_power", "joint_power_dist",
-                                "wb_dynamics"]
+                                "stable_grf_dynamics", "floating_base_stability"]
+                                # "wb_dynamics"]
             
             curr_reward_bounds = {"tau_action_rate":[-1.0e-5, -1.0e-2],
                                   "tau_action_smoothness":[-1.0e-5, -1.0e-2],
+                                  
                                   "pos_action_rate":[-1.0e-5, -1.0e-2],
                                   "pos_action_smoothness":[-1.0e-5, -1.0e-2],
+                                  
                                   "feedforward_torques":[-2.0e-4, -2.0e-3],
                                   "feedback_torques":[-2.0e-4, -2.0e-3],
+                                  
                                   "dof_close_to_default":[-1.0e-4, -0.1],
-                                  "dof_acc":[-1.0e-9, -2.5e-7],
-                                  "joint_power":[-2.0e-5, -2.0e-3],
-                                  "joint_power_dist":[-1.0e-5, -1.0e-3],
-                                  "wb_dynamics":[-1e-8, -1e-3]
+                                  "dof_acc":[-1.0e-9, -2.5e-6],
+                                  
+                                  "joint_power":[-2.0e-6, -2.0e-3],
+                                  "joint_power_dist":[-1.0e-6, -1.0e-3],
+
+                                  "stable_grf_dynamics":[1e-4, 0.1],
+                                  "floating_base_stability":[1e-4, 0.1]
+                                  
+                                #   "wb_dynamics":[-1e-12, -1e-5]
                                   }
 
             curr_steps = 2000
@@ -321,8 +332,8 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         # Shared
         dropout = 0.1
 
-        pinn_loss_weight = 1e-5
-        pinn_warmup = 1000
+        pinn_loss_weight = 1.0
+        pinn_warmup = 500
         pinn_init_steps = 500
 
         # pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/rsl_rl/modules/pretrained_models/dynamic/11_22_202511_53_49_no_pinn/no_pinn_epoch_199.pth"
@@ -348,10 +359,11 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         max_iterations = 5000 # number of policy updates
         grf_dim = 12
         
-        run_name = 'debug_warmpinn_wb'
+        # debug_warmpinn_wb
+        run_name = 'debug_grfdynrews_rescalepinn_fixrai'
         experiment_name = 'go1_dynamic'
         save_interval = 50
-        load_run = "Dec02_18-42-41_raibert_wbdyn"
+        load_run = "Dec06_20-45-49_debug_grfdynrews_rescalepinn_fixrai_spec"
         checkpoint = 2000
 
         # Load parameters for first function policy

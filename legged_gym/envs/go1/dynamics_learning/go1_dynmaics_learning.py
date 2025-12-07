@@ -1803,12 +1803,41 @@ class LeggedRobotGo1Dynamic(BaseTask):
         algined = torch.sum((self.feedforward_torques * self.feedback_torques > 0), dim=-1)
         return un_algined + algined    
     
+    # Consider tests when this objective is filtered by in-contact legs
     def _reward_wb_dynamics(self):
         # reward the combined torque + position control values that result in stable next-step whole-body dynamics
         #     this also "guides" the policy to select complimentary position and torque values
         # augment the torques vector to include 6 zeros for the unactuated torso DOF's
-        wb_torques = torch.concatenate((torch.zeros((self.torques.shape[0], 6), device=self.device, dtype=gs.tc_float), self.torques), dim=1)
-        return torch.norm(self.wb_dynamics_buff - self.contact_forces_buff - wb_torques, dim=1)
+        # wb_torques = torch.concatenate((torch.zeros((self.torques.shape[0], 6), device=self.device, dtype=gs.tc_float), self.torques), dim=1)
+        error = self.wb_dynamics_buff[:,6:] - self.contact_forces_buff[:,6:] - self.torques 
+        return torch.norm(error, dim=1)    
+
+    # Rewards control torques (feedforward + feedback) and blanace with the GRF profile at the joint-level
+    #     thereby encouraging control torques and contact forces that conform to the systems rigid-body dynamics 
+    def _reward_stable_grf_dynamics(self):  
+        error = self.torques - self.contact_forces_buff[:,6:] 
+
+        # filter this error signal by feet that are in-contact, otherwise this just penalizes the torque magnitude of the swing-legs, which we are
+        #    already doing with other reward signals
+        contact_filter = self.contact_forces_buff[:,6:] > 0.0
+        filtered_error = contact_filter * error
+
+        return torch.exp(-torch.norm(filtered_error, dim=1))
+    
+    # adjust this to eventually include the forces applied by a payload during training (in the negative z-direction)
+    def _reward_floating_base_stability(self):
+        # Calculate the actual mass of the system
+        adjusted_base_mass = self.robot.get_links_inertial_mass()[:,0] + self._added_base_mass.squeeze(-1)
+
+        # Compute the GRF induced accelerations
+        temp_grfs = torch.sum(self.robot.get_links_net_contact_force()[:, self.feet_indices, :], dim=1)   # (num_envs, 3)
+        grf_acc = temp_grfs / adjusted_base_mass.unsqueeze(-1)
+
+        # calculate the error between the observed COM movement (accelerations) and the GRF profile
+        torso_acc_error = torch.norm(self.torso_6dof_acceleration[:,0:3] - grf_acc, dim=-1)
+
+        return torch.exp(-torso_acc_error) 
+
 
     def _reward_feet_air_time(self):
         # Reward long steps
@@ -1894,13 +1923,8 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # calculate the Raibert Hueristic footstep location
         # Perform for each foot in order or FR, FL, RR, RL
         #     eventually want (num_env, 4, 2) - raibert is only concerned with x/y position
-        feet_pose_base = []
         raibert_foot_pos = []
         for i in range(len(self.feet_indices)):
-            # convert foot positions to base-frame
-            feet_pose_base_ = transform_by_quat(self.feet_pos[:,i,:], inv_base_quat)  # trasform to base frame (num_env, 3)
-            feet_pose_base.append(feet_pose_base_)
-
             # Calculate Raibert huersitic foot contact locations in x/y-plane
             offset = torch.zeros((self.feet_pos.shape[0], 3),dtype=gs.tc_float).to(self.device)     # (num_env, 3)
             offset[:,1] = side_signs[i] * width_offset                                              # (num_env, 3)
@@ -1927,19 +1951,17 @@ class LeggedRobotGo1Dynamic(BaseTask):
             raibert_foot_pos.append(heuristic_foot_pos)
 
         # Now we have a list like (4, num_env, 3), we want (num_env, 4, 3)
-        feet_pose_base = torch.stack(feet_pose_base).to(self.device)   # (4, num_env, 3)
-        feet_pose_base = feet_pose_base.permute(1,0,2)                 # (num_env, 4, 3)
-
         raibert_foot_pos = torch.stack(raibert_foot_pos).to(self.device)   # (4, num_env, 3)
         raibert_foot_pos = raibert_foot_pos.permute(1,0,2)                 # (num_env, 4, 3)
 
         # Calculate the error, ignore height, that is covered elsewhere
-        foot_error_xy = torch.sum(feet_pose_base[:,:,:2] - raibert_foot_pos[:,:,:2], dim=-1)  # (num_env, 4)
+        foot_error_xy = torch.sum(self.feet_pos[:,:,:2] - raibert_foot_pos[:,:,:2], dim=-1)  # (num_env, 4)
 
         # filter by the first contact AND square the error
         raibert_error = torch.norm(first_contact * foot_error_xy, dim=-1)
 
         # return torch.exp(-raibert_error / self.cfg.rewards.foot_clearance_tracking_sigma)
+        # return torch.exp(-raibert_error)
         return raibert_error
 
     # A rotation about the z-axis
