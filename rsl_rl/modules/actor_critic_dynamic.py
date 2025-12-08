@@ -266,14 +266,14 @@ class ActorCritic_Dynamic(nn.Module):
         ###
         #  Construct layers for the critic network
         ###
-        self.pos_critic_in  = nn.Linear(num_critic_obs, actor_shared_dim)
-        self.pos_critic_h1  = nn.Linear(actor_shared_dim, critic_layers[0])
+        # self.pos_critic_in  = nn.Linear(num_critic_obs, actor_shared_dim)
+        self.pos_critic_h1  = nn.Linear(num_critic_obs, critic_layers[0])
         self.pos_critic_h2  = nn.Linear(critic_layers[0], critic_layers[1])
         self.pos_critic_h3  = nn.Linear(critic_layers[1], critic_layers[2])
         self.pos_critic_out = nn.Linear(critic_layers[2], 1)
 
-        self.tau_critic_in  = nn.Linear(num_critic_obs, actor_shared_dim)
-        self.tau_critic_h1  = nn.Linear(actor_shared_dim, critic_layers[0])
+        # self.tau_critic_in  = nn.Linear(num_critic_obs, actor_shared_dim)
+        self.tau_critic_h1  = nn.Linear(num_critic_obs, critic_layers[0])
         self.tau_critic_h2  = nn.Linear(critic_layers[0], critic_layers[1])
         self.tau_critic_h3  = nn.Linear(critic_layers[1], critic_layers[2])
         self.tau_critic_out = nn.Linear(critic_layers[2], 1)
@@ -313,10 +313,10 @@ class ActorCritic_Dynamic(nn.Module):
                     nn.init.zeros_(m.bias)
 
         # Optionally set small initial output weights (to reduce initial action magnitude)
-        # nn.init.uniform_(self.act_pos_out.weight, -3e-3, 3e-3)
-        # nn.init.uniform_(self.act_tau_out.weight, -3e-3, 3e-3)
-        # nn.init.zeros_(self.act_pos_out.bias)
-        # nn.init.zeros_(self.act_tau_out.bias)
+        nn.init.uniform_(self.act_pos_out.weight, -3e-3, 3e-3)
+        nn.init.uniform_(self.act_tau_out.weight, -3e-3, 3e-3)
+        nn.init.zeros_(self.act_pos_out.bias)
+        nn.init.zeros_(self.act_tau_out.bias)
 
     def _init_critic_weights(self):
         # Xavier for linears, zeros for biases
@@ -651,9 +651,9 @@ class ActorCritic_Dynamic(nn.Module):
     # Forward method for calculating the value of the current state
     #     using the privilged critic observation
     def evaluate_pos(self, critic_observations, **kwargs):
-        val = self.pos_critic_in(critic_observations)
-        val = self.activation(val)
-        val = self.pos_critic_h1(val)
+        # val = self.pos_critic_in(critic_observations)
+        # val = self.activation(val)
+        val = self.pos_critic_h1(critic_observations)
         val = self.activation(val)
         val = self.pos_critic_h2(val)
         val = self.activation(val)
@@ -665,9 +665,9 @@ class ActorCritic_Dynamic(nn.Module):
     # Forward method for calculating the value of the current state
     #     using the privilged critic observation
     def evaluate_tau(self, critic_observations, **kwargs):
-        val = self.tau_critic_in(critic_observations)
-        val = self.activation(val)
-        val = self.tau_critic_h1(val)
+        # val = self.tau_critic_in(critic_observations)
+        # val = self.activation(val)
+        val = self.tau_critic_h1(critic_observations)
         val = self.activation(val)
         val = self.tau_critic_h2(val)
         val = self.activation(val)

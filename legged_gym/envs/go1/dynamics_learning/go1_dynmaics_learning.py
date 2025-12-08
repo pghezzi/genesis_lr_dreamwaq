@@ -692,6 +692,9 @@ class LeggedRobotGo1Dynamic(BaseTask):
         
         torques = (self.feedforward_tau_weight) * self.feedforward_torques + (self.feedback_tau_weight)*self.feedback_torques
 
+        print("self.feedforward_tau_weight: ", self.feedforward_tau_weight)
+        print("self.feedback_tau_weight: ", self.feedback_tau_weight)
+
         # torques = self.feedback_torques
         
         # torques = self.feedforward_torques + self.feedback_torques
@@ -1492,8 +1495,8 @@ class LeggedRobotGo1Dynamic(BaseTask):
             if key in self.tau_reward_scales:
                 self.tau_reward_scales[key] = ((float(self.num_iters)/float(self.reward_curr_steps))*self.reward_bound_diffs[key] + self.reward_curr_bounds[key][0])*self.dt
 
-        for key in self.reward_curr_keys:
-            print("Reward - ", key, " is scaled by ", self.reward_scales[key])
+        # for key in self.reward_curr_keys:
+        #     print("Reward - ", key, " is scaled by ", self.reward_scales[key])
 
     def _parse_cfg(self, cfg):
         self.dt = self.cfg.control.dt

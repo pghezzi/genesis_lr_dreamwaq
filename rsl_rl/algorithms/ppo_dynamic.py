@@ -80,15 +80,16 @@ class PPODynamic:
         self.storage = None # initialized later
         self.act_optimizer, self.enc_optimizer = actor_critic.configure_optimizers(learning_rate)
         self.transition = RolloutStorageDynamics.Transition()
-        # self.act_optimizer = PCGrad(self.act_optimizer)
-        # self.enc_optimizer = PCGrad(self.enc_optimizer)
+        self.act_optimizer = PCGrad(self.act_optimizer)
+        self.enc_optimizer = PCGrad(self.enc_optimizer)
 
-        # We want to reduce the LR of the critic
-        for param_group in self.act_optimizer.param_groups:
-            # specifically modifies the learning rate of the position-control specific parameters
-            if "name" in param_group.keys():
-                if "critic" in param_group["name"]:
-                    param_group['lr'] = learning_rate * 0.5
+        # # We want to reduce the LR of the critic
+        # for param_group in self.act_optimizer.optimizer.param_groups:
+        # # for param_group in self.act_optimizer.param_groups:
+        #     # specifically modifies the learning rate of the position-control specific parameters
+        #     if "name" in param_group.keys():
+        #         if "critic" in param_group["name"]:
+        #             param_group['lr'] = learning_rate * 0.5
 
         self.decoder = decoder_network
         self.decoder_optimizer = optim.Adam(self.decoder.parameters(), lr=learning_rate)
@@ -326,8 +327,8 @@ class PPODynamic:
                         elif pos_kl_mean < self.desired_kl / 2.0 and pos_kl_mean > 0.0:
                             self.pos_learning_rate = min(1e-2, self.pos_learning_rate * 1.5)
                         
-                        # for param_group in self.act_optimizer.optimizer.param_groups:
-                        for param_group in self.act_optimizer.param_groups:
+                        for param_group in self.act_optimizer.optimizer.param_groups:
+                        # for param_group in self.act_optimizer.param_groups:
                             # specifically modifies the learning rate of the position-control specific parameters
                             if "name" in param_group.keys():
                                 if "pos_branch" in param_group["name"]:
@@ -368,8 +369,8 @@ class PPODynamic:
                         elif tau_kl_mean < self.desired_kl / 2.0 and tau_kl_mean > 0.0:
                             self.tau_learning_rate = min(1e-2, self.tau_learning_rate * 1.5)
                         
-                        # for param_group in self.act_optimizer.optimizer.param_groups:
-                        for param_group in self.act_optimizer.param_groups:
+                        for param_group in self.act_optimizer.optimizer.param_groups:
+                        # for param_group in self.act_optimizer.param_groups:
                             # Specifically modifies the parameters specific to the torque-control actions
                             if "name" in param_group.keys():
                                 if "tau_branch" in param_group["name"]:
@@ -451,15 +452,15 @@ class PPODynamic:
                     # print(pinn_ratio * pinn_loss.clone().detach())
                     # print("------------------------")
 
-                    # ppo_losses = [pos_loss+tau_loss, self.pinn_weight * pinn_loss]
-                    # encoder_losses = [autoenc_loss, self.pinn_weight * pinn_loss]
-                    total_ppo_loss = pos_loss + tau_loss + self.pinn_weight * pinn_ratio * pinn_loss
-                    total_enc_loss = autoenc_loss + self.pinn_weight * pinn_ratio * pinn_loss
+                    ppo_losses = [pos_loss+tau_loss, self.pinn_weight * pinn_loss]
+                    encoder_losses = [autoenc_loss,  self.pinn_weight * pinn_loss]
+                    # total_ppo_loss = pos_loss + tau_loss + self.pinn_weight * pinn_ratio * pinn_loss
+                    # total_enc_loss = autoenc_loss + self.pinn_weight * pinn_ratio * pinn_loss
                 else:
-                    # ppo_losses = [pos_loss+tau_loss]
-                    # encoder_losses = [autoenc_loss]
-                    total_ppo_loss = pos_loss + tau_loss
-                    total_enc_loss = autoenc_loss
+                    ppo_losses = [pos_loss+tau_loss]
+                    encoder_losses = [autoenc_loss]
+                    # total_ppo_loss = pos_loss + tau_loss
+                    # total_enc_loss = autoenc_loss
 
                 # total_ppo_loss = pos_loss + tau_loss + self.pinn_weight * pinn_loss
                 # total_enc_loss = autoenc_loss + self.pinn_weight * pinn_loss
@@ -483,15 +484,15 @@ class PPODynamic:
                 # self.optimizer.step()
                 
                 # PCGrad - back-propigate the loss
-                # self.act_optimizer.pc_backward(ppo_losses)
-                total_ppo_loss.backward(retain_graph=True)
+                self.act_optimizer.pc_backward(ppo_losses)
+                # total_ppo_loss.backward(retain_graph=True)
                 nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
                 # self.act_zclip.step(self.actor_critic)
 
-                # self.enc_optimizer.pc_backward(encoder_losses)
-                total_enc_loss.backward()
-                # self.enc_zclip.step(self.actor_critic)
+                self.enc_optimizer.pc_backward(encoder_losses)
+                # total_enc_loss.backward()
                 nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
+                # self.enc_zclip.step(self.actor_critic)
 
                 # Step both optimizers AFTER calling the backwards pass for both
                 #    This is to account for the fact that the enc-losses may include PPO updates
