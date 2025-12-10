@@ -80,8 +80,8 @@ class PPODynamic:
         self.storage = None # initialized later
         self.act_optimizer, self.enc_optimizer = actor_critic.configure_optimizers(learning_rate)
         self.transition = RolloutStorageDynamics.Transition()
-        self.act_optimizer = PCGrad(self.act_optimizer)
-        self.enc_optimizer = PCGrad(self.enc_optimizer)
+        self.act_optimizer = PCGrad(self.act_optimizer, reduction='sum')
+        self.enc_optimizer = PCGrad(self.enc_optimizer, reduction='sum')
 
         # # We want to reduce the LR of the critic
         # for param_group in self.act_optimizer.optimizer.param_groups:
@@ -101,6 +101,8 @@ class PPODynamic:
         self.pinn_weight = 0.0
         self.pinn_warmup_steps = pinn_warmup
         self.pinn_init = pinn_init_steps
+
+        self.num_pinn_updates = 1
 
         # # Initialize ZClip
         # self.act_zclip = ZClip(alpha=0.97, z_thresh=2.5)
@@ -242,11 +244,17 @@ class PPODynamic:
         # print("self.pinn_init: ", self.pinn_init)
         # print("self.pinn_warmup_steps: ", self.pinn_warmup_steps)
 
-        if itr > self.pinn_init and (itr-self.pinn_init) <= self.pinn_warmup_steps:
-            adjusted_iter = itr - self.pinn_init
-            self.pinn_weight = (float(adjusted_iter)/float(self.pinn_warmup_steps))*self.pinn_weight_final 
+        if itr > self.pinn_init and self.num_pinn_updates <= self.pinn_warmup_steps:
+            self.pinn_weight = (float(self.num_pinn_updates)/float(self.pinn_warmup_steps))*self.pinn_weight_final 
+
+        prob_pinn = self.storage.get_iter_reward_cv(itr)
+        use_pinn = random.random() < prob_pinn
 
         print(self.pinn_weight)
+        print(prob_pinn)
+        print(use_pinn)
+
+        # use_pinn = False
 
         # if self.actor_critic.is_recurrent:
         #     generator = self.storage.reccurent_mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
@@ -425,12 +433,12 @@ class PPODynamic:
                     # Use 1st order backwards finite differences to approximate models command acceleration
                     dof_acc = (q_des_curr - 2.0*q_des_prev + q_des_pprev) / np.power(dt,2)
                     # Create the whole-body acceleration vector
-                    wb_acc = torch.cat([torso_accs_batch, dof_acc], dim=1)
+                    wb_acc = torch.cat([torso_accs_batch, dof_acc], dim=1).float()
                     # Create the whole-boyd tau vector 
-                    wb_tau = torch.cat([torch.zeros(torso_accs_batch.shape[0], 6).float().to(self.device), tau_des_curr], dim=1)
+                    wb_tau = torch.cat([torch.zeros(torso_accs_batch.shape[0], 6).float().to(self.device), tau_des_curr.float()], dim=1).float()
 
                     # Calculate the models wb-dynamics
-                    model_wb_dynamics = torch.bmm(mass_mat_batch, wb_acc.unsqueeze(-1)).squeeze(-1) + bias_vec_batch
+                    model_wb_dynamics = torch.bmm(mass_mat_batch.float(), wb_acc.unsqueeze(-1)).squeeze(-1) + bias_vec_batch.float()
 
                     error = model_wb_dynamics - gt_forces_batch - wb_tau
 
@@ -441,7 +449,7 @@ class PPODynamic:
                 ###
                 #   END loss calculations, start gradient updates
                 ### 
-                if self.pinn_weight > 0.0:
+                if self.pinn_weight > 0.0 and use_pinn:
                     # rescale the pinn-loss to be equal in magnitude to the PPO update
                     pinn_ratio = (pos_loss.clone().detach() + tau_loss.clone().detach()) / pinn_loss.clone().detach()
                     # Scale the ratio so the pinn loss is only ever 1/2 the magnitude of the PPO loss
@@ -456,6 +464,7 @@ class PPODynamic:
                     encoder_losses = [autoenc_loss,  self.pinn_weight * pinn_loss]
                     # total_ppo_loss = pos_loss + tau_loss + self.pinn_weight * pinn_ratio * pinn_loss
                     # total_enc_loss = autoenc_loss + self.pinn_weight * pinn_ratio * pinn_loss
+                    self.num_pinn_updates += 1
                 else:
                     ppo_losses = [pos_loss+tau_loss]
                     encoder_losses = [autoenc_loss]

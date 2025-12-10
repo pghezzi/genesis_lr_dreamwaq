@@ -674,7 +674,11 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # pull out the torque control actions
         tau_actions = actions[:,12:24]
         # Scale the position actions
-        actions_scaled = pos_actions * self.cfg.control.action_scale
+
+        repeat_pos_scales = torch.from_numpy(np.array(self.cfg.control.action_scale)).repeat(1,4).to(self.device)
+        # actions_scaled = pos_actions * self.cfg.control.action_scale
+        actions_scaled = pos_actions * repeat_pos_scales
+
         # Calculate the feedback-control torques
         #     include PD scaling values 
         self.feedback_torques = (
@@ -692,19 +696,21 @@ class LeggedRobotGo1Dynamic(BaseTask):
         
         torques = (self.feedforward_tau_weight) * self.feedforward_torques + (self.feedback_tau_weight)*self.feedback_torques
 
-        print("self.feedforward_tau_weight: ", self.feedforward_tau_weight)
-        print("self.feedback_tau_weight: ", self.feedback_tau_weight)
+        # self.feedforward_torques *= self.feedforward_tau_weight
+        # self.feedback_torques *= self.feedback_tau_weight
 
         # torques = self.feedback_torques
         
         # torques = self.feedforward_torques + self.feedback_torques
-        # print(self.feedforward_torques[0:10,:])
+        # print(self.feedforward_torques[0:5,:])
+        # print(self.feedforward_tau_weight * self.feedforward_torques[0:5,:])
         # print("self.default_dof_tau")
         # print(self.default_dof_tau)
         # print("self.feedforward_torques")
         # print(self.feedforward_torques[0:5,:])
         # print("self.feedback_torques")
-        # print(self.feedback_torques[0:5,:])
+        # print(self.feedback_tau_weight * self.feedback_torques[0:5,:])
+        # print("---------------------------------------")
         # print("Output Torques")
         # print(torques[0:5,:])
         # Have the limit be exceeded a little bit to get reward feedback based on exceeding the limits
@@ -721,7 +727,9 @@ class LeggedRobotGo1Dynamic(BaseTask):
         tau_actions = actions[:,12:24]
         
         # Scale and shift the position actions
-        actions_scaled = pos_actions * self.cfg.control.action_scale     
+        repeat_pos_scales = torch.from_numpy(np.array(self.cfg.control.action_scale)).repeat(1,4).to(self.device)
+        # actions_scaled = pos_actions * self.cfg.control.action_scale
+        actions_scaled = pos_actions * repeat_pos_scales
         target_dof_pos = actions_scaled + self.default_dof_pos
         
         # Scale and shift the torque actions
@@ -1476,27 +1484,40 @@ class LeggedRobotGo1Dynamic(BaseTask):
     def step_reward_curriculum(self):
         # Safety catch
         if not self.use_reward_curriculum:
-            return 
+            return
         
-        # by default set the reward to the upper bound
-        for key in self.reward_curr_keys:
-            self.reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
-            if key in self.pos_reward_scales.keys():
-                self.reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
-            if key in self.tau_reward_scales:
-                self.reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
-        
-        if self.num_iters < self.reward_curr_steps:
-            print("Stepping Reward Curriculum")
+        # initialize the policy with fixed-lower bound
+        if self.num_iters < self.reward_warmup_steps:
             for key in self.reward_curr_keys:
-                self.reward_scales[key] = ((float(self.num_iters)/float(self.reward_curr_steps))*self.reward_bound_diffs[key] + self.reward_curr_bounds[key][0])*self.dt
-            if key in self.pos_reward_scales.keys():
-                self.pos_reward_scales[key] = ((float(self.num_iters)/float(self.reward_curr_steps))*self.reward_bound_diffs[key] + self.reward_curr_bounds[key][0])*self.dt
-            if key in self.tau_reward_scales:
-                self.tau_reward_scales[key] = ((float(self.num_iters)/float(self.reward_curr_steps))*self.reward_bound_diffs[key] + self.reward_curr_bounds[key][0])*self.dt
+                self.reward_scales[key] = self.reward_curr_bounds[key][0] * self.dt
+                if key in self.pos_reward_scales.keys():
+                    self.reward_scales[key] = self.reward_curr_bounds[key][0] * self.dt
+                if key in self.tau_reward_scales:
+                    self.reward_scales[key] = self.reward_curr_bounds[key][0] * self.dt
+        # Gradually increase the regularization strength
+        elif self.num_iters > self.reward_warmup_steps and (self.num_iters - self.reward_warmup_steps) < self.reward_curr_steps:
+            print("Stepping Reward Curriculum")
+            adjusted_iter = self.num_iters - self.reward_warmup_steps
+            for key in self.reward_curr_keys:
+                self.reward_scales[key] = ((float(adjusted_iter)/float(self.reward_curr_steps))*self.reward_bound_diffs[key] + self.reward_curr_bounds[key][0])*self.dt
+                
+                if key in self.pos_reward_scales.keys():
+                    self.pos_reward_scales[key] = ((float(adjusted_iter)/float(self.reward_curr_steps))*self.reward_bound_diffs[key] + self.reward_curr_bounds[key][0])*self.dt
+                if key in self.tau_reward_scales:
+                    self.tau_reward_scales[key] = ((float(adjusted_iter)/float(self.reward_curr_steps))*self.reward_bound_diffs[key] + self.reward_curr_bounds[key][0])*self.dt
+        # Fix the regularization strength to the upper-bound
+        else:
+            # by default set the reward to the upper bound
+            for key in self.reward_curr_keys:
+                self.reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
+                if key in self.pos_reward_scales.keys():
+                    self.reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
+                if key in self.tau_reward_scales:
+                    self.reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
 
-        # for key in self.reward_curr_keys:
-        #     print("Reward - ", key, " is scaled by ", self.reward_scales[key])
+
+        for key in self.reward_curr_keys:
+            print("Reward - ", key, " is scaled by ", self.reward_scales[key])
 
     def _parse_cfg(self, cfg):
         self.dt = self.cfg.control.dt
@@ -1514,6 +1535,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.reward_curr_keys = self.cfg.rewards.reward_curriculum.curr_reward_keys
         self.reward_curr_bounds = self.cfg.rewards.reward_curriculum.curr_reward_bounds
         self.reward_curr_steps = self.cfg.rewards.reward_curriculum.curr_steps
+        self.reward_warmup_steps = self.cfg.rewards.reward_curriculum.warmup_steps
 
         self.reward_bound_diffs = {}
         for key in self.reward_curr_keys:
@@ -1963,9 +1985,9 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # filter by the first contact AND square the error
         raibert_error = torch.norm(first_contact * foot_error_xy, dim=-1)
 
-        # return torch.exp(-raibert_error / self.cfg.rewards.foot_clearance_tracking_sigma)
+        return torch.exp(-raibert_error / self.cfg.rewards.foot_clearance_tracking_sigma)
         # return torch.exp(-raibert_error)
-        return raibert_error
+        # return raibert_error
 
     # A rotation about the z-axis
     def _build_raibert_rew_rot_mat(self, theta):

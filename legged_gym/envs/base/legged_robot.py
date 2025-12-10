@@ -418,6 +418,9 @@ class LeggedRobot(BaseTask):
                             self.default_dof_pos - self.dof_pos)
             - self.d_gains * self.dof_vel
         )
+
+        print(torques[0:5,:])
+
         return torques
 
     def _compute_target_dof_pos(self, actions):

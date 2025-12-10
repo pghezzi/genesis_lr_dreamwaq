@@ -3,7 +3,7 @@ from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobot
 class GO1DynamicCfg( LeggedRobotCfg ):
     
     class env( LeggedRobotCfg.env ):
-        num_envs = 500
+        num_envs = 4096
         num_observations = 57
         num_privileged_obs = 82
         num_actions = 12
@@ -130,16 +130,16 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         ref_env = 0
         pos = [2, 2, 2]       # [m]
         lookat = [0., 0, 1.]  # [m]
-        rendered_envs_idx = [i for i in range(0, 10, 1)]  # number of environments to be rendered
-        rendered_envs_idx.extend([i for i in range(200, 205, 1)])  # number of environments to be rendered
-        # rendered_envs_idx.extend([i for i in range(500, 505, 1)])  # number of environments to be rendered
-        # rendered_envs_idx.extend([i for i in range(750, 755, 1)])  # number of environments to be rendered
-        # rendered_envs_idx.extend([i for i in range(900, 905, 1)])  # number of environments to be rendered
+        rendered_envs_idx = [i for i in range(0, 3, 1)]  # number of environments to be rendered
+        rendered_envs_idx.extend([i for i in range(200, 203, 1)])  # number of environments to be rendered
+        rendered_envs_idx.extend([i for i in range(500, 503, 1)])  # number of environments to be rendered
+        rendered_envs_idx.extend([i for i in range(750, 753, 1)])  # number of environments to be rendered
+        rendered_envs_idx.extend([i for i in range(900, 903, 1)])  # number of environments to be rendered
 
-        # rendered_envs_idx.extend([i for i in range(1500, 1505, 1)])
-        # rendered_envs_idx.extend([i for i in range(1900, 1905, 1)])
-        # rendered_envs_idx.extend([i for i in range(3500, 3505, 1)])
-        # rendered_envs_idx.extend([i for i in range(4000, 4005, 1)])
+        rendered_envs_idx.extend([i for i in range(1500, 1503, 1)])
+        rendered_envs_idx.extend([i for i in range(1900, 1903, 1)])
+        rendered_envs_idx.extend([i for i in range(3500, 3503, 1)])
+        rendered_envs_idx.extend([i for i in range(4000, 4003, 1)])
         # rendered_envs_idx = [0, 1000, 3500]
         add_camera = False
 
@@ -160,7 +160,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             'RL_calf_joint',]
         foot_name = ["foot"]
         penalize_contacts_on = ["hip", "thigh", "calf"]
-        terminate_after_contacts_on = ["base","hip"]
+        terminate_after_contacts_on = ["base"]
         links_to_keep = ['FR_foot', 'FL_foot', 'RR_foot', 'RL_foot']
         self_collisions = True
   
@@ -176,21 +176,21 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         damping   = {'joint': 0.075}     # [N*m*s/rad]
         # stiffness = {'joint': 20.0}   # [N*m/rad]
         # damping   = {'joint': 0.5}     # [N*m*s/rad]
-        action_scale = 0.6               # action scale: target angle = action_scale * pose_action + defaultAngle
+        action_scale = [0.4, 0.6, 0.6]    # action scale: target angle = action_scale * pose_action + defaultAngle
         torque_scale = [25.0, 25.0, 35.0] # action scale:  target torque = torque_scale * tau_action + defaultTorque
         dt =  0.02  # control frequency 50Hz
         decimation = 4 # decimation: Number of control action updates @ sim DT per policy DT
 
         # Assumed order - tau_ff, tau_fb
-        tradeoff_init_weights = [0.01, 10.0]
-        tradeoff_final_weights = [1.0, 1.0]
+        tradeoff_init_weights  = [0.01, 10.0]
+        tradeoff_final_weights = [1.00, 1.0]
         tradeoff_steps = 1000
 
     class termination:
         termination_terms = ["roll", "pitch", "height_min", "height_max"]
         roll_threshold    = 0.7  # [rad] ~ 40 degrees
         pitch_threshold   = 0.7  # [rad] ~ 20 degrees
-        height_min = 0.22        # [m]
+        height_min = 0.10       # [m]
         height_max = 1.50        # [m]
     class rewards( LeggedRobotCfg.rewards ):
         soft_dof_pos_limit = 0.90
@@ -206,7 +206,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
 
         reward_curriculum = True
 
-        max_contact_force = 200.0
+        max_contact_force = 400.0
         class scales( LeggedRobotCfg.rewards.scales ):
             # General
             termination      = -200.0
@@ -214,8 +214,8 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             dof_pos_limits        = -10.0
             dof_close_to_default  = -0.5
             torque_limits         = -10.0
-            # stand_still           = -0.001
-            no_motion_penalty     = -10.00
+            # stand_still           = -0.1
+            no_motion_penalty     = -10.0
             alive_bonus           = 1.0
 
 
@@ -226,9 +226,9 @@ class GO1DynamicCfg( LeggedRobotCfg ):
 
             # smoothness and stability
             lin_vel_z        = -2.0
-            base_height      = -1.0
+            base_height      = -10.0
             ang_vel_xy       = -0.05
-            orientation      = -1.0
+            orientation      = -10.0
             dof_acc          = -2.5e-7
             joint_power      = -2.e-5
             joint_power_dist = -1.e-5
@@ -247,11 +247,12 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             # gait
             feet_air_time  = 1.0
             foot_clearance = 0.5
-            foot_slip      = -1.0e-2
+            foot_slip      = -0.01
             feet_contact_forces = -1.0e-2
 
             # new....
-            raibert     = -0.001
+            # raibert     = -0.001
+            raibert  = 0.1
 
         class pos_scales():
             pos_action_rate       = -0.001   # new
@@ -269,21 +270,18 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             curr_reward_keys = ["tau_action_rate", "tau_action_smoothness", "feedforward_torques",
                                 "pos_action_rate", "pos_action_smoothness", "feedback_torques",
                                 "dof_close_to_default", "dof_acc", "joint_power", "joint_power_dist",
-                                "stable_grf_dynamics", "floating_base_stability", "raibert",
-                                "base_height", "orientation", "feet_contact_forces"]
+                                "stable_grf_dynamics", "floating_base_stability", "raibert", 
+                                "feet_contact_forces"]
                                 # "wb_dynamics"]
             
-            curr_reward_bounds = {"tau_action_rate":[-1.0e-3, -1.0e-2],
-                                  "tau_action_smoothness":[-1.0e-3, -1.0e-1],
+            curr_reward_bounds = {"tau_action_rate":[-1.0e-2, -1.0e-1],
+                                  "tau_action_smoothness":[-1.0e-2, -1.0e-1],
                                   
-                                  "pos_action_rate":[-1.0e-3, -1.0e-2],
-                                  "pos_action_smoothness":[-1.0e-3, -1.0e-2],
+                                  "pos_action_rate":[-1.0e-2, -1.0e-1],
+                                  "pos_action_smoothness":[-1.0e-2, -1.0e-1],
                                   
-                                  "feedforward_torques":[-2.0e-4, -2.0e-2],
-                                  "feedback_torques":[-2.0e-4, -2.0e-2],
-
-                                  "base_height":[-5.0, -10.0],
-                                  "orientation":[-5.0, -10.0],
+                                  "feedforward_torques":[-2.0e-4, -2.0e-3],
+                                  "feedback_torques":[-2.0e-4, -2.0e-3],
                                   
                                   "dof_close_to_default":[-0.5, -1.0],
                                   "dof_acc":[-2.5e-7, -2.5e-5],
@@ -291,17 +289,18 @@ class GO1DynamicCfg( LeggedRobotCfg ):
                                   "joint_power":[-2.0e-5, -2.0e-3],
                                   "joint_power_dist":[-1.0e-5, -1.0e-3],
 
-                                  "stable_grf_dynamics":[1e-4, 1.0],
-                                  "floating_base_stability":[1e-4, 1.0],
+                                  "stable_grf_dynamics":[1e-4, 1.0e-2],
+                                  "floating_base_stability":[1e-4, 1.0e-2],
 
-                                  "raibert":[-1e-4,-1.0e-2],
+                                  "raibert":[1e-4, 1.0e-1],
 
-                                  "feet_contact_forces":[-1e-6,-1e-2]
+                                  "feet_contact_forces":[-1.0e-2,-1e-0]
                                   
                                 #   "wb_dynamics":[-1e-12, -1e-5]
                                   }
 
-            curr_steps = 2000
+            curr_steps = 4250
+            warmup_steps = 750
     class commands( LeggedRobotCfg.commands ):
         curriculum = True
         max_curriculum = 1.
@@ -319,7 +318,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
     runner_class_name = "OnPolicyRunnerDynamic" # Teacher-Student Runner
     
     class policy( LeggedRobotCfgPPO.policy ):
-        activation = 'tanh' # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid, swish (SiLU)
+        activation = 'swish' # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid, swish (SiLU)
         init_noise_std = 1.0
         
         # Context encoder
@@ -340,9 +339,9 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         # Shared
         dropout = 0.1
 
-        pinn_loss_weight = 1.0e-4
+        pinn_loss_weight = 1.0e-6
         pinn_warmup = 100
-        pinn_init_steps = 200
+        pinn_init_steps = 500
 
         # pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/rsl_rl/modules/pretrained_models/dynamic/11_22_202511_53_49_no_pinn/no_pinn_epoch_199.pth"
 
@@ -358,7 +357,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         gamma = 0.99
         lam   = 0.95
         desired_kl = 0.01
-        max_grad_norm = 1.
+        max_grad_norm = 1.0
 
     class runner( LeggedRobotCfgPPO.runner ):
         policy_class_name = 'ActorCritic_Dynamic'
@@ -368,10 +367,10 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         grf_dim = 12
         
         # debug_warmpinn_wb
-        run_name = 'debug_grfdynrews_rescalepinn_fixrai'
+        run_name = 'debug_grfdynrews_pinn_fixrai_priorpcgrad'
         experiment_name = 'go1_dynamic'
         save_interval = 50
-        load_run = "Dec06_20-45-49_debug_grfdynrews_rescalepinn_fixrai_spec"
+        load_run = "Dec06_20-45-49_debug_grfdynrews_pinn_fixrai_priorpcgrad"
         checkpoint = 2000
 
         # Load parameters for first function policy

@@ -260,8 +260,8 @@ class ActorCritic_Dynamic(nn.Module):
         self.act_pos_2_tau_h1 = _ShiftScaleMod(dim=actor_branch_layers[0], activation=activation)
         self.act_tau_2_pos_h1 = _ShiftScaleMod(dim=actor_branch_layers[0], activation=activation)
         #     Applied after h2
-        self.act_pos_2_tau_h2 = _ShiftScaleMod(dim=actor_branch_layers[1], activation=activation)
-        self.act_tau_2_pos_h2 = _ShiftScaleMod(dim=actor_branch_layers[1], activation=activation)
+        # self.act_pos_2_tau_h2 = _ShiftScaleMod(dim=actor_branch_layers[1], activation=activation)
+        # self.act_tau_2_pos_h2 = _ShiftScaleMod(dim=actor_branch_layers[1], activation=activation)
 
         ###
         #  Construct layers for the critic network
@@ -312,9 +312,9 @@ class ActorCritic_Dynamic(nn.Module):
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
 
-        # Optionally set small initial output weights (to reduce initial action magnitude)
-        nn.init.uniform_(self.act_pos_out.weight, -3e-3, 3e-3)
-        nn.init.uniform_(self.act_tau_out.weight, -3e-3, 3e-3)
+        # # Optionally set small initial output weights (to reduce initial action magnitude)
+        nn.init.uniform_(self.act_pos_out.weight, -3e-6, 3e-6)
+        nn.init.uniform_(self.act_tau_out.weight, -3e-6, 3e-6)
         nn.init.zeros_(self.act_pos_out.bias)
         nn.init.zeros_(self.act_tau_out.bias)
 
@@ -375,8 +375,8 @@ class ActorCritic_Dynamic(nn.Module):
                             shared_decay.add(fpn)
                         elif "context_encoder" in fpn:
                             encoder.add(fpn)
-                        elif "critic" in fpn:
-                            critic_set.add(fpn)
+                        # elif "critic" in fpn:
+                        #     critic_set.add(fpn)
                         else:
                             if "pos" in fpn:
                                 pos_decay.add(fpn)
@@ -404,7 +404,7 @@ class ActorCritic_Dynamic(nn.Module):
         params_act = [{"params": [param_dict[pn] for pn in sorted(pos_decay)],     "weight_decay": weight_decay, "name":"pos_branch"},
                       {"params": [param_dict[pn] for pn in sorted(tau_decay)],     "weight_decay": weight_decay, "name":"tau_branch"},
                       {"params": [param_dict[pn] for pn in sorted(shared_decay)],  "weight_decay": weight_decay, "name":"shared"},
-                      {"params": [param_dict[pn] for pn in sorted(critic_set)],    "weight_decay": weight_decay, "name":"critic"},
+                    #   {"params": [param_dict[pn] for pn in sorted(critic_set)],    "weight_decay": weight_decay, "name":"critic"},
                       {"params": [param_dict[pn] for pn in sorted(no_decay)],      "weight_decay": 0.0},
                       {"params": [param_dict[pn] for pn in sorted(special_decay)], "weight_decay": strong_decay}]
         
@@ -467,8 +467,8 @@ class ActorCritic_Dynamic(nn.Module):
         #     torque
         tau_latent = self.act_tau_h2(tau_latent)
         #     now perform the cross-conditioning
-        pos_latent = self.act_tau_2_pos_h2(pos_latent, tau_latent)  # perform FiLM on pos_latent using tau_latent
-        tau_latent = self.act_pos_2_tau_h2(tau_latent, pos_latent)  # perform FiLM on tau_latent using pos_latent
+        # pos_latent = self.act_tau_2_pos_h2(pos_latent, tau_latent)  # perform FiLM on pos_latent using tau_latent
+        # tau_latent = self.act_pos_2_tau_h2(tau_latent, pos_latent)  # perform FiLM on tau_latent using pos_latent
         # perform activation
         pos_latent = self.activation(pos_latent)
         tau_latent = self.activation(tau_latent)
@@ -545,8 +545,8 @@ class ActorCritic_Dynamic(nn.Module):
         # std_pos = torch.clamp(self.std_pos, 0.05, 1.1)
         # std_tau = torch.clamp(self.std_tau, 0.05, 1.1)
 
-        self.std_pos.data.clamp_(0.05, 1.1)
-        self.std_tau.data.clamp_(0.05, 1.1)
+        self.std_pos.data.clamp_(0.2, 1.1)
+        self.std_tau.data.clamp_(0.2, 1.1)
 
         self.distribution_pos = Normal(mean_pos, mean_pos * 0.0 + self.std_pos)
         self.distribution_tau = Normal(mean_tau, mean_tau * 0.0 + self.std_tau)

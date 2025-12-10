@@ -80,6 +80,9 @@ class RolloutStorageDynamics:
 
         self.device = device
 
+        self.first_mean = 0.0
+        self.second_mean = 0.0
+
         self.obs_shape = obs_shape
         self.critic_obs_shape = critic_obs_shape
         self.actions_shape = actions_shape
@@ -235,6 +238,35 @@ class RolloutStorageDynamics:
         self.tau_advantages = self.tau_returns - self.tau_values
         self.tau_advantages = (self.tau_advantages - self.tau_advantages.mean()) / (self.tau_advantages.std() + 1e-8)
 
+    
+    def get_iter_reward_cv(self, itr):
+        total_rewards = self.pos_rewards + self.tau_rewards
+        prob_pinn_rew = 0.0
+        
+        if itr == 0:
+            self.last_mean = torch.mean(total_rewards).item()
+        elif itr > 0 and itr < 2:
+            self.llast_mean = self.last_mean
+            self.last_mean = torch.mean(total_rewards).item()
+        else:
+            curr_mean = torch.mean(total_rewards).item()
+            # FDM approximation of slope
+            approx_slope = (0.5) * self.llast_mean - 2.0 * self.last_mean + (3.0/2.0) * curr_mean
+
+            if approx_slope < 0:
+                # Our per-iteration reward is decreasing! Do not use PINN and allow PPO update 
+                #     to dominate
+                prob_pinn_rew = 0.0
+            else:
+                # The slope is increasing, so the policy is improving or remaining constant! Go ahead and use the PINN loss in our policy update
+                #     with a use-probabilty equal to 
+                prob_pinn_rew = 0.5 + np.tanh(approx_slope)
+
+            self.llast_mean = self.last_mean
+            self.last_mean = curr_mean
+        
+        return prob_pinn_rew
+    
     def get_statistics(self):
         done = self.dones
         done[-1] = 1
