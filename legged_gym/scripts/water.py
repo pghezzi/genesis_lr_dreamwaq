@@ -161,9 +161,19 @@ class Creator():
   def reset(self):
     print(f"reset to {self.franka_init_pos}")
     cass.scene.reset()
-    self.franka.set_pos(self.franka.get_pos() + gs.tensor([5, 0, 1]))
+    
+    rigid = self.scene.sim.rigid_solver
+    base = self.franka.get_link("base")
+    cube_link = self.bucket.get_link("cube_2_stl_baselink")
+    link_cube = np.array([cube_link.idx],   dtype=gs.np_int)
+    link_franka = np.array([base.idx], dtype=gs.np_int)
+
+    self.franka.set_pos(self.franka.get_pos() + gs.tensor([1, 0, 0]))
+    self.bucket.set_pos(self.franka.get_pos() +  gs.tensor([0, 0, self.H + 0.05]))
+    rigid.delete_weld_constraint(link_cube, link_franka)
+    rigid.add_weld_constraint(link_cube, link_franka)
     self.franka.zero_all_dofs_velocity()
-    #self.liquid.set_particles_pos(self.liquid.get_particles_pos() + gs.tensor([1, 0, 0.5]))
+    self.liquid.set_particles_pos(self.liquid.get_particles_pos() + gs.tensor([1, 0, 0]))
     
 
 
@@ -189,9 +199,6 @@ for i in range(20):
     print(cass.bucket.get_pos())
     input()
     #input()
-  
-  #print("reset")
-  #time.sleep(5)
   cass.reset()
   print(cass.liquid.get_particles_vel())
   
