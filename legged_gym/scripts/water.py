@@ -3,7 +3,7 @@ import torch
 import genesis as gs
 from itertools import combinations
 
-liquid_mass = 15_000
+liquid_mass = 1000
 
 class LiquidOpts():
   """
@@ -25,18 +25,28 @@ class LiquidOpts():
 class Creator():
   def __init__(self):
     gs.init()
-    self.particle_size = 0.05
+    self.particle_size = 0.02
     self.scene = gs.Scene(
+      #rigid_options=gs.options.RigidOptions(
+      #          #dt=0.005,
+      #          constraint_solver=gs.constraint_solver.Newton,
+      #          enable_collision=True,
+      #          enable_joint_limit=True,
+      #          enable_self_collision=True,
+      #          batch_dofs_info=True,   # batch dof info for all envs
+      #          batch_joints_info=True,
+      #          batch_links_info=True,
+      #      ),
       sim_options=gs.options.SimOptions(dt=4e-3, substeps=10),
-      sph_options=gs.options.SPHOptions(
-        lower_bound = (-1,-1,-1),
-        upper_bound = (1,1,1),
-        particle_size = self.particle_size,
-      ),
+      #sph_options=gs.options.SPHOptions(
+      #  lower_bound = (-1,-1,-1),
+      #  upper_bound = (1,1,1),
+      #  particle_size = self.particle_size,
+      #),
       vis_options = gs.options.VisOptions(
         visualize_sph_boundary = True,
       ),
-      show_viewer = False,
+      show_viewer = True,
     )
 
     self.cam = self.scene.add_camera(
@@ -50,6 +60,7 @@ class Creator():
     self.plane = self.scene.add_entity(morph=gs.morphs.Plane())
     self.panels = None
     self.franka = None
+    self.liquid = None
   
   def add_robot(self):
     self.rob_pos = (0, 0, 0.5)
@@ -60,33 +71,42 @@ class Creator():
     )
   
 
-  def add_box(self, dim = (0.2, 0.2, 0.2), thickness = 1/128, number_of_particles = 100,):
+  def add_box(self, dim = (0.2, 0.2, 0.2), thickness = 1/32, number_of_particles = 100,):
     number_of_particles = max(1, number_of_particles)
     H, W, D = dim
     self.H = H
     panels = [
         gs.morphs.Box(pos=(0, -H/2 + thickness/2, 0),     size=(W, thickness, D)),
         gs.morphs.Box(pos=(0, +H/2 - thickness/2, 0),     size=(W, thickness, D)), 
-        gs.morphs.Box(pos=(-W/2 + thickness/2, 0, 0),     size=(thickness, H, D)),
-        gs.morphs.Box(pos=(+W/2 - thickness/2, 0, 0),     size=(thickness, H, D)),
-        gs.morphs.Box(pos=(0, 0, -D/2 + thickness/2),     size=(W, H, thickness)),
-        gs.morphs.Box(pos=(0, 0, +D/2 - thickness/2),     size=(W, H, thickness)),
+        gs.morphs.Box(pos=(-W/2 + thickness/2, 0, 0),     size=(thickness, H - 2*thickness - 0.01, D- 2*thickness)),
+        gs.morphs.Box(pos=(+W/2 - thickness/2, 0, 0),     size=(thickness, H - 2*thickness - 0.01, D- 2*thickness - 0.01)),
+        gs.morphs.Box(pos=(0, 0, -D/2 + thickness/2),     size=(W - 2*thickness - 0.01, H - 2*thickness - 0.01, thickness)),
+        gs.morphs.Box(pos=(0, 0, +D/2 - thickness/2),     size=(W - 2*thickness - 0.01, H - 2*thickness - 0.01, thickness)),
     ]
 
-    self.panels = [
-        self.scene.add_entity(x,
-          surface=gs.surfaces.Glass(opacity=0.2),
-        ) for x in panels
-    ]
-
+    #self.panels = [
+    #    self.scene.add_entity(x,
+    #      surface=gs.surfaces.Glass(opacity=0.2),
+    #    ) for x in panels
+    #]
+    self.panels = ["m"]
+    self.bucket = self.scene.add_entity(
+      gs.morphs.Mesh(
+          file="cube_2.stl",
+          scale=(0.1, 0.1, 0.1),    # adjust scale if needed
+          pos= [0, 0, self.H - 0.2],      # position
+          quat=(1.0, 0.0, 0.0, 0.0) # no rotation; uses w, x, y, z quaternion
+      ),
+      surface=gs.surfaces.Glass(opacity=0.2)
+    )
     water_dims  = (H - thickness,W - thickness, D - thickness)
     wd = np.cbrt(int(number_of_particles)) * self.particle_size
     wd = water_dims[0]
+    #
     self.liquid = self.scene.add_entity(
       material=gs.materials.SPH.Liquid(rho=liquid_mass),
-      morph=gs.morphs.Box(pos=(0, 0, self.rob_pos[2] + H), size=(wd,wd,wd)),
+      morph=gs.morphs.Box(pos=(0, 0, self.rob_pos[2] + H - thickness + 0.02), size=(wd-0.05,wd-0.05,wd-0.05)),
       surface=gs.surfaces.Water( 
-        vis_mode='recon'
       ),
     )
     #aprox 1 particle per 0.0001 m^3
@@ -96,6 +116,7 @@ class Creator():
   def build(self, **kwargs):
     self.scene.build(**kwargs)
     if self.panels and self.franka:
+      self.panels = []
       rigid = self.scene.sim.rigid_solver
       base = self.franka.get_link("base")
       cube_link = []
@@ -110,16 +131,80 @@ class Creator():
           cube_link = cube.get_link("box_baselink")
           link_cube   = np.array([cube_link.idx],   dtype=gs.np_int)
           rigid.add_weld_constraint(link_cube, link_franka)
+      
+      self.bucket.set_pos(self.bucket.get_pos() +  gs.tensor([0, 0, z_pos + self.H + 0.05]))
+      cube_link = self.bucket.get_link("cube_2_stl_baselink")
+      link_cube   = np.array([cube_link.idx],   dtype=gs.np_int)
+      rigid.add_weld_constraint(link_cube, link_franka)
+    self.franka_init_pos = torch.zeros_like(
+      self.franka.get_pos()
+    )
+    self.franka_init_quat = torch.zeros_like(
+      self.franka.get_quat()
+    )
+    self.franka_init_vel = torch.zeros_like(
+      self.franka.get_vel()
+    )
+    if self.liquid is not None:
+      self.liquid_init_pos = torch.zeros_like(
+        self.liquid.get_particles_pos()
+      )
+      self.liquid_init_pos[:] = self.liquid.get_particles_pos()
+
+    self.franka_init_dof_pos =  torch.zeros_like(
+      self.franka.get_dofs_position()
+    )
+    self.franka_init_dof_pos[:] = self.franka.get_dofs_position()
+    self.franka_init_pos[:] = self.franka.get_pos()
+    self.franka_init_quat[:] = self.franka.get_quat()
+
+  def reset(self):
+    print(f"reset to {self.franka_init_pos}")
+    cass.scene.reset()
+    self.franka.set_pos(self.franka.get_pos() + gs.tensor([5, 0, 1]))
+    self.franka.zero_all_dofs_velocity()
+    #self.liquid.set_particles_pos(self.liquid.get_particles_pos() + gs.tensor([1, 0, 0.5]))
+    
 
 
 cass = Creator()
 cass.add_robot()
-cass.add_box(dim=(0.1, 0.1, 0.1))
+cass.add_box(dim=(0.2, 0.2, 0.2))
+
+
+
 cass.build()
 
+
 cass.cam.start_recording()
+
+print(cass.liquid)
+
+import time
+
+for i in range(20):
+  for _ in range(30):
+    cass.scene.step()
+    cass.cam.render()
+    print(cass.bucket.get_pos())
+    input()
+    #input()
+  
+  #print("reset")
+  #time.sleep(5)
+  cass.reset()
+  print(cass.liquid.get_particles_vel())
+  
+#cass.liquid.rho = 10_000
+
+#variables can be changed at run time
+
 for i in range(500):
   cass.scene.step()
   cass.cam.render()
 
-cass.cam.stop_recording(save_to_filename=f'video_liquid_{liquid_mass}.mp4', fps=60)
+from datetime import datetime
+
+cass.cam.stop_recording(save_to_filename=f'video_liquid_{liquid_mass}_{datetime.now().timestamp()}.mp4', fps=60)
+
+#https://github.com/Genesis-Embodied-AI/Genesis/blob/main/genesis/engine/entities/sph_entity.py
