@@ -410,66 +410,69 @@ class PPODynamic:
                 ###
                 # Use the model to generate the "previous" actions (action-pred using previous obs)
                 pinn_loss = 0.0
-                if self.pinn_weight > 0.0:
-                    if self.use_boot:
-                        self.actor_critic.act(prev_obs_batch, prev_obs_hist_batch)
-                    else:
-                        self.actor_critic.act_bootmask(prev_obs_batch, prev_obs_hist_batch)
-                    prev_actions = torch.cat([self.actor_critic.mean_pos, self.actor_critic.mean_tau], dim=-1)
+                # if self.pinn_weight > 0.0:
+                #     if self.use_boot:
+                #         self.actor_critic.act(prev_obs_batch, prev_obs_hist_batch)
+                #     else:
+                #         self.actor_critic.act_bootmask(prev_obs_batch, prev_obs_hist_batch)
+                #     prev_actions = torch.cat([self.actor_critic.mean_pos, self.actor_critic.mean_tau], dim=-1)
 
 
-                    pprev_actions = None
-                    if self.use_boot:
-                        self.actor_critic.act(pprev_obs_batch, pprev_obs_hist_batch)
-                    else:
-                        self.actor_critic.act_bootmask(pprev_obs_batch, pprev_obs_hist_batch)
-                    pprev_actions = torch.cat([self.actor_critic.mean_pos, self.actor_critic.mean_tau], dim=-1)
+                #     pprev_actions = None
+                #     if self.use_boot:
+                #         self.actor_critic.act(pprev_obs_batch, pprev_obs_hist_batch)
+                #     else:
+                #         self.actor_critic.act_bootmask(pprev_obs_batch, pprev_obs_hist_batch)
+                #     pprev_actions = torch.cat([self.actor_critic.mean_pos, self.actor_critic.mean_tau], dim=-1)
 
-                    # Process current and previous actions into the action-space
-                    q_des_curr, tau_des_curr  = action_func(current_actions)
-                    q_des_prev, _             = action_func(prev_actions)     # we do not need the tau from the prev. timestep
-                    q_des_pprev, _            = action_func(pprev_actions)    # we do not need the tau from the prev.-prev. timestep
+                #     # Process current and previous actions into the action-space
+                #     q_des_curr, tau_des_curr  = action_func(current_actions)
+                #     q_des_prev, _             = action_func(prev_actions)     # we do not need the tau from the prev. timestep
+                #     q_des_pprev, _            = action_func(pprev_actions)    # we do not need the tau from the prev.-prev. timestep
 
-                    # Use 1st order backwards finite differences to approximate models command acceleration
-                    dof_acc = (q_des_curr - 2.0*q_des_prev + q_des_pprev) / np.power(dt,2)
-                    # Create the whole-body acceleration vector
-                    wb_acc = torch.cat([torso_accs_batch, dof_acc], dim=1).float()
-                    # Create the whole-boyd tau vector 
-                    wb_tau = torch.cat([torch.zeros(torso_accs_batch.shape[0], 6).float().to(self.device), tau_des_curr.float()], dim=1).float()
+                #     # Use 1st order backwards finite differences to approximate models command acceleration
+                #     dof_acc = (q_des_curr - 2.0*q_des_prev + q_des_pprev) / np.power(dt,2)
+                #     # Create the whole-body acceleration vector
+                #     wb_acc = torch.cat([torso_accs_batch, dof_acc], dim=1).float()
+                #     # Create the whole-boyd tau vector 
+                #     wb_tau = torch.cat([torch.zeros(torso_accs_batch.shape[0], 6).float().to(self.device), tau_des_curr.float()], dim=1).float()
 
-                    # Calculate the models wb-dynamics
-                    model_wb_dynamics = torch.bmm(mass_mat_batch.float(), wb_acc.unsqueeze(-1)).squeeze(-1) + bias_vec_batch.float()
+                #     # Calculate the models wb-dynamics
+                #     model_wb_dynamics = torch.bmm(mass_mat_batch.float(), wb_acc.unsqueeze(-1)).squeeze(-1) + bias_vec_batch.float()
 
-                    error = model_wb_dynamics - gt_forces_batch - wb_tau
+                #     error = model_wb_dynamics - gt_forces_batch - wb_tau
 
-                    # Calculate the whole-body PINN loss
-                    pinn_loss = torch.mean(torch.square(error[:,6:]))
+                #     # Calculate the whole-body PINN loss
+                #     pinn_loss = torch.mean(torch.square(error[:,6:]))
 
                 
-                ###
-                #   END loss calculations, start gradient updates
-                ### 
-                if self.pinn_weight > 0.0 and use_pinn:
-                    # rescale the pinn-loss to be equal in magnitude to the PPO update
-                    pinn_ratio = (pos_loss.clone().detach() + tau_loss.clone().detach()) / pinn_loss.clone().detach()
-                    # Scale the ratio so the pinn loss is only ever 1/2 the magnitude of the PPO loss
-                    pinn_ratio *= 0.5
+                # ###
+                # #   END loss calculations, start gradient updates
+                # ### 
+                # if self.pinn_weight > 0.0 and use_pinn:
+                #     # rescale the pinn-loss to be equal in magnitude to the PPO update
+                #     pinn_ratio = (pos_loss.clone().detach() + tau_loss.clone().detach()) / pinn_loss.clone().detach()
+                #     # Scale the ratio so the pinn loss is only ever 1/2 the magnitude of the PPO loss
+                #     pinn_ratio *= 0.5
 
-                    # print((pos_loss.clone().detach() + tau_loss.clone().detach()))
-                    # print(pinn_loss.clone().detach())
-                    # print(pinn_ratio * pinn_loss.clone().detach())
-                    # print("------------------------")
+                #     # print((pos_loss.clone().detach() + tau_loss.clone().detach()))
+                #     # print(pinn_loss.clone().detach())
+                #     # print(pinn_ratio * pinn_loss.clone().detach())
+                #     # print("------------------------")
 
-                    ppo_losses = [pos_loss+tau_loss, self.pinn_weight * pinn_loss]
-                    encoder_losses = [autoenc_loss,  self.pinn_weight * pinn_loss]
-                    # total_ppo_loss = pos_loss + tau_loss + self.pinn_weight * pinn_ratio * pinn_loss
-                    # total_enc_loss = autoenc_loss + self.pinn_weight * pinn_ratio * pinn_loss
-                    self.num_pinn_updates += 1
-                else:
-                    ppo_losses = [pos_loss+tau_loss]
-                    encoder_losses = [autoenc_loss]
-                    # total_ppo_loss = pos_loss + tau_loss
-                    # total_enc_loss = autoenc_loss
+                #     ppo_losses = [pos_loss+tau_loss, self.pinn_weight * pinn_loss]
+                #     encoder_losses = [autoenc_loss,  self.pinn_weight * pinn_loss]
+                #     # total_ppo_loss = pos_loss + tau_loss + self.pinn_weight * pinn_ratio * pinn_loss
+                #     # total_enc_loss = autoenc_loss + self.pinn_weight * pinn_ratio * pinn_loss
+                #     self.num_pinn_updates += 1
+                # else:
+                #     ppo_losses = [pos_loss+tau_loss]
+                #     encoder_losses = [autoenc_loss]
+                #     # total_ppo_loss = pos_loss + tau_loss
+                #     # total_enc_loss = autoenc_loss
+
+                ppo_losses = [pos_loss+tau_loss]
+                encoder_losses = [autoenc_loss]
 
                 # total_ppo_loss = pos_loss + tau_loss + self.pinn_weight * pinn_loss
                 # total_enc_loss = autoenc_loss + self.pinn_weight * pinn_loss
@@ -531,10 +534,12 @@ class PPODynamic:
                 mean_tau_surrogate_loss += tau_surrogate_loss.item()
                 mean_autoenc_loss += autoenc_loss.item()
                 mean_decoder_loss += dec_loss.item()
-                if self.pinn_weight > 0.0:
-                    mean_pinn_loss += pinn_loss.item()
-                else:
-                    mean_pinn_loss += pinn_loss
+                # if self.pinn_weight > 0.0:
+                    # mean_pinn_loss += pinn_loss.item()
+                # else:
+                    # mean_pinn_loss += pinn_loss
+
+                mean_pinn_loss += pinn_loss
 
         num_updates = self.num_learning_epochs * self.num_mini_batches
         mean_pos_value_loss /= num_updates

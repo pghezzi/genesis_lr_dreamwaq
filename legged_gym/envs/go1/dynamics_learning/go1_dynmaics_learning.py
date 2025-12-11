@@ -172,90 +172,90 @@ class LeggedRobotGo1Dynamic(BaseTask):
         base_velo_world = self.robot.get_vel()
         base_ang_velo_world = self.robot.get_ang()
 
-        for i in range(self.dof_pos.shape[0]):
-            # print(self.dof_pos[0])
-            pino_dof_pos = self.dof_pos[i,self.model_2_pino_joint_map].cpu().numpy().tolist()
-            pino_dof_vel = self.dof_vel[i,self.model_2_pino_joint_map].cpu().numpy().tolist()
-            # print(pino_dof_pos)
-            # Used for approximating the accelerations...
-            pino_prev_dof_velo = self.last_dof_vel[i,self.model_2_pino_joint_map].cpu().numpy().tolist()
+        # for i in range(self.dof_pos.shape[0]):
+        #     # print(self.dof_pos[0])
+        #     pino_dof_pos = self.dof_pos[i,self.model_2_pino_joint_map].cpu().numpy().tolist()
+        #     pino_dof_vel = self.dof_vel[i,self.model_2_pino_joint_map].cpu().numpy().tolist()
+        #     # print(pino_dof_pos)
+        #     # Used for approximating the accelerations...
+        #     pino_prev_dof_velo = self.last_dof_vel[i,self.model_2_pino_joint_map].cpu().numpy().tolist()
             
-            # construct the whole body pose
-            pino_wb_pose = []
-            pino_wb_pose.extend(self.base_pos[i].cpu().numpy().tolist())
-            # Genesis is w,x,y,z quat, Pinocchio wants x,y,z,w    https://gepettoweb.laas.fr/doc/stack-of-tasks/pinocchio/devel/doxygen-html/md_doc_2d-practical-exercises_23-invkine.html
-            temp_quat = self.base_quat[i].cpu().numpy()[1:].tolist()
-            temp_quat.append(float(self.base_quat[i].cpu().numpy()[0]))
-            pino_wb_pose.extend(temp_quat)
-            pino_wb_pose.extend(pino_dof_pos)
-            pino_wb_pose = np.array(pino_wb_pose)
+        #     # construct the whole body pose
+        #     pino_wb_pose = []
+        #     pino_wb_pose.extend(self.base_pos[i].cpu().numpy().tolist())
+        #     # Genesis is w,x,y,z quat, Pinocchio wants x,y,z,w    https://gepettoweb.laas.fr/doc/stack-of-tasks/pinocchio/devel/doxygen-html/md_doc_2d-practical-exercises_23-invkine.html
+        #     temp_quat = self.base_quat[i].cpu().numpy()[1:].tolist()
+        #     temp_quat.append(float(self.base_quat[i].cpu().numpy()[0]))
+        #     pino_wb_pose.extend(temp_quat)
+        #     pino_wb_pose.extend(pino_dof_pos)
+        #     pino_wb_pose = np.array(pino_wb_pose)
 
-            # construct the whole body velocity
-            pino_wb_velo = []
-            pino_wb_velo.extend(base_velo_world[i].cpu().numpy().tolist())
-            pino_wb_velo.extend(base_ang_velo_world[i].cpu().numpy().tolist())
-            pino_wb_velo.extend(pino_dof_vel)
-            pino_wb_velo = np.array(pino_wb_velo)
+        #     # construct the whole body velocity
+        #     pino_wb_velo = []
+        #     pino_wb_velo.extend(base_velo_world[i].cpu().numpy().tolist())
+        #     pino_wb_velo.extend(base_ang_velo_world[i].cpu().numpy().tolist())
+        #     pino_wb_velo.extend(pino_dof_vel)
+        #     pino_wb_velo = np.array(pino_wb_velo)
 
-            # construct the previous whole body velocity (used to approximate accelerations)
-            pino_prev_wb_velo = []
-            pino_prev_wb_velo.extend(self.last_base_world_lin_vel[i].cpu().numpy().tolist())
-            pino_prev_wb_velo.extend(self.last_base_world_ang_vel[i].cpu().numpy().tolist())
-            pino_prev_wb_velo.extend(pino_prev_dof_velo)
-            pino_prev_wb_velo = np.array(pino_prev_wb_velo)
+        #     # construct the previous whole body velocity (used to approximate accelerations)
+        #     pino_prev_wb_velo = []
+        #     pino_prev_wb_velo.extend(self.last_base_world_lin_vel[i].cpu().numpy().tolist())
+        #     pino_prev_wb_velo.extend(self.last_base_world_ang_vel[i].cpu().numpy().tolist())
+        #     pino_prev_wb_velo.extend(pino_prev_dof_velo)
+        #     pino_prev_wb_velo = np.array(pino_prev_wb_velo)
 
-            # now use a simple backwards finite-difference for acceleration approximation
-            pino_wb_acc = (pino_wb_velo - pino_prev_wb_velo) / self.dt
+        #     # now use a simple backwards finite-difference for acceleration approximation
+        #     pino_wb_acc = (pino_wb_velo - pino_prev_wb_velo) / self.dt
 
-            # necessary for PINN updates
-            torso_accelerations.append(torch.from_numpy(pino_wb_acc[0:6]))
+        #     # necessary for PINN updates
+        #     torso_accelerations.append(torch.from_numpy(pino_wb_acc[0:6]))
 
-            # Calculate the generalized mass matrix and bias forces
-            aq0 = np.zeros(self.pino_model.nv)
-            #     compute dynamic drift -- Coriolis, centrifugal, gravity
-            b = pn.rnea(self.pino_model, self.pino_data, pino_wb_pose, pino_wb_velo, aq0)   # batch_size x 18
-            #     compute mass matrix M
-            M = pn.crba(self.pino_model, self.pino_data, pino_wb_pose)   # batch_size, (18x18)
+        #     # Calculate the generalized mass matrix and bias forces
+        #     aq0 = np.zeros(self.pino_model.nv)
+        #     #     compute dynamic drift -- Coriolis, centrifugal, gravity
+        #     b = pn.rnea(self.pino_model, self.pino_data, pino_wb_pose, pino_wb_velo, aq0)   # batch_size x 18
+        #     #     compute mass matrix M
+        #     M = pn.crba(self.pino_model, self.pino_data, pino_wb_pose)   # batch_size, (18x18)
 
-            # use the calculated values to approximate the whole-body dynamics
-            wb_dynamics = np.squeeze(np.matmul(M,pino_wb_acc) + b)
+        #     # use the calculated values to approximate the whole-body dynamics
+        #     wb_dynamics = np.squeeze(np.matmul(M,pino_wb_acc) + b)
 
-            # reshape and append to the batch-list
-            wb_dynamics_list.append(torch.from_numpy(wb_dynamics[correct_pino_2_model_wb_idxs]))
+        #     # reshape and append to the batch-list
+        #     wb_dynamics_list.append(torch.from_numpy(wb_dynamics[correct_pino_2_model_wb_idxs]))
 
-            # Log the dyanmics values for use in the external PINN loss
-            reshaped_M = M[correct_pino_2_model_wb_idxs,:]
-            reshaped_M = reshaped_M[:,correct_pino_2_model_wb_idxs]
-            reshaped_b = b[correct_pino_2_model_wb_idxs]
-            pinn_mass_mats.append(torch.from_numpy(reshaped_M))
-            pinn_bias_vecs.append(torch.from_numpy(reshaped_b))
+        #     # Log the dyanmics values for use in the external PINN loss
+        #     reshaped_M = M[correct_pino_2_model_wb_idxs,:]
+        #     reshaped_M = reshaped_M[:,correct_pino_2_model_wb_idxs]
+        #     reshaped_b = b[correct_pino_2_model_wb_idxs]
+        #     pinn_mass_mats.append(torch.from_numpy(reshaped_M))
+        #     pinn_bias_vecs.append(torch.from_numpy(reshaped_b))
 
-            # Now calculate the contact forces impact on the dynamics
-            pino_jacobains = []
-            for i, foot_name in enumerate(self.pino_foot_names):
-                # print(foot_name)
-                foot_frame_id = self.pino_model.getFrameId(foot_name)
-                pino_jacobains.append(pn.computeFrameJacobian(self.pino_model, self.pino_data, pino_wb_pose, foot_frame_id, pn.ReferenceFrame.LOCAL_WORLD_ALIGNED)[0:3,:])
+        #     # Now calculate the contact forces impact on the dynamics
+        #     pino_jacobains = []
+        #     for i, foot_name in enumerate(self.pino_foot_names):
+        #         # print(foot_name)
+        #         foot_frame_id = self.pino_model.getFrameId(foot_name)
+        #         pino_jacobains.append(pn.computeFrameJacobian(self.pino_model, self.pino_data, pino_wb_pose, foot_frame_id, pn.ReferenceFrame.LOCAL_WORLD_ALIGNED)[0:3,:])
 
-            full_jacobian = np.concatenate(pino_jacobains, axis=0) # 12x18
+        #     full_jacobian = np.concatenate(pino_jacobains, axis=0) # 12x18
 
-            reshaped_contacts = contact_temp.reshape(contact_temp.shape[0], 12).unsqueeze(2)[i].cpu().numpy()  # 12x1
+        #     reshaped_contacts = contact_temp.reshape(contact_temp.shape[0], 12).unsqueeze(2)[i].cpu().numpy()  # 12x1
 
-            contact_forces = np.squeeze(np.matmul(full_jacobian.transpose(), reshaped_contacts)) # 18
+        #     contact_forces = np.squeeze(np.matmul(full_jacobian.transpose(), reshaped_contacts)) # 18
 
-            wb_contact_forces_list.append(torch.from_numpy(contact_forces[correct_pino_2_model_wb_idxs]))
-        # end pinocchio loop
+        #     wb_contact_forces_list.append(torch.from_numpy(contact_forces[correct_pino_2_model_wb_idxs]))
+        # # end pinocchio loop
 
-        # now stack the tensor lists to get the necessary state values
-        self.wb_dynamics_buff[:]    = torch.stack(wb_dynamics_list).to(self.device)               # batch x 18
-        self.contact_forces_buff[:] = torch.stack(wb_contact_forces_list).to(self.device)      # batch x 18
+        # # now stack the tensor lists to get the necessary state values
+        # self.wb_dynamics_buff[:]    = torch.stack(wb_dynamics_list).to(self.device)               # batch x 18
+        # self.contact_forces_buff[:] = torch.stack(wb_contact_forces_list).to(self.device)      # batch x 18
 
-        # print(self.wb_dynamics_buff.shape)
-        # print(self.contact_forces_buff.shape)
+        # # print(self.wb_dynamics_buff.shape)
+        # # print(self.contact_forces_buff.shape)
 
-        self.wb_mass_mat_buff[:] = torch.stack(pinn_mass_mats).to(self.device)
-        self.wb_bias_vec_buff[:] = torch.stack(pinn_bias_vecs).to(self.device)
-        self.torso_6dof_acceleration[:] = torch.stack(torso_accelerations).to(self.device)
+        # self.wb_mass_mat_buff[:] = torch.stack(pinn_mass_mats).to(self.device)
+        # self.wb_bias_vec_buff[:] = torch.stack(pinn_bias_vecs).to(self.device)
+        # self.torso_6dof_acceleration[:] = torch.stack(torso_accelerations).to(self.device)
 
         self._post_physics_step_callback()
 
@@ -436,6 +436,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.rew_buf[:] = 0.
         for i in range(len(self.reward_functions)):
             name = self.reward_names[i]
+            # print("Shared reward - ", name)
             rew = self.reward_functions[i]() * self.reward_scales[name]
             self.rew_buf += rew
             self.episode_sums[name] += rew
@@ -444,6 +445,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.pos_rew_buf[:] = 0.
         for i in range(len(self.pos_reward_functions)):
             name = self.pos_reward_names[i]
+            # print("Position reward - ", name)
             rew = self.pos_reward_functions[i]() * self.pos_reward_scales[name]
             self.pos_rew_buf += rew
             self.episode_sums[name] += rew
@@ -452,6 +454,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.tau_rew_buf[:] = 0.
         for i in range(len(self.tau_reward_functions)):
             name = self.tau_reward_names[i]
+            # print("Torque reward - ", name)
             rew = self.tau_reward_functions[i]() * self.tau_reward_scales[name]
             self.tau_rew_buf += rew
             self.episode_sums[name] += rew
@@ -1137,6 +1140,8 @@ class LeggedRobotGo1Dynamic(BaseTask):
             if scale ==0:
                 self.reward_scales.pop(key)
             else:
+                # print("Non-zero shared reward + scale - ", key)
+                # print(self.reward_scales[key])
                 self.reward_scales[key] *= self.dt
 
         for key in list(self.pos_reward_scales.keys()):
@@ -1144,6 +1149,8 @@ class LeggedRobotGo1Dynamic(BaseTask):
             if scale ==0:
                 self.pos_reward_scales.pop(key)
             else:
+                # print("Non-zero position reward + scale - ", key)
+                # print(self.pos_reward_scales[key])
                 self.pos_reward_scales[key] *= self.dt
 
         for key in list(self.tau_reward_scales.keys()):
@@ -1151,6 +1158,8 @@ class LeggedRobotGo1Dynamic(BaseTask):
             if scale ==0:
                 self.tau_reward_scales.pop(key)
             else:
+                # print("Non-zero torque reward + scale - ", key)
+                # print(self.tau_reward_scales[key])
                 self.tau_reward_scales[key] *= self.dt
         
         # prepare list of functions
@@ -1475,8 +1484,15 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.feedback_tau_weight = self.tradeoff_upperbounds[1]
 
         if self.num_iters < self.tradeoff_num_steps:
-            self.feedforward_tau_weight = (float(self.num_iters)/float(self.tradeoff_num_steps))*self.bound_diff[0] + self.tradeoff_lowerbounds[0]
-            self.feedback_tau_weight    = (float(self.num_iters)/float(self.tradeoff_num_steps))*self.bound_diff[1] + self.tradeoff_lowerbounds[1]
+            raw_step = float(self.num_iters)/float(self.tradeoff_num_steps)   # between [0,1]
+            print(raw_step)
+            remapped_step = 12.0 * raw_step + (-6.0)  # between [-6, 6]
+            print(remapped_step)
+            gentle_step = 1.0 / (1.0 + np.exp(-remapped_step))
+            print(gentle_step)
+
+            self.feedforward_tau_weight = gentle_step*self.bound_diff[0] + self.tradeoff_lowerbounds[0]
+            self.feedback_tau_weight    = gentle_step*self.bound_diff[1] + self.tradeoff_lowerbounds[1]
 
         print("self.feedforward_tau_weight: ", self.feedforward_tau_weight)
         print("self.feedback_tau_weight: ", self.feedback_tau_weight)
@@ -1489,18 +1505,19 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # initialize the policy with fixed-lower bound
         if self.num_iters < self.reward_warmup_steps:
             for key in self.reward_curr_keys:
-                self.reward_scales[key] = self.reward_curr_bounds[key][0] * self.dt
+                if key in self.reward_scales.keys():
+                    self.reward_scales[key] = self.reward_curr_bounds[key][0] * self.dt
                 if key in self.pos_reward_scales.keys():
-                    self.reward_scales[key] = self.reward_curr_bounds[key][0] * self.dt
+                    self.pos_reward_scales[key] = self.reward_curr_bounds[key][0] * self.dt
                 if key in self.tau_reward_scales:
-                    self.reward_scales[key] = self.reward_curr_bounds[key][0] * self.dt
+                    self.tau_reward_scales[key] = self.reward_curr_bounds[key][0] * self.dt
         # Gradually increase the regularization strength
         elif self.num_iters > self.reward_warmup_steps and (self.num_iters - self.reward_warmup_steps) < self.reward_curr_steps:
             print("Stepping Reward Curriculum")
             adjusted_iter = self.num_iters - self.reward_warmup_steps
             for key in self.reward_curr_keys:
-                self.reward_scales[key] = ((float(adjusted_iter)/float(self.reward_curr_steps))*self.reward_bound_diffs[key] + self.reward_curr_bounds[key][0])*self.dt
-                
+                if key in self.reward_scales.keys():
+                    self.reward_scales[key] = ((float(adjusted_iter)/float(self.reward_curr_steps))*self.reward_bound_diffs[key] + self.reward_curr_bounds[key][0])*self.dt
                 if key in self.pos_reward_scales.keys():
                     self.pos_reward_scales[key] = ((float(adjusted_iter)/float(self.reward_curr_steps))*self.reward_bound_diffs[key] + self.reward_curr_bounds[key][0])*self.dt
                 if key in self.tau_reward_scales:
@@ -1509,15 +1526,12 @@ class LeggedRobotGo1Dynamic(BaseTask):
         else:
             # by default set the reward to the upper bound
             for key in self.reward_curr_keys:
-                self.reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
+                if key in self.reward_scales.keys():
+                    self.reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
                 if key in self.pos_reward_scales.keys():
-                    self.reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
+                    self.pos_reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
                 if key in self.tau_reward_scales:
-                    self.reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
-
-
-        for key in self.reward_curr_keys:
-            print("Reward - ", key, " is scaled by ", self.reward_scales[key])
+                    self.tau_reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
 
     def _parse_cfg(self, cfg):
         self.dt = self.cfg.control.dt
