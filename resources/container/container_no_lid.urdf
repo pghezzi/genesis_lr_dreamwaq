@@ -1,0 +1,92 @@
+<?xml version="1.0"?>
+<robot name="hollow_box_container">
+
+  <link name="container_link">
+
+    <!-- Approximate inertial parameters -->
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="1.0"/>
+      <inertia
+        ixx="0.005" ixy="0"  ixz="0"
+        iyy="0.005" iyz="0"
+        izz="0.005"/>
+    </inertial>
+
+    <!-- Bottom panel -->
+    <visual>
+      <origin xyz="0 0 -0.09" rpy="0 0 0"/>
+      <geometry>
+        <!-- length x width x thickness -->
+        <box size="0.2 0.2 0.02"/>
+      </geometry>
+      <material name="gray"><color rgba="0.7 0.7 0.7 1"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.09" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.2 0.2 0.02"/>
+      </geometry>
+    </collision>
+
+    <!-- Front wall (+y) -->
+    <visual>
+      <origin xyz="0 0.09 0.02" rpy="0 0 0"/>
+      <geometry>
+        <!-- length x thickness x wall height -->
+        <box size="0.2 0.02 0.18"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0.09 0.02" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.2 0.02 0.18"/>
+      </geometry>
+    </collision>
+
+    <!-- Back wall (-y) -->
+    <visual>
+      <origin xyz="0 -0.09 0.02" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.2 0.02 0.18"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 -0.09 0.02" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.2 0.02 0.18"/>
+      </geometry>
+    </collision>
+
+    <!-- Left wall (-x) -->
+    <visual>
+      <origin xyz="-0.09 0 0.02" rpy="0 0 0"/>
+      <geometry>
+        <!-- thickness x width x wall height -->
+        <box size="0.02 0.2 0.18"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="-0.09 0 0.02" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.02 0.2 0.18"/>
+      </geometry>
+    </collision>
+
+    <!-- Right wall (+x) -->
+    <visual>
+      <origin xyz="0.09 0 0.02" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.02 0.2 0.18"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0.09 0 0.02" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.02 0.2 0.18"/>
+      </geometry>
+    </collision>
+
+  </link>
+
+</robot>

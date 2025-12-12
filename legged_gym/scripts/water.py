@@ -4,6 +4,91 @@ import genesis as gs
 from itertools import combinations
 
 liquid_mass = 1000
+go1_torso_height = 0.114
+
+# Cube Parameters
+outer_x = 2.0;  # X dimension
+outer_y = 2.0;  # Y dimension
+outer_z = 2.0;  # total outer height
+wall_thickness = .20
+bottom_thickness = 0.21
+stl_scale = 0.1
+liquid_init_buffer = 0.035 # (needs to be slightly bigger than particle size I suspect)
+
+bucket_offset = (go1_torso_height/2.0) + (0.5*stl_scale*outer_z)
+#  ^^^ 
+# (go1_torso_height/2.0)  - half-"thickness" of torso 
+# (0.5*stl_scale*outer_z) - box is scaled from all sides, so half of the scaled height
+
+lid_offset = (go1_torso_height/2.0) + (stl_scale*outer_z) + (0.5*stl_scale*wall_thickness)
+
+def random_yaw_quaternion(batch_size=1, yaw_range=torch.tensor([-3.14159, 3.14159]),
+                          device="cpu", dtype=torch.float32):
+    # Sample random yaw angles
+    yaw = torch.rand(batch_size, device=device, dtype=dtype)
+    yaw = yaw_range[0] + (yaw_range[1] - yaw_range[0]) * yaw
+
+    # Compute quaternion for yaw rotation (roll=0, pitch=0)
+    half_yaw = 0.5 * yaw
+    cy = torch.cos(half_yaw)
+    sy = torch.sin(half_yaw)
+
+    # Quaternion in (w, x, y, z), yaw rotates around Z-axis
+    quat = torch.zeros((batch_size, 4), device=device, dtype=dtype)
+    quat[:, 0] = cy       # w
+    quat[:, 3] = sy       # z
+
+    return quat
+
+def gs_inv_quat(quat):
+    qw, qx, qy, qz = quat.unbind(-1)
+    inv_quat = torch.stack([1.0 * qw, -qx, -qy, -qz], dim=-1)
+    return inv_quat
+
+def gs_transform_by_quat(pos, quat):
+    qw, qx, qy, qz = quat.unbind(-1)
+
+    rot_matrix = torch.stack(
+        [
+            1.0 - 2 * qy**2 - 2 * qz**2,
+            2 * qx * qy - 2 * qz * qw,
+            2 * qx * qz + 2 * qy * qw,
+            2 * qx * qy + 2 * qz * qw,
+            1 - 2 * qx**2 - 2 * qz**2,
+            2 * qy * qz - 2 * qx * qw,
+            2 * qx * qz - 2 * qy * qw,
+            2 * qy * qz + 2 * qx * qw,
+            1 - 2 * qx**2 - 2 * qy**2,
+        ],
+        dim=-1,
+    ).reshape(*quat.shape[:-1], 3, 3)
+    rotated_pos = torch.matmul(rot_matrix, pos.unsqueeze(-1)).squeeze(-1)
+
+    return rotated_pos
+
+# Borrowed these functions from gs_utils.py
+def gs_quat_mul(a, b):
+    assert a.shape == b.shape
+    shape = a.shape
+    a = a.reshape(-1, 4)
+    b = b.reshape(-1, 4)
+
+    w1, x1, y1, z1 = a[:, 0], a[:, 1], a[:, 2], a[:, 3]
+    w2, x2, y2, z2 = b[:, 0], b[:, 1], b[:, 2], b[:, 3]
+    ww = (z1 + x1) * (x2 + y2)
+    yy = (w1 - y1) * (w2 + z2)
+    zz = (w1 + y1) * (w2 - z2)
+    xx = ww + yy + zz
+    qq = 0.5 * (xx + (z1 - x1) * (x2 - y2))
+    w = qq - ww + (z1 - y1) * (y2 - z2)
+    x = qq - xx + (x1 + w1) * (x2 + w2)
+    y = qq - yy + (w1 - x1) * (y2 + z2)
+    z = qq - zz + (z1 + y1) * (w2 - x2)
+
+    quat = torch.stack([w, x, y, z], dim=-1).view(shape)
+
+    return quat
+
 
 class LiquidOpts():
   """
@@ -25,27 +110,28 @@ class LiquidOpts():
 class Creator():
   def __init__(self):
     gs.init()
-    self.particle_size = 0.02
+    self.particle_size = 0.01
     self.scene = gs.Scene(
-      #rigid_options=gs.options.RigidOptions(
-      #          #dt=0.005,
-      #          constraint_solver=gs.constraint_solver.Newton,
-      #          enable_collision=True,
-      #          enable_joint_limit=True,
-      #          enable_self_collision=True,
-      #          batch_dofs_info=True,   # batch dof info for all envs
-      #          batch_joints_info=True,
-      #          batch_links_info=True,
-      #      ),
-      sim_options=gs.options.SimOptions(dt=4e-3, substeps=10),
-      #sph_options=gs.options.SPHOptions(
+      sim_options=gs.options.SimOptions(dt=5e-3, substeps=50),
+      sph_options=gs.options.SPHOptions(
       #  lower_bound = (-1,-1,-1),
       #  upper_bound = (1,1,1),
-      #  particle_size = self.particle_size,
-      #),
+       particle_size = self.particle_size,
+      ),
       vis_options = gs.options.VisOptions(
         visualize_sph_boundary = True,
       ),
+      rigid_options=gs.options.RigidOptions(
+          dt=5e-3,
+          constraint_solver=gs.constraint_solver.Newton,
+          enable_collision=True,
+          enable_joint_limit=True,
+          enable_self_collision=True,
+          batch_dofs_info=True,   # batch dof info for all envs
+          batch_joints_info=True,
+          batch_links_info=True,
+          use_gjk_collision=True
+        ),
       show_viewer = True,
     )
 
@@ -58,7 +144,6 @@ class Creator():
   )
 
     self.plane = self.scene.add_entity(morph=gs.morphs.Plane())
-    self.panels = None
     self.franka = None
     self.liquid = None
   
@@ -67,45 +152,53 @@ class Creator():
     self.franka = self.scene.add_entity(
         gs.morphs.URDF(
             pos = self.rob_pos,
-            file='/home/pablo/Documents/work/w/genesis_lr_dreamwaq/resources/robots/go1/urdf/go1.urdf'),
+            file='../../resources/robots/go1/urdf/go1.urdf'),
     )
   
 
-  def add_box(self, dim = (0.2, 0.2, 0.2), thickness = 1/32, number_of_particles = 100,):
-    number_of_particles = max(1, number_of_particles)
-    H, W, D = dim
-    self.H = H
-    panels = [
-        gs.morphs.Box(pos=(0, -H/2 + thickness/2, 0),     size=(W, thickness, D)),
-        gs.morphs.Box(pos=(0, +H/2 - thickness/2, 0),     size=(W, thickness, D)), 
-        gs.morphs.Box(pos=(-W/2 + thickness/2, 0, 0),     size=(thickness, H - 2*thickness - 0.01, D- 2*thickness)),
-        gs.morphs.Box(pos=(+W/2 - thickness/2, 0, 0),     size=(thickness, H - 2*thickness - 0.01, D- 2*thickness - 0.01)),
-        gs.morphs.Box(pos=(0, 0, -D/2 + thickness/2),     size=(W - 2*thickness - 0.01, H - 2*thickness - 0.01, thickness)),
-        gs.morphs.Box(pos=(0, 0, +D/2 - thickness/2),     size=(W - 2*thickness - 0.01, H - 2*thickness - 0.01, thickness)),
-    ]
+  # For multiple robots, might need to be smarter and initialize the liquids and payloads at their "starting" positions
+  #     on top of the robots...
+  def add_box(self):
+    box_init_pose = (self.rob_pos[0], self.rob_pos[1], self.rob_pos[2] + bucket_offset)
 
-    #self.panels = [
-    #    self.scene.add_entity(x,
-    #      surface=gs.surfaces.Glass(opacity=0.2),
-    #    ) for x in panels
-    #]
-    self.panels = ["m"]
+    # Add the liquid container 
     self.bucket = self.scene.add_entity(
-      gs.morphs.Mesh(
+      material=gs.materials.Rigid(
+        gravity_compensation=1.0,
+        ),
+      morph=gs.morphs.Mesh(
           file="cube_2.stl",
-          scale=(0.1, 0.1, 0.1),    # adjust scale if needed
-          pos= [0, 0, self.H - 0.2],      # position
+          scale=(stl_scale, stl_scale, stl_scale),    # adjust scale if needed
+          pos= box_init_pose,      # position
           quat=(1.0, 0.0, 0.0, 0.0) # no rotation; uses w, x, y, z quaternion
       ),
-      surface=gs.surfaces.Glass(opacity=0.2)
+      surface=gs.surfaces.Glass(opacity=0.4)
     )
-    water_dims  = (H - thickness,W - thickness, D - thickness)
-    wd = np.cbrt(int(number_of_particles)) * self.particle_size
-    wd = water_dims[0]
+
+    # Add a lid to the liquid container
+    self.lid = self.scene.add_entity(
+      material=gs.materials.Rigid(
+        gravity_compensation=1.0,
+        ),
+      morph=gs.morphs.Box(pos=(self.rob_pos[0], self.rob_pos[1], self.rob_pos[2]+lid_offset),
+                          size=(stl_scale*outer_x, stl_scale*outer_y, stl_scale*wall_thickness)),
+      
+      surface=gs.surfaces.Glass(opacity=0.4)
+    )
+
+    # print(self.lid)
+
+    # Calculate the scaled internal dimensions of the container
+    #     ultimately we will want to randomly scale each axis within some pre-defined bounds (0.1 +/- 0.05?])
+    scaled_width = outer_x * stl_scale - 2.0 * (stl_scale*wall_thickness)
+    scaled_depth = outer_y * stl_scale - 2.0 * (stl_scale*wall_thickness)
+    scaled_height = outer_z * stl_scale - stl_scale*bottom_thickness
+
     #
     self.liquid = self.scene.add_entity(
       material=gs.materials.SPH.Liquid(rho=liquid_mass),
-      morph=gs.morphs.Box(pos=(0, 0, self.rob_pos[2] + H - thickness + 0.02), size=(wd-0.05,wd-0.05,wd-0.05)),
+      morph=gs.morphs.Box(pos=box_init_pose, 
+                          size=(scaled_width-liquid_init_buffer,scaled_depth-liquid_init_buffer,scaled_height-liquid_init_buffer)),
       surface=gs.surfaces.Water( 
       ),
     )
@@ -114,37 +207,42 @@ class Creator():
     
   
   def build(self, **kwargs):
+    # Build the scene
     self.scene.build(**kwargs)
-    if self.panels and self.franka:
-      self.panels = []
+    
+    # If the liquid and robot are added, 
+    # then set their initial pose and cache some values for reset
+    if self.bucket and self.franka:
       rigid = self.scene.sim.rigid_solver
       base = self.franka.get_link("base")
       cube_link = []
-      link_franka = np.array([base.idx], dtype=gs.np_int)
-      pos = base.get_pos()
-      if len(pos.shape) == 1:
-        z_pos = pos[2]
-      else:
-        z_pos = pos[0, 2]
-      for cube in self.panels:
-          cube.set_pos(cube.get_pos() +  gs.tensor([0, 0, z_pos + self.H]))
-          cube_link = cube.get_link("box_baselink")
-          link_cube   = np.array([cube_link.idx],   dtype=gs.np_int)
-          rigid.add_weld_constraint(link_cube, link_franka)
       
-      self.bucket.set_pos(self.bucket.get_pos() +  gs.tensor([0, 0, z_pos + self.H + 0.05]))
+      link_franka = np.array([base.idx], dtype=gs.np_int)
       cube_link = self.bucket.get_link("cube_2_stl_baselink")
+      lid_link = self.lid.get_link("box_baselink")
+
+      pos = base.get_pos()
+      self.bucket.set_pos(pos +  gs.tensor([0, 0, bucket_offset]))
+      self.lid.set_pos(pos +  gs.tensor([0, 0, lid_offset]))
+
       link_cube   = np.array([cube_link.idx],   dtype=gs.np_int)
+      link_lid = np.array([lid_link.idx], dtype=gs.np_int)
+
       rigid.add_weld_constraint(link_cube, link_franka)
+      rigid.add_weld_constraint(link_lid, link_cube)
+    
     self.franka_init_pos = torch.zeros_like(
       self.franka.get_pos()
     )
+    
     self.franka_init_quat = torch.zeros_like(
       self.franka.get_quat()
     )
+    
     self.franka_init_vel = torch.zeros_like(
       self.franka.get_vel()
     )
+    
     if self.liquid is not None:
       self.liquid_init_pos = torch.zeros_like(
         self.liquid.get_particles_pos()
@@ -154,6 +252,7 @@ class Creator():
     self.franka_init_dof_pos =  torch.zeros_like(
       self.franka.get_dofs_position()
     )
+    
     self.franka_init_dof_pos[:] = self.franka.get_dofs_position()
     self.franka_init_pos[:] = self.franka.get_pos()
     self.franka_init_quat[:] = self.franka.get_quat()
@@ -164,25 +263,54 @@ class Creator():
     
     rigid = self.scene.sim.rigid_solver
     base = self.franka.get_link("base")
+    
     cube_link = self.bucket.get_link("cube_2_stl_baselink")
+    lid_link = self.lid.get_link("box_baselink")
+    
     link_cube = np.array([cube_link.idx],   dtype=gs.np_int)
     link_franka = np.array([base.idx], dtype=gs.np_int)
+    link_lid = np.array([lid_link.idx], dtype=gs.np_int)
 
-    self.franka.set_pos(self.franka.get_pos() + gs.tensor([1, 0, 0]))
-    self.bucket.set_pos(self.franka.get_pos() +  gs.tensor([0, 0, self.H + 0.05]))
+    # Random x/y offsets
+    rand_pos_offset = 1.0*torch.rand_like(self.franka_init_pos)
+    # Zeroout the random height offset
+    rand_pos_offset[2] = 0.0
+    # New robot pose
+    new_robot_pos = self.franka_init_pos + rand_pos_offset
+    new_particle_pos_offset    = new_robot_pos.clone()
+    new_particle_pos_offset[2] = 0.0 # no need to modify the height
+
+    # Random_yaw offsets
+    rand_yaw_offset = random_yaw_quaternion(device=self.franka_init_pos.device).squeeze()
+    new_robot_quat = gs_quat_mul(rand_yaw_offset, self.franka_init_quat)
+
+    self.franka.set_quat(new_robot_quat)
+    self.bucket.set_quat(new_robot_quat)
+    self.lid.set_quat(new_robot_quat)
+
+    self.franka.set_pos(new_robot_pos)
+    self.bucket.set_pos(new_robot_pos + gs.tensor([0, 0, bucket_offset]))
+    self.lid.set_pos(new_robot_pos + gs.tensor([0, 0, lid_offset]))
+
+    rigid.delete_weld_constraint(link_lid, link_cube)
     rigid.delete_weld_constraint(link_cube, link_franka)
-    rigid.add_weld_constraint(link_cube, link_franka)
-    self.franka.zero_all_dofs_velocity()
-    self.liquid.set_particles_pos(self.liquid.get_particles_pos() + gs.tensor([1, 0, 0]))
     
+    rigid.add_weld_constraint(link_cube, link_franka)
+    rigid.add_weld_constraint(link_lid, link_cube)
+    
+    self.franka.zero_all_dofs_velocity()
+    
+    # apply the yaw change to particle init positions THEN apply offset
+    new_particle_posistions = gs_transform_by_quat(self.liquid_init_pos, rand_yaw_offset)
+    new_particle_posistions += new_particle_pos_offset 
+    self.liquid.set_particles_pos(new_particle_posistions)
+
+
 
 
 cass = Creator()
 cass.add_robot()
-cass.add_box(dim=(0.2, 0.2, 0.2))
-
-
-
+cass.add_box()
 cass.build()
 
 
@@ -192,23 +320,21 @@ print(cass.liquid)
 
 import time
 
-for i in range(20):
-  for _ in range(30):
+for i in range(10):  
+  for _ in range(150):
     cass.scene.step()
     cass.cam.render()
-    print(cass.bucket.get_pos())
-    input()
-    #input()
+    # input()
+  
   cass.reset()
-  print(cass.liquid.get_particles_vel())
   
 #cass.liquid.rho = 10_000
 
 #variables can be changed at run time
 
-for i in range(500):
-  cass.scene.step()
-  cass.cam.render()
+# for i in range(500):
+#   cass.scene.step()
+#   cass.cam.render()
 
 from datetime import datetime
 
