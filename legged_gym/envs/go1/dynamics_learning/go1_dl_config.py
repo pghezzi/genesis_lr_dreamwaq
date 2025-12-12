@@ -188,7 +188,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
 
     class termination:
         termination_terms = ["roll", "pitch", "height_min", "height_max"]
-        roll_threshold    = 0.5  # [rad] ~ 40 degrees
+        roll_threshold    = 0.7  # [rad] ~ 40 degrees
         pitch_threshold   = 0.7  # [rad] ~ 20 degrees
         height_min = 0.10       # [m]
         height_max = 1.50        # [m]
@@ -240,9 +240,9 @@ class GO1DynamicCfg( LeggedRobotCfg ):
 
             # promot stable WB locomotion
             # wb_dynamics = -1.0e-4
-            wb_dynamics = 0.0
-            stable_grf_dynamics      = 0.0
-            floating_base_stability  = 0.0
+            wb_dynamics = 0.01
+            # stable_grf_dynamics      = 0.0
+            floating_base_stability  = 0.01
 
             # gait
             feet_air_time  = 1.0
@@ -267,12 +267,17 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             feedforward_torques   = -2.e-4  # new
 
         class reward_curriculum():
+            # curr_reward_keys = ["tau_action_rate", "tau_action_smoothness", "feedforward_torques",
+            #                     "pos_action_rate", "pos_action_smoothness", "feedback_torques",
+            #                     "dof_close_to_default", "dof_acc", "joint_power", "joint_power_dist",
+            #                     "stable_grf_dynamics", "floating_base_stability", "raibert", 
+            #                     "feet_contact_forces"]
+            #                     # "wb_dynamics"]
+
             curr_reward_keys = ["tau_action_rate", "tau_action_smoothness", "feedforward_torques",
                                 "pos_action_rate", "pos_action_smoothness", "feedback_torques",
                                 "dof_close_to_default", "dof_acc", "joint_power", "joint_power_dist",
-                                "stable_grf_dynamics", "floating_base_stability", "raibert", 
-                                "feet_contact_forces"]
-                                # "wb_dynamics"]
+                                "stable_grf_dynamics", "raibert", "feet_contact_forces", "wb_dynamics"]
 
             # curr_reward_keys = ["tau_action_rate", "tau_action_smoothness", "feedforward_torques",
             #                     "pos_action_rate", "pos_action_smoothness", "feedback_torques",
@@ -294,17 +299,17 @@ class GO1DynamicCfg( LeggedRobotCfg ):
                                   "joint_power":[-2.0e-7, -2.0e-5],
                                   "joint_power_dist":[-1.0e-7, -1.0e-5],
 
-                                  "stable_grf_dynamics":[1e-4, 1.0e-2],
+                                #   "stable_grf_dynamics":[1e-4, 1.0e-2],
                                   "floating_base_stability":[1e-4, 1.0e-2],
 
                                   "raibert":[1e-4, 1.0e-2],
 
-                                  "feet_contact_forces":[-1.0e-4,-1e-2]
+                                  "feet_contact_forces":[-1.0e-4,-1e-2],
                                   
-                                #   "wb_dynamics":[-1e-12, -1e-5]
+                                  "wb_dynamics":[1e-4, 1e-2]
                                   }
 
-            curr_steps = 1500
+            curr_steps = 2500
             warmup_steps = 0
     class commands( LeggedRobotCfg.commands ):
         curriculum = True
@@ -368,7 +373,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         policy_class_name = 'ActorCritic_Dynamic'
         algorithm_class_name = 'PPODynamic'
         num_steps_per_env = 36 # per iteration
-        max_iterations = 5000 # number of policy updates
+        max_iterations = 2500 # number of policy updates
         grf_dim = 12
         
         # debug_warmpinn_wb

@@ -216,11 +216,11 @@ class OnPolicyRunnerDynamic:
                 self.env.step_reward_curriculum()
             self.env.num_iters += 1
 
-            # enable additional domain randomizations
-            if (self.env.cfg.domain_rand.enable_additional_ratio < (float(self.env.num_iters)/float(tot_iter))):
-                self.env.cfg.domain_rand.randomize_joint_armature = True
-                self.env.cfg.domain_rand.randomize_joint_stiffness = True
-                self.env.cfg.domain_rand.randomize_joint_damping = True
+            # # enable additional domain randomizations
+            # if (self.env.cfg.domain_rand.enable_additional_ratio < (float(self.env.num_iters)/float(tot_iter))):
+            #     self.env.cfg.domain_rand.randomize_joint_armature = True
+            #     self.env.cfg.domain_rand.randomize_joint_stiffness = True
+            #     self.env.cfg.domain_rand.randomize_joint_damping = True
             
             
             stop = time.time()

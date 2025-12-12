@@ -172,90 +172,90 @@ class LeggedRobotGo1Dynamic(BaseTask):
         base_velo_world = self.robot.get_vel()
         base_ang_velo_world = self.robot.get_ang()
 
-        # for i in range(self.dof_pos.shape[0]):
-        #     # print(self.dof_pos[0])
-        #     pino_dof_pos = self.dof_pos[i,self.model_2_pino_joint_map].cpu().numpy().tolist()
-        #     pino_dof_vel = self.dof_vel[i,self.model_2_pino_joint_map].cpu().numpy().tolist()
-        #     # print(pino_dof_pos)
-        #     # Used for approximating the accelerations...
-        #     pino_prev_dof_velo = self.last_dof_vel[i,self.model_2_pino_joint_map].cpu().numpy().tolist()
+        for i in range(self.dof_pos.shape[0]):
+            # print(self.dof_pos[0])
+            pino_dof_pos = self.dof_pos[i,self.model_2_pino_joint_map].cpu().numpy().tolist()
+            pino_dof_vel = self.dof_vel[i,self.model_2_pino_joint_map].cpu().numpy().tolist()
+            # print(pino_dof_pos)
+            # Used for approximating the accelerations...
+            pino_prev_dof_velo = self.last_dof_vel[i,self.model_2_pino_joint_map].cpu().numpy().tolist()
             
-        #     # construct the whole body pose
-        #     pino_wb_pose = []
-        #     pino_wb_pose.extend(self.base_pos[i].cpu().numpy().tolist())
-        #     # Genesis is w,x,y,z quat, Pinocchio wants x,y,z,w    https://gepettoweb.laas.fr/doc/stack-of-tasks/pinocchio/devel/doxygen-html/md_doc_2d-practical-exercises_23-invkine.html
-        #     temp_quat = self.base_quat[i].cpu().numpy()[1:].tolist()
-        #     temp_quat.append(float(self.base_quat[i].cpu().numpy()[0]))
-        #     pino_wb_pose.extend(temp_quat)
-        #     pino_wb_pose.extend(pino_dof_pos)
-        #     pino_wb_pose = np.array(pino_wb_pose)
+            # construct the whole body pose
+            pino_wb_pose = []
+            pino_wb_pose.extend(self.base_pos[i].cpu().numpy().tolist())
+            # Genesis is w,x,y,z quat, Pinocchio wants x,y,z,w    https://gepettoweb.laas.fr/doc/stack-of-tasks/pinocchio/devel/doxygen-html/md_doc_2d-practical-exercises_23-invkine.html
+            temp_quat = self.base_quat[i].cpu().numpy()[1:].tolist()
+            temp_quat.append(float(self.base_quat[i].cpu().numpy()[0]))
+            pino_wb_pose.extend(temp_quat)
+            pino_wb_pose.extend(pino_dof_pos)
+            pino_wb_pose = np.array(pino_wb_pose)
 
-        #     # construct the whole body velocity
-        #     pino_wb_velo = []
-        #     pino_wb_velo.extend(base_velo_world[i].cpu().numpy().tolist())
-        #     pino_wb_velo.extend(base_ang_velo_world[i].cpu().numpy().tolist())
-        #     pino_wb_velo.extend(pino_dof_vel)
-        #     pino_wb_velo = np.array(pino_wb_velo)
+            # construct the whole body velocity
+            pino_wb_velo = []
+            pino_wb_velo.extend(base_velo_world[i].cpu().numpy().tolist())
+            pino_wb_velo.extend(base_ang_velo_world[i].cpu().numpy().tolist())
+            pino_wb_velo.extend(pino_dof_vel)
+            pino_wb_velo = np.array(pino_wb_velo)
 
-        #     # construct the previous whole body velocity (used to approximate accelerations)
-        #     pino_prev_wb_velo = []
-        #     pino_prev_wb_velo.extend(self.last_base_world_lin_vel[i].cpu().numpy().tolist())
-        #     pino_prev_wb_velo.extend(self.last_base_world_ang_vel[i].cpu().numpy().tolist())
-        #     pino_prev_wb_velo.extend(pino_prev_dof_velo)
-        #     pino_prev_wb_velo = np.array(pino_prev_wb_velo)
+            # construct the previous whole body velocity (used to approximate accelerations)
+            pino_prev_wb_velo = []
+            pino_prev_wb_velo.extend(self.last_base_world_lin_vel[i].cpu().numpy().tolist())
+            pino_prev_wb_velo.extend(self.last_base_world_ang_vel[i].cpu().numpy().tolist())
+            pino_prev_wb_velo.extend(pino_prev_dof_velo)
+            pino_prev_wb_velo = np.array(pino_prev_wb_velo)
 
-        #     # now use a simple backwards finite-difference for acceleration approximation
-        #     pino_wb_acc = (pino_wb_velo - pino_prev_wb_velo) / self.dt
+            # now use a simple backwards finite-difference for acceleration approximation
+            pino_wb_acc = (pino_wb_velo - pino_prev_wb_velo) / self.dt
 
-        #     # necessary for PINN updates
-        #     torso_accelerations.append(torch.from_numpy(pino_wb_acc[0:6]))
+            # necessary for PINN updates
+            torso_accelerations.append(torch.from_numpy(pino_wb_acc[0:6]))
 
-        #     # Calculate the generalized mass matrix and bias forces
-        #     aq0 = np.zeros(self.pino_model.nv)
-        #     #     compute dynamic drift -- Coriolis, centrifugal, gravity
-        #     b = pn.rnea(self.pino_model, self.pino_data, pino_wb_pose, pino_wb_velo, aq0)   # batch_size x 18
-        #     #     compute mass matrix M
-        #     M = pn.crba(self.pino_model, self.pino_data, pino_wb_pose)   # batch_size, (18x18)
+            # Calculate the generalized mass matrix and bias forces
+            aq0 = np.zeros(self.pino_model.nv)
+            #     compute dynamic drift -- Coriolis, centrifugal, gravity
+            b = pn.rnea(self.pino_model, self.pino_data, pino_wb_pose, pino_wb_velo, aq0)   # batch_size x 18
+            #     compute mass matrix M
+            M = pn.crba(self.pino_model, self.pino_data, pino_wb_pose)   # batch_size, (18x18)
 
-        #     # use the calculated values to approximate the whole-body dynamics
-        #     wb_dynamics = np.squeeze(np.matmul(M,pino_wb_acc) + b)
+            # use the calculated values to approximate the whole-body dynamics
+            wb_dynamics = np.squeeze(np.matmul(M,pino_wb_acc) + b)
 
-        #     # reshape and append to the batch-list
-        #     wb_dynamics_list.append(torch.from_numpy(wb_dynamics[correct_pino_2_model_wb_idxs]))
+            # reshape and append to the batch-list
+            wb_dynamics_list.append(torch.from_numpy(wb_dynamics[correct_pino_2_model_wb_idxs]))
 
-        #     # Log the dyanmics values for use in the external PINN loss
-        #     reshaped_M = M[correct_pino_2_model_wb_idxs,:]
-        #     reshaped_M = reshaped_M[:,correct_pino_2_model_wb_idxs]
-        #     reshaped_b = b[correct_pino_2_model_wb_idxs]
-        #     pinn_mass_mats.append(torch.from_numpy(reshaped_M))
-        #     pinn_bias_vecs.append(torch.from_numpy(reshaped_b))
+            # Log the dyanmics values for use in the external PINN loss
+            reshaped_M = M[correct_pino_2_model_wb_idxs,:]
+            reshaped_M = reshaped_M[:,correct_pino_2_model_wb_idxs]
+            reshaped_b = b[correct_pino_2_model_wb_idxs]
+            pinn_mass_mats.append(torch.from_numpy(reshaped_M))
+            pinn_bias_vecs.append(torch.from_numpy(reshaped_b))
 
-        #     # Now calculate the contact forces impact on the dynamics
-        #     pino_jacobains = []
-        #     for i, foot_name in enumerate(self.pino_foot_names):
-        #         # print(foot_name)
-        #         foot_frame_id = self.pino_model.getFrameId(foot_name)
-        #         pino_jacobains.append(pn.computeFrameJacobian(self.pino_model, self.pino_data, pino_wb_pose, foot_frame_id, pn.ReferenceFrame.LOCAL_WORLD_ALIGNED)[0:3,:])
+            # Now calculate the contact forces impact on the dynamics
+            pino_jacobains = []
+            for i, foot_name in enumerate(self.pino_foot_names):
+                # print(foot_name)
+                foot_frame_id = self.pino_model.getFrameId(foot_name)
+                pino_jacobains.append(pn.computeFrameJacobian(self.pino_model, self.pino_data, pino_wb_pose, foot_frame_id, pn.ReferenceFrame.LOCAL_WORLD_ALIGNED)[0:3,:])
 
-        #     full_jacobian = np.concatenate(pino_jacobains, axis=0) # 12x18
+            full_jacobian = np.concatenate(pino_jacobains, axis=0) # 12x18
 
-        #     reshaped_contacts = contact_temp.reshape(contact_temp.shape[0], 12).unsqueeze(2)[i].cpu().numpy()  # 12x1
+            reshaped_contacts = contact_temp.reshape(contact_temp.shape[0], 12).unsqueeze(2)[i].cpu().numpy()  # 12x1
 
-        #     contact_forces = np.squeeze(np.matmul(full_jacobian.transpose(), reshaped_contacts)) # 18
+            contact_forces = np.squeeze(np.matmul(full_jacobian.transpose(), reshaped_contacts)) # 18
 
-        #     wb_contact_forces_list.append(torch.from_numpy(contact_forces[correct_pino_2_model_wb_idxs]))
-        # # end pinocchio loop
+            wb_contact_forces_list.append(torch.from_numpy(contact_forces[correct_pino_2_model_wb_idxs]))
+        # end pinocchio loop
 
-        # # now stack the tensor lists to get the necessary state values
-        # self.wb_dynamics_buff[:]    = torch.stack(wb_dynamics_list).to(self.device)               # batch x 18
-        # self.contact_forces_buff[:] = torch.stack(wb_contact_forces_list).to(self.device)      # batch x 18
+        # now stack the tensor lists to get the necessary state values
+        self.wb_dynamics_buff[:]    = torch.stack(wb_dynamics_list).to(self.device)               # batch x 18
+        self.contact_forces_buff[:] = torch.stack(wb_contact_forces_list).to(self.device)      # batch x 18
 
-        # # print(self.wb_dynamics_buff.shape)
-        # # print(self.contact_forces_buff.shape)
+        # print(self.wb_dynamics_buff.shape)
+        # print(self.contact_forces_buff.shape)
 
-        # self.wb_mass_mat_buff[:] = torch.stack(pinn_mass_mats).to(self.device)
-        # self.wb_bias_vec_buff[:] = torch.stack(pinn_bias_vecs).to(self.device)
-        # self.torso_6dof_acceleration[:] = torch.stack(torso_accelerations).to(self.device)
+        self.wb_mass_mat_buff[:] = torch.stack(pinn_mass_mats).to(self.device)
+        self.wb_bias_vec_buff[:] = torch.stack(pinn_bias_vecs).to(self.device)
+        self.torso_6dof_acceleration[:] = torch.stack(torso_accelerations).to(self.device)
 
         self._post_physics_step_callback()
 
@@ -1848,8 +1848,14 @@ class LeggedRobotGo1Dynamic(BaseTask):
         #     this also "guides" the policy to select complimentary position and torque values
         # augment the torques vector to include 6 zeros for the unactuated torso DOF's
         # wb_torques = torch.concatenate((torch.zeros((self.torques.shape[0], 6), device=self.device, dtype=gs.tc_float), self.torques), dim=1)
-        error = self.wb_dynamics_buff[:,6:] - self.contact_forces_buff[:,6:] - self.torques 
-        return torch.norm(error, dim=1)    
+        error = self.wb_dynamics_buff[:,6:] - self.contact_forces_buff[:,6:] - self.torques
+        
+        # filter this error signal by feet that are in-contact, otherwise this just penalizes the torque magnitude of the swing-legs, which we are
+        #    already doing with other reward signals
+        contact_filter = self.contact_forces_buff[:,6:] > 0.0
+        filtered_error = contact_filter * error
+        
+        return torch.exp(-torch.norm(filtered_error, dim=1))    
 
     # Rewards control torques (feedforward + feedback) and blanace with the GRF profile at the joint-level
     #     thereby encouraging control torques and contact forces that conform to the systems rigid-body dynamics 
