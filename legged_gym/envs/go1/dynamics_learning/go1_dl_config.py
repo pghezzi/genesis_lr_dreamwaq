@@ -277,7 +277,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             curr_reward_keys = ["tau_action_rate", "tau_action_smoothness", "feedforward_torques",
                                 "pos_action_rate", "pos_action_smoothness", "feedback_torques",
                                 "dof_close_to_default", "dof_acc", "joint_power", "joint_power_dist",
-                                "stable_grf_dynamics", "raibert", "feet_contact_forces", "wb_dynamics"]
+                                "floating_base_stability", "raibert", "feet_contact_forces", "wb_dynamics"]
 
             # curr_reward_keys = ["tau_action_rate", "tau_action_smoothness", "feedforward_torques",
             #                     "pos_action_rate", "pos_action_smoothness", "feedback_torques",
@@ -377,7 +377,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         grf_dim = 12
         
         # debug_warmpinn_wb
-        run_name = 'debug_gentle_tradeoff'
+        run_name = 'debug_gentle_tradeoff_dynrews'
         experiment_name = 'go1_dynamic'
         save_interval = 50
         load_run = "Dec06_20-45-49_debug_grfdynrews_pinn_fixrai_priorpcgrad"
