@@ -47,7 +47,6 @@ def gs_inv_quat(quat):
 
 def gs_transform_by_quat(pos, quat):
     qw, qx, qy, qz = quat.unbind(-1)
-
     rot_matrix = torch.stack(
         [
             1.0 - 2 * qy**2 - 2 * qz**2,
@@ -62,7 +61,10 @@ def gs_transform_by_quat(pos, quat):
         ],
         dim=-1,
     ).reshape(*quat.shape[:-1], 3, 3)
-    rotated_pos = torch.matmul(rot_matrix, pos.unsqueeze(-1)).squeeze(-1)
+    if pos.dim() == 3:
+      rotated_pos = torch.matmul(rot_matrix[:, None, :], pos.unsqueeze(-1)).squeeze(-1)
+    else:
+      rotated_pos = torch.matmul(rot_matrix, pos.unsqueeze(-1)).squeeze(-1)
 
     return rotated_pos
 
@@ -161,7 +163,7 @@ class Creator():
   def add_box(self):
     box_init_pose = (self.rob_pos[0], self.rob_pos[1], self.rob_pos[2] + bucket_offset)
 
-    # Add the liquid container 
+    # Add the liquid container
     self.bucket = self.scene.add_entity(
       material=gs.materials.Rigid(
         gravity_compensation=1.0,
@@ -170,10 +172,39 @@ class Creator():
           file="cube_2.stl",
           scale=(stl_scale, stl_scale, stl_scale),    # adjust scale if needed
           pos= box_init_pose,      # position
-          quat=(1.0, 0.0, 0.0, 0.0) # no rotation; uses w, x, y, z quaternion
+          quat=(1.0, 0.0, 0.0, 0.0), # no rotation; uses w, x, y, z quaternion
+          decimate=False,
+          convexify=False
       ),
       surface=gs.surfaces.Glass(opacity=0.4)
     )
+    #self.bucket = self.scene.add_entity(
+    #  material=gs.materials.Rigid(
+    #    gravity_compensation=1.0,
+    #    ),
+    #  morph=gs.morphs.Mesh(
+    #      file="hollow_box_better.stl",
+    #      scale=(stl_scale, stl_scale, stl_scale),    # adjust scale if needed
+    #      pos= box_init_pose,      # position
+    #      quat=(1.0, 0.0, 0.0, 0.0), # no rotation; uses w, x, y, z quaternion
+    #      decimate=False,
+    #      convexify=False
+    #  ),
+    #  surface=gs.surfaces.Glass(opacity=0.4)
+    #)
+
+    #self.scene.add_entity(
+    #  material=gs.materials.Rigid(
+    #    gravity_compensation=1.0,
+    #    ),
+    #  morph=gs.morphs.Mesh(
+    #      file="cube_2.stl",
+    #      scale=(stl_scale, stl_scale, stl_scale),    # adjust scale if needed
+    #      pos= (5, 0, 0),      # position
+    #      quat=(1.0, 0.0, 0.0, 0.0) # no rotation; uses w, x, y, z quaternion
+    #  ),
+    #  surface=gs.surfaces.Glass(opacity=0.4)
+    #)
 
     # Add a lid to the liquid container
     self.lid = self.scene.add_entity(
@@ -193,21 +224,31 @@ class Creator():
     scaled_width = outer_x * stl_scale - 2.0 * (stl_scale*wall_thickness)
     scaled_depth = outer_y * stl_scale - 2.0 * (stl_scale*wall_thickness)
     scaled_height = outer_z * stl_scale - stl_scale*bottom_thickness
-
-    #
-    self.liquid = self.scene.add_entity(
-      material=gs.materials.SPH.Liquid(rho=liquid_mass),
-      morph=gs.morphs.Box(pos=box_init_pose, 
+    self.liquids = [
+      self.scene.add_entity(
+        material=gs.materials.SPH.Liquid(rho=liquid_mass),
+        morph=gs.morphs.Box(pos=box_init_pose, 
                           size=(scaled_width-liquid_init_buffer,scaled_depth-liquid_init_buffer,scaled_height-liquid_init_buffer)),
-      surface=gs.surfaces.Water( 
-      ),
-    )
+        surface=gs.surfaces.Water(color=x),
+    ) for x in [(1,0,0),(0,1,0),(1,1,0),(0,0,1),(1,0,1),(0,1,1)]
+    ]
+    #
+    #self.liquid = self.scene.add_entity(
+    #  material=gs.materials.SPH.Liquid(rho=liquid_mass),
+    #  morph=gs.morphs.Box(pos=box_init_pose, 
+    #                      size=(scaled_width-liquid_init_buffer,scaled_depth-liquid_init_buffer,scaled_height-liquid_init_buffer)),
+    #  surface=gs.surfaces.Water( 
+    #  ),
+    #)
     #aprox 1 particle per 0.0001 m^3
     #0.000783458709716797/749
     
   
   def build(self, **kwargs):
     # Build the scene
+    if kwargs.get("n_envs") is None:
+      kwargs["n_envs"] = 1
+    self.num_envs = kwargs["n_envs"]
     self.scene.build(**kwargs)
     
     # If the liquid and robot are added, 
@@ -219,6 +260,7 @@ class Creator():
       
       link_franka = np.array([base.idx], dtype=gs.np_int)
       cube_link = self.bucket.get_link("cube_2_stl_baselink")
+      #cube_link = self.bucket.get_link("hollow_box_better_stl_baselink")
       lid_link = self.lid.get_link("box_baselink")
 
       pos = base.get_pos()
@@ -229,7 +271,7 @@ class Creator():
       link_lid = np.array([lid_link.idx], dtype=gs.np_int)
 
       rigid.add_weld_constraint(link_cube, link_franka)
-      rigid.add_weld_constraint(link_lid, link_cube)
+      rigid.add_weld_constraint(link_lid, link_franka)
     
     self.franka_init_pos = torch.zeros_like(
       self.franka.get_pos()
@@ -242,13 +284,14 @@ class Creator():
     self.franka_init_vel = torch.zeros_like(
       self.franka.get_vel()
     )
-    
-    if self.liquid is not None:
+    if self.liquids:
       self.liquid_init_pos = torch.zeros_like(
-        self.liquid.get_particles_pos()
-      )
-      self.liquid_init_pos[:] = self.liquid.get_particles_pos()
-
+          self.liquids[0].get_particles_pos()
+        )
+      self.liquid_init_pos[:] = self.liquids[0].get_particles_pos()
+      active = torch.randint(0, len(self.liquids), (self.num_envs,1))
+      for i, liquid in enumerate(self.liquids):
+        liquid.set_particles_active(active == i)
     self.franka_init_dof_pos =  torch.zeros_like(
       self.franka.get_dofs_position()
     )
@@ -258,13 +301,18 @@ class Creator():
     self.franka_init_quat[:] = self.franka.get_quat()
 
   def reset(self):
-    print(f"reset to {self.franka_init_pos}")
-    cass.scene.reset()
+    #cass.scene.reset()
     
+    #self.franka.set_pos(self.franka_init_pos)
+    #self.franka.set_quat(self.franka_init_quat)
+    #self.franka.set_dofs_position(self.franka_init_dof_pos)
+    #self.liquid.set_particles_pos(self.liquid_init_pos)
+
     rigid = self.scene.sim.rigid_solver
     base = self.franka.get_link("base")
     
     cube_link = self.bucket.get_link("cube_2_stl_baselink")
+    #cube_link = self.bucket.get_link("hollow_box_better_stl_baselink")
     lid_link = self.lid.get_link("box_baselink")
     
     link_cube = np.array([cube_link.idx],   dtype=gs.np_int)
@@ -274,15 +322,18 @@ class Creator():
     # Random x/y offsets
     rand_pos_offset = 1.0*torch.rand_like(self.franka_init_pos)
     # Zeroout the random height offset
-    rand_pos_offset[2] = 0.0
+    rand_pos_offset[:, 2] = 0.0
     # New robot pose
     new_robot_pos = self.franka_init_pos + rand_pos_offset
     new_particle_pos_offset    = new_robot_pos.clone()
-    new_particle_pos_offset[2] = 0.0 # no need to modify the height
+    new_particle_pos_offset[:, 2] = 0.0 # no need to modify the height
 
     # Random_yaw offsets
-    rand_yaw_offset = random_yaw_quaternion(device=self.franka_init_pos.device).squeeze()
-    new_robot_quat = gs_quat_mul(rand_yaw_offset, self.franka_init_quat)
+    rand_yaw_offset = random_yaw_quaternion(
+      batch_size=self.franka_init_quat.shape[0], 
+      device=self.franka_init_pos.device
+    ).squeeze()
+    new_robot_quat = gs_quat_mul(rand_yaw_offset, self.franka_init_quat.squeeze())
 
     self.franka.set_quat(new_robot_quat)
     self.bucket.set_quat(new_robot_quat)
@@ -292,18 +343,22 @@ class Creator():
     self.bucket.set_pos(new_robot_pos + gs.tensor([0, 0, bucket_offset]))
     self.lid.set_pos(new_robot_pos + gs.tensor([0, 0, lid_offset]))
 
-    rigid.delete_weld_constraint(link_lid, link_cube)
+    rigid.delete_weld_constraint(link_lid, link_franka)
     rigid.delete_weld_constraint(link_cube, link_franka)
     
     rigid.add_weld_constraint(link_cube, link_franka)
-    rigid.add_weld_constraint(link_lid, link_cube)
+    rigid.add_weld_constraint(link_lid, link_franka)
     
     self.franka.zero_all_dofs_velocity()
     
     # apply the yaw change to particle init positions THEN apply offset
     new_particle_posistions = gs_transform_by_quat(self.liquid_init_pos, rand_yaw_offset)
-    new_particle_posistions += new_particle_pos_offset 
-    self.liquid.set_particles_pos(new_particle_posistions)
+    new_particle_posistions += new_particle_pos_offset[:, None, :]
+    active = torch.randint(0, len(self.liquids), (self.num_envs,1))
+    for i, liquid in enumerate(self.liquids):
+      liquid.set_particles_active(active == i)
+      liquid.set_particles_vel(0)
+      liquid.set_particles_pos(new_particle_posistions)
 
 
 
@@ -311,16 +366,13 @@ class Creator():
 cass = Creator()
 cass.add_robot()
 cass.add_box()
-cass.build()
+cass.build(n_envs=6, env_spacing=(1.0, 1.0))
 
 
 cass.cam.start_recording()
 
-print(cass.liquid)
-
 import time
-
-for i in range(10):  
+for i in range(10):
   for _ in range(150):
     cass.scene.step()
     cass.cam.render()
@@ -328,7 +380,7 @@ for i in range(10):
   
   cass.reset()
   
-#cass.liquid.rho = 10_000
+#
 
 #variables can be changed at run time
 
