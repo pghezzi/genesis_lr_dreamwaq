@@ -171,7 +171,7 @@ class Creator():
       morph=gs.morphs.Mesh(
           file="cube_2.stl",
           scale=(stl_scale, stl_scale, stl_scale),    # adjust scale if needed
-          pos= box_init_pose,      # position
+          pos= (0, 0, bucket_offset),      # position
           quat=(1.0, 0.0, 0.0, 0.0), # no rotation; uses w, x, y, z quaternion
           decimate=False,
           convexify=False
@@ -211,7 +211,7 @@ class Creator():
       material=gs.materials.Rigid(
         gravity_compensation=1.0,
         ),
-      morph=gs.morphs.Box(pos=(self.rob_pos[0], self.rob_pos[1], self.rob_pos[2]+lid_offset),
+      morph=gs.morphs.Box(pos=(0, 0, lid_offset),
                           size=(stl_scale*outer_x, stl_scale*outer_y, stl_scale*wall_thickness)),
       
       surface=gs.surfaces.Glass(opacity=0.4)
@@ -249,30 +249,14 @@ class Creator():
     if kwargs.get("n_envs") is None:
       kwargs["n_envs"] = 1
     self.num_envs = kwargs["n_envs"]
+    if self.bucket and self.franka:
+      self.bucket.attach(self.franka, "base")
+    if self.lid and self.franka:
+      self.lid.attach(self.franka, "base")
     self.scene.build(**kwargs)
     
     # If the liquid and robot are added, 
     # then set their initial pose and cache some values for reset
-    if self.bucket and self.franka:
-      rigid = self.scene.sim.rigid_solver
-      base = self.franka.get_link("base")
-      cube_link = []
-      
-      link_franka = np.array([base.idx], dtype=gs.np_int)
-      cube_link = self.bucket.get_link("cube_2_stl_baselink")
-      #cube_link = self.bucket.get_link("hollow_box_better_stl_baselink")
-      lid_link = self.lid.get_link("box_baselink")
-
-      pos = base.get_pos()
-      self.bucket.set_pos(pos +  gs.tensor([0, 0, bucket_offset]))
-      self.lid.set_pos(pos +  gs.tensor([0, 0, lid_offset]))
-
-      link_cube   = np.array([cube_link.idx],   dtype=gs.np_int)
-      link_lid = np.array([lid_link.idx], dtype=gs.np_int)
-
-      rigid.add_weld_constraint(link_cube, link_franka)
-      rigid.add_weld_constraint(link_lid, link_franka)
-    
     self.franka_init_pos = torch.zeros_like(
       self.franka.get_pos()
     )
@@ -315,9 +299,9 @@ class Creator():
     #cube_link = self.bucket.get_link("hollow_box_better_stl_baselink")
     lid_link = self.lid.get_link("box_baselink")
     
-    link_cube = np.array([cube_link.idx],   dtype=gs.np_int)
-    link_franka = np.array([base.idx], dtype=gs.np_int)
-    link_lid = np.array([lid_link.idx], dtype=gs.np_int)
+    #link_cube = np.array([cube_link.idx],   dtype=gs.np_int)
+    #link_franka = np.array([base.idx], dtype=gs.np_int)
+    #link_lid = np.array([lid_link.idx], dtype=gs.np_int)
 
     # Random x/y offsets
     rand_pos_offset = 1.0*torch.rand_like(self.franka_init_pos)
@@ -336,18 +320,18 @@ class Creator():
     new_robot_quat = gs_quat_mul(rand_yaw_offset, self.franka_init_quat.squeeze())
 
     self.franka.set_quat(new_robot_quat)
-    self.bucket.set_quat(new_robot_quat)
-    self.lid.set_quat(new_robot_quat)
+    #self.bucket.set_quat(new_robot_quat)
+    #self.lid.set_quat(new_robot_quat)
 
     self.franka.set_pos(new_robot_pos)
-    self.bucket.set_pos(new_robot_pos + gs.tensor([0, 0, bucket_offset]))
-    self.lid.set_pos(new_robot_pos + gs.tensor([0, 0, lid_offset]))
+    #self.bucket.set_pos(new_robot_pos + gs.tensor([0, 0, bucket_offset]))
+    #self.lid.set_pos(new_robot_pos + gs.tensor([0, 0, lid_offset]))
 
-    rigid.delete_weld_constraint(link_lid, link_franka)
-    rigid.delete_weld_constraint(link_cube, link_franka)
-    
-    rigid.add_weld_constraint(link_cube, link_franka)
-    rigid.add_weld_constraint(link_lid, link_franka)
+    #rigid.delete_weld_constraint(link_lid, link_franka)
+    #rigid.delete_weld_constraint(link_cube, link_franka)
+    #
+    #rigid.add_weld_constraint(link_cube, link_franka)
+    #rigid.add_weld_constraint(link_lid, link_franka)
     
     self.franka.zero_all_dofs_velocity()
     
@@ -373,7 +357,7 @@ cass.cam.start_recording()
 
 import time
 for i in range(10):
-  for _ in range(150):
+  for _ in range(15):
     cass.scene.step()
     cass.cam.render()
     # input()
