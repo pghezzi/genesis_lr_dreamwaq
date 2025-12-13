@@ -139,9 +139,9 @@ class Creator():
 
     self.cam = self.scene.add_camera(
       res    = (1280, 960),
-      pos    = (3.5, 0.0, 2.5),
+      pos    = (5.0, 1.0, 1.5),
       lookat = (0, 0, 0.5),
-      fov    = 30,
+      fov    = 45,
       GUI    = False
   )
 
@@ -224,22 +224,25 @@ class Creator():
     scaled_width = outer_x * stl_scale - 2.0 * (stl_scale*wall_thickness)
     scaled_depth = outer_y * stl_scale - 2.0 * (stl_scale*wall_thickness)
     scaled_height = outer_z * stl_scale - stl_scale*bottom_thickness
+
+    varied_buffers = np.random.uniform(0.015, 0.075, size=(6,))
+
     self.liquids = [
       self.scene.add_entity(
         material=gs.materials.SPH.Liquid(rho=liquid_mass),
         morph=gs.morphs.Box(pos=box_init_pose, 
-                          size=(scaled_width-liquid_init_buffer,scaled_depth-liquid_init_buffer,scaled_height-liquid_init_buffer)),
+                          size=(scaled_width-varied_buffers[i],scaled_depth-varied_buffers[i],scaled_height-varied_buffers[i])),
         surface=gs.surfaces.Water(color=x),
-    ) for x in [(1,0,0),(0,1,0),(1,1,0),(0,0,1),(1,0,1),(0,1,1)]
+    ) for i, x in enumerate([(1,0,0),(0,1,0),(1,1,0),(0,0,1),(1,0,1),(0,1,1)])
     ]
     #
-    #self.liquid = self.scene.add_entity(
+    # self.liquid = self.scene.add_entity(
     #  material=gs.materials.SPH.Liquid(rho=liquid_mass),
     #  morph=gs.morphs.Box(pos=box_init_pose, 
     #                      size=(scaled_width-liquid_init_buffer,scaled_depth-liquid_init_buffer,scaled_height-liquid_init_buffer)),
     #  surface=gs.surfaces.Water( 
     #  ),
-    #)
+    # )
     #aprox 1 particle per 0.0001 m^3
     #0.000783458709716797/749
     
@@ -285,13 +288,21 @@ class Creator():
       self.franka.get_vel()
     )
     if self.liquids:
-      self.liquid_init_pos = torch.zeros_like(
-          self.liquids[0].get_particles_pos()
-        )
-      self.liquid_init_pos[:] = self.liquids[0].get_particles_pos()
-      active = torch.randint(0, len(self.liquids), (self.num_envs,1))
+      self.liquid_init_poses = []
+
+      # Need separate indexes to account for different numbers of particles
+      for i in range(len(self.liquids)):
+        self.liquid_init_poses.append(self.liquids[i].get_particles_pos())
+      
+      # active = torch.randint(0, len(self.liquids), (self.num_envs,1))
       for i, liquid in enumerate(self.liquids):
-        liquid.set_particles_active(active == i)
+        active = [[False] for i in range(self.num_envs)]
+        active[i][0] = True
+        liquid.set_particles_active(active)
+        # liquid.set_particles_active(active == i)
+    
+    
+    
     self.franka_init_dof_pos =  torch.zeros_like(
       self.franka.get_dofs_position()
     )
@@ -352,12 +363,14 @@ class Creator():
     self.franka.zero_all_dofs_velocity()
     
     # apply the yaw change to particle init positions THEN apply offset
-    new_particle_posistions = gs_transform_by_quat(self.liquid_init_pos, rand_yaw_offset)
-    new_particle_posistions += new_particle_pos_offset[:, None, :]
-    active = torch.randint(0, len(self.liquids), (self.num_envs,1))
+    # active = torch.randint(0, len(self.liquids), (self.num_envs,1))
     for i, liquid in enumerate(self.liquids):
-      liquid.set_particles_active(active == i)
+      active = [[False] for i in range(self.num_envs)]
+      active[i][0] = True
+      liquid.set_particles_active(active)
       liquid.set_particles_vel(0)
+      new_particle_posistions = gs_transform_by_quat(self.liquid_init_poses[i], rand_yaw_offset)
+      new_particle_posistions += new_particle_pos_offset[:, None, :]
       liquid.set_particles_pos(new_particle_posistions)
 
 
@@ -372,8 +385,8 @@ cass.build(n_envs=6, env_spacing=(1.0, 1.0))
 cass.cam.start_recording()
 
 import time
-for i in range(10):
-  for _ in range(150):
+for i in range(3):
+  for _ in range(20):
     cass.scene.step()
     cass.cam.render()
     # input()
