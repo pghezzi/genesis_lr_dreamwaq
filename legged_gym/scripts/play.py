@@ -1,7 +1,7 @@
 import genesis as gs
 from legged_gym import LEGGED_GYM_ROOT_DIR
 import os
- gs.init(
+gs.init(
         backend=gs.gpu,
         logging_level='warning',
     )
