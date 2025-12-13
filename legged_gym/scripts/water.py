@@ -111,39 +111,48 @@ class LiquidOpts():
 
 class Creator():
   def __init__(self):
+    if not torch.cuda.is_available():
+      self.device = torch.device('cpu')
+    else:
+      assert "cuda" in ["cpu", "cuda"]
+      self.device = torch.device("cuda")
     gs.init(backend=gs.gpu)
     self.particle_size = 0.01
     self.scene = gs.Scene(
-      sim_options=gs.options.SimOptions(
-        dt=0.0008, 
-        substeps=50
-      ),
-      sph_options=gs.options.SPHOptions(
-      #  lower_bound = (-1,-1,-1),
-      #  upper_bound = (1,1,1),
-       particle_size = self.particle_size,
-      ),
-      vis_options = gs.options.VisOptions(
-        visualize_sph_boundary = True,
-      ),
-      rigid_options=gs.options.RigidOptions(
-          constraint_solver=gs.constraint_solver.Newton,
-          enable_collision=True,
-          enable_joint_limit=True,
-          enable_self_collision=False,
-          batch_dofs_info=True,   # batch dof info for all envs
-          batch_joints_info=True,
-          batch_links_info=True,
-          #use_gjk_collision=True
-        ),
-      show_viewer = True,
-    )
+            sim_options=gs.options.SimOptions(
+                dt=0.0008,
+                substeps=1
+            ),
+            viewer_options=gs.options.ViewerOptions(
+                max_FPS=int(1 / 0.0008 * 4),
+                #camera_pos=np.array(self.cfg.viewer.pos),
+                #camera_lookat=np.array(self.cfg.viewer.lookat),
+                camera_fov=40,
+            ),
+            vis_options=gs.options.VisOptions(rendered_envs_idx=[0, 1,2,3,4]),
+            rigid_options=gs.options.RigidOptions(
+                #dt=self.sim_dt,
+                constraint_solver=gs.constraint_solver.Newton,
+                enable_collision=True,
+                enable_joint_limit=True,
+                enable_self_collision=False,
+                batch_dofs_info=True,   # batch dof info for all envs
+                batch_joints_info=True,
+                batch_links_info=True,
+            ),
+            sph_options=gs.options.SPHOptions(
+                #  lower_bound = (-1,-1,-1),
+                #  upper_bound = (1,1,1),
+                particle_size = 0.01,
+            ),
+            show_viewer=True,
+        )
 
     self.cam = self.scene.add_camera(
       res    = (1280, 960),
       pos    = (3.5, 0.0, 2.5),
       lookat = (0, 0, 0.5),
-      fov    = 30,
+      fov    = 40,
       GUI    = False
   )
 
@@ -296,12 +305,12 @@ class Creator():
     #self.franka.set_dofs_position(self.franka_init_dof_pos)
     #self.liquid.set_particles_pos(self.liquid_init_pos)
 
-    rigid = self.scene.sim.rigid_solver
-    base = self.franka.get_link("base")
+    #rigid = self.scene.sim.rigid_solver
+    #base = self.franka.get_link("base")
     
-    cube_link = self.bucket.get_link("cube_2_stl_baselink")
+    #cube_link = self.bucket.get_link("cube_2_stl_baselink")
     #cube_link = self.bucket.get_link("hollow_box_better_stl_baselink")
-    lid_link = self.lid.get_link("box_baselink")
+    #lid_link = self.lid.get_link("box_baselink")
     
     #link_cube = np.array([cube_link.idx],   dtype=gs.np_int)
     #link_franka = np.array([base.idx], dtype=gs.np_int)
@@ -313,7 +322,7 @@ class Creator():
     rand_pos_offset[:, 2] = 0.0
     # New robot pose
     new_robot_pos = self.franka_init_pos + rand_pos_offset
-    new_particle_pos_offset    = new_robot_pos.clone()
+    new_particle_pos_offset    = new_robot_pos.detach().clone()
     new_particle_pos_offset[:, 2] = 0.0 # no need to modify the height
 
     # Random_yaw offsets
@@ -360,13 +369,13 @@ cass.build(n_envs=6, env_spacing=(1.0, 1.0))
 cass.cam.start_recording()
 
 import time
-for i in range(10):
-  for _ in range(15):
-    cass.scene.step()
-    cass.cam.render()
+for i in range(150):
+  cass.scene.step()
+  #for _ in range(15):  
+  cass.cam.render()
     # input()
   
-  cass.reset()
+  #cass.reset()
   
 #
 
