@@ -19,6 +19,7 @@ dist/
 # Package files
 *.jar
 
+*.mp4
 # Maven
 target/
 dist/

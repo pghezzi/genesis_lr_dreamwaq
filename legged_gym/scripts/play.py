@@ -1,6 +1,9 @@
 from legged_gym import *
 import os
-
+gs.init(
+        backend=gs.gpu,
+        logging_level='warning',
+    )
 from legged_gym.envs import *
 from legged_gym.utils import  get_args, export_policy_as_jit, task_registry, Logger
 
@@ -9,11 +12,15 @@ import torch
 
 
 def play(args):
+<<<<<<< Updated upstream
     if SIMULATOR == "genesis":
         gs.init(
             backend=gs.cpu if args.cpu else gs.gpu,
             logging_level='warning',
         )
+=======
+    
+>>>>>>> Stashed changes
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, 10)
@@ -46,6 +53,19 @@ def play(args):
         #                                   "platform_size": 3.0}
     env_cfg.env.debug = True
     env_cfg.noise.add_noise = True
+<<<<<<< Updated upstream
+=======
+    env_cfg.asset.fix_base_link = False
+    # initial state randomization
+    env_cfg.init_state.yaw_angle_range = [0., 0.]
+    # velocity range
+    env_cfg.commands.ranges.lin_vel_x = [-1.0, 1.0]
+    #env_cfg.commands.ranges.lin_vel_x = [-0, 0]
+    env_cfg.commands.ranges.lin_vel_y = [-1., 1.]
+    #env_cfg.commands.ranges.lin_vel_y = [-0., 0.]
+    env_cfg.commands.ranges.ang_vel_yaw = [0., 0.]
+    env_cfg.commands.ranges.heading = [0, 0]
+>>>>>>> Stashed changes
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
@@ -71,6 +91,28 @@ def play(args):
     for i in range(10*int(env.max_episode_length)):
         actions = policy(obs.detach())
         obs, _, rews, dones, infos = env.step(actions.detach())
+<<<<<<< Updated upstream
+=======
+        if MOVE_CAMERA:
+            camera_position += camera_vel * env.dt
+            env.set_camera(camera_position, camera_position + camera_direction)
+            env.floating_camera.render()
+        if FOLLOW_ROBOT:
+            # refresh where camera looks at(robot 0 base)
+            camera_lookat_follow = env.base_pos[robot_index, :].cpu().numpy()
+            # refresh camera's position
+            camera_position_follow = camera_lookat_follow - camera_deviation_follow
+            env.set_camera(camera_position_follow, camera_lookat_follow)
+            env.floating_camera.render()
+        if RECORD_FRAMES and i == stop_record:
+            try:
+                filename_mp4 = f"{train_cfg.runner.experiment_name}_{train_cfg.runner.run_name}__.mp4"
+            except:
+                from datetime import datetime
+                filename_mp4 = f"{datetime.now().timestamp()}"
+            env.floating_camera.stop_recording(save_to_filename=filename_mp4, fps=60)
+            print("Saved recording to " + filename_mp4)
+>>>>>>> Stashed changes
         
         # print debug info
         # print("base lin vel: ", env.base_lin_vel[robot_index, :].cpu().numpy())
