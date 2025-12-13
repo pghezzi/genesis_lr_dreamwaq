@@ -3,7 +3,7 @@ from legged_gym import LEGGED_GYM_ROOT_DIR
 import os
 gs.init(
         backend=gs.gpu,
-        logging_level='warning',
+        #logging_level='warning',
     )
 from legged_gym.envs import *
 from legged_gym.utils import  get_args, export_policy_as_jit, task_registry, Logger

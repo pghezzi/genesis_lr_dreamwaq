@@ -111,10 +111,13 @@ class LiquidOpts():
 
 class Creator():
   def __init__(self):
-    gs.init()
+    gs.init(backend=gs.gpu)
     self.particle_size = 0.01
     self.scene = gs.Scene(
-      sim_options=gs.options.SimOptions(dt=5e-3, substeps=50),
+      sim_options=gs.options.SimOptions(
+        dt=0.0008, 
+        substeps=50
+      ),
       sph_options=gs.options.SPHOptions(
       #  lower_bound = (-1,-1,-1),
       #  upper_bound = (1,1,1),
@@ -124,15 +127,14 @@ class Creator():
         visualize_sph_boundary = True,
       ),
       rigid_options=gs.options.RigidOptions(
-          dt=5e-3,
           constraint_solver=gs.constraint_solver.Newton,
           enable_collision=True,
           enable_joint_limit=True,
-          enable_self_collision=True,
+          enable_self_collision=False,
           batch_dofs_info=True,   # batch dof info for all envs
           batch_joints_info=True,
           batch_links_info=True,
-          use_gjk_collision=True
+          #use_gjk_collision=True
         ),
       show_viewer = True,
     )
@@ -145,7 +147,8 @@ class Creator():
       GUI    = False
   )
 
-    self.plane = self.scene.add_entity(morph=gs.morphs.Plane())
+    self.plane = self.scene.add_entity(
+                gs.morphs.URDF(file="urdf/plane/plane.urdf", fixed=True))
     self.franka = None
     self.liquid = None
   
@@ -154,7 +157,8 @@ class Creator():
     self.franka = self.scene.add_entity(
         gs.morphs.URDF(
             pos = self.rob_pos,
-            file='../../resources/robots/go1/urdf/go1.urdf'),
+            file='../../resources/robots/go1/urdf/go1.urdf',
+            merge_fixed_links= True,),
     )
   
 
