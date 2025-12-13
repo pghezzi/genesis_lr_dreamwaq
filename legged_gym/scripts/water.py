@@ -2,25 +2,37 @@ import numpy as np
 import torch
 import genesis as gs
 from itertools import combinations
+import faulthandler
+faulthandler.enable()
+
 
 liquid_mass = 1000
 go1_torso_height = 0.114
 
-# Cube Parameters
-outer_x = 2.0;  # X dimension
-outer_y = 2.0;  # Y dimension
-outer_z = 2.0;  # total outer height
-wall_thickness = .20
-bottom_thickness = 0.21
-stl_scale = 0.1
-liquid_init_buffer = 0.035 # (needs to be slightly bigger than particle size I suspect)
+# # Cube Parameters
+# outer_x = 2.0;  # X dimension
+# outer_y = 2.0;  # Y dimension
+# outer_z = 2.0;  # total outer height
+# wall_thickness = .20
+# bottom_thickness = 0.21
+# stl_scale = 0.1
 
-bucket_offset = (go1_torso_height/2.0) + (0.5*stl_scale*outer_z)
+# Cube Parameters
+outer_x = 0.20;  # X dimension
+outer_y = 0.15;  # Y dimension
+outer_z = 0.20;  # total outer height
+wall_thickness = .015
+bottom_thickness = 0.015
+stl_scale = 1.0
+
+
+liquid_init_buffer = 0.035 # (needs to be slightly bigger than particle size I suspect)
+bucket_offset = (go1_torso_height/2.0)
 #  ^^^ 
 # (go1_torso_height/2.0)  - half-"thickness" of torso 
 # (0.5*stl_scale*outer_z) - box is scaled from all sides, so half of the scaled height
 
-lid_offset = (go1_torso_height/2.0) + (stl_scale*outer_z) + (0.5*stl_scale*wall_thickness)
+lid_offset = (go1_torso_height/2.0) + (stl_scale*outer_z)
 
 def random_yaw_quaternion(batch_size=1, yaw_range=torch.tensor([-3.14159, 3.14159]),
                           device="cpu", dtype=torch.float32):
@@ -120,38 +132,39 @@ class Creator():
     self.particle_size = 0.01
     self.scene = gs.Scene(
             sim_options=gs.options.SimOptions(
-                dt=0.0008,
-                substeps=1
+                dt=0.002,
+                substeps=5
             ),
-            viewer_options=gs.options.ViewerOptions(
-                max_FPS=int(1 / 0.0008 * 4),
-                #camera_pos=np.array(self.cfg.viewer.pos),
-                #camera_lookat=np.array(self.cfg.viewer.lookat),
-                camera_fov=40,
-            ),
-            vis_options=gs.options.VisOptions(rendered_envs_idx=[0, 1,2,3,4]),
+            # viewer_options=gs.options.ViewerOptions(
+            #     max_FPS=int(1 / 0.002 * 4),
+            #     #camera_pos=np.array(self.cfg.viewer.pos),
+            #     #camera_lookat=np.array(self.cfg.viewer.lookat),
+            #     camera_fov=40,
+            # ),
+            vis_options=gs.options.VisOptions(rendered_envs_idx=[0,1,2,3,4,5]),
             rigid_options=gs.options.RigidOptions(
-                #dt=self.sim_dt,
+                dt=0.002,
                 constraint_solver=gs.constraint_solver.Newton,
                 enable_collision=True,
                 enable_joint_limit=True,
-                enable_self_collision=False,
+                enable_self_collision=True,
                 batch_dofs_info=True,   # batch dof info for all envs
                 batch_joints_info=True,
                 batch_links_info=True,
+                use_gjk_collision=True
             ),
             sph_options=gs.options.SPHOptions(
                 #  lower_bound = (-1,-1,-1),
                 #  upper_bound = (1,1,1),
                 particle_size = 0.01,
             ),
-            show_viewer=False,
+            show_viewer=True,
         )
 
     self.cam = self.scene.add_camera(
       res    = (1280, 960),
-      pos    = (5.0, 1.0, 1.5),
-      lookat = (0, 0, 0.5),
+      pos    = (3.0, 5.0, 1.5),
+      lookat = (0, 0, 0.1),
       fov    = 40,
       GUI    = False
   )
@@ -174,60 +187,37 @@ class Creator():
   # For multiple robots, might need to be smarter and initialize the liquids and payloads at their "starting" positions
   #     on top of the robots...
   def add_box(self):
-    box_init_pose = (self.rob_pos[0], self.rob_pos[1], self.rob_pos[2] + bucket_offset)
-
     # Add the liquid container
     self.bucket = self.scene.add_entity(
       material=gs.materials.Rigid(
         gravity_compensation=1.0,
         ),
       morph=gs.morphs.Mesh(
-          file="cube_2.stl",
+          file="water_tank_proper_units_simple.stl",
           scale=(stl_scale, stl_scale, stl_scale),    # adjust scale if needed
           pos= (0, 0, bucket_offset),      # position
           quat=(1.0, 0.0, 0.0, 0.0), # no rotation; uses w, x, y, z quaternion
           decimate=False,
           convexify=False
       ),
-      surface=gs.surfaces.Glass(opacity=0.4)
+      surface=gs.surfaces.Glass(opacity=0.6)
     )
-    #self.bucket = self.scene.add_entity(
-    #  material=gs.materials.Rigid(
-    #    gravity_compensation=1.0,
-    #    ),
-    #  morph=gs.morphs.Mesh(
-    #      file="hollow_box_better.stl",
-    #      scale=(stl_scale, stl_scale, stl_scale),    # adjust scale if needed
-    #      pos= box_init_pose,      # position
-    #      quat=(1.0, 0.0, 0.0, 0.0), # no rotation; uses w, x, y, z quaternion
-    #      decimate=False,
-    #      convexify=False
-    #  ),
-    #  surface=gs.surfaces.Glass(opacity=0.4)
-    #)
-
-    #self.scene.add_entity(
-    #  material=gs.materials.Rigid(
-    #    gravity_compensation=1.0,
-    #    ),
-    #  morph=gs.morphs.Mesh(
-    #      file="cube_2.stl",
-    #      scale=(stl_scale, stl_scale, stl_scale),    # adjust scale if needed
-    #      pos= (5, 0, 0),      # position
-    #      quat=(1.0, 0.0, 0.0, 0.0) # no rotation; uses w, x, y, z quaternion
-    #  ),
-    #  surface=gs.surfaces.Glass(opacity=0.4)
-    #)
 
     # Add a lid to the liquid container
     self.lid = self.scene.add_entity(
       material=gs.materials.Rigid(
         gravity_compensation=1.0,
         ),
-      morph=gs.morphs.Box(pos=(0, 0, lid_offset),
-                          size=(stl_scale*outer_x, stl_scale*outer_y, stl_scale*wall_thickness)),
+      morph=gs.morphs.Mesh(
+          file="water_tank_lid.stl",
+          scale=(stl_scale, stl_scale, stl_scale),    # adjust scale if needed
+          pos= (0, 0, lid_offset),      # position
+          quat=(1.0, 0.0, 0.0, 0.0), # no rotation; uses w, x, y, z quaternion
+          decimate=False,
+          convexify=False
+      ),
       
-      surface=gs.surfaces.Glass(opacity=0.4)
+      surface=gs.surfaces.Glass(opacity=0.6)
     )
 
     # print(self.lid)
@@ -243,19 +233,11 @@ class Creator():
     self.liquids = [
       self.scene.add_entity(
         material=gs.materials.SPH.Liquid(rho=liquid_mass),
-        morph=gs.morphs.Box(pos=box_init_pose, 
+        morph=gs.morphs.Box(pos=(self.rob_pos[0], self.rob_pos[1], self.rob_pos[2] + bucket_offset + 0.5*scaled_height), 
                           size=(scaled_width-varied_buffers[i],scaled_depth-varied_buffers[i],scaled_height-varied_buffers[i])),
         surface=gs.surfaces.Water(color=x),
     ) for i, x in enumerate([(1,0,0),(0,1,0),(1,1,0),(0,0,1),(1,0,1),(0,1,1)])
     ]
-    #
-    # self.liquid = self.scene.add_entity(
-    #  material=gs.materials.SPH.Liquid(rho=liquid_mass),
-    #  morph=gs.morphs.Box(pos=box_init_pose, 
-    #                      size=(scaled_width-liquid_init_buffer,scaled_depth-liquid_init_buffer,scaled_height-liquid_init_buffer)),
-    #  surface=gs.surfaces.Water( 
-    #  ),
-    # )
     #aprox 1 particle per 0.0001 m^3
     #0.000783458709716797/749
     
@@ -265,11 +247,15 @@ class Creator():
     if kwargs.get("n_envs") is None:
       kwargs["n_envs"] = 1
     self.num_envs = kwargs["n_envs"]
+    
     if self.bucket and self.franka:
       self.bucket.attach(self.franka, "base")
+    
     if self.lid and self.franka:
       self.lid.attach(self.franka, "base")
+    
     self.scene.build(**kwargs)
+    
     # If the liquid and robot are added, 
     # then set their initial pose and cache some values for reset
     if self.liquids:
@@ -285,35 +271,13 @@ class Creator():
         active[i][0] = True
         liquid.set_particles_active(active)
         # liquid.set_particles_active(active == i)
-    
-    
-    
-    self.franka_init_dof_pos = self.franka.get_dofs_position().detach().clone()
-    self.franka_dof_pos = self.franka.get_dofs_position().detach().clone()
+        
     self.franka_init_pos = self.franka.get_pos().detach().clone()
-    self.franka_pos = self.franka.get_dofs_position().detach().clone()
     self.franka_init_quat = self.franka.get_quat().detach().clone()
-    self.franka_dof_pos = self.franka.get_dofs_position().detach().clone()
+    self.franka_init_dof_pos = self.franka.get_dofs_position().detach().clone()
 
   def reset(self):
-    #cass.scene.reset()
-    
-    #self.franka.set_pos(self.franka_init_pos)
-    #self.franka.set_quat(self.franka_init_quat)
-    #self.franka.set_dofs_position(self.franka_init_dof_pos)
-    #self.liquid.set_particles_pos(self.liquid_init_pos)
 
-    #rigid = self.scene.sim.rigid_solver
-    #base = self.franka.get_link("base")
-    
-    #cube_link = self.bucket.get_link("cube_2_stl_baselink")
-    #cube_link = self.bucket.get_link("hollow_box_better_stl_baselink")
-    #lid_link = self.lid.get_link("box_baselink")
-    
-    #link_cube = np.array([cube_link.idx],   dtype=gs.np_int)
-    #link_franka = np.array([base.idx], dtype=gs.np_int)
-    #link_lid = np.array([lid_link.idx], dtype=gs.np_int)
-    
     # Random x/y offsets
     rand_pos_offset = 1.0*torch.rand_like(self.franka_init_pos)
     # Zeroout the random height offset
@@ -329,11 +293,9 @@ class Creator():
       device=self.franka_init_pos.device
     ).squeeze()
     new_robot_quat = gs_quat_mul(rand_yaw_offset, self.franka_init_quat.squeeze())
-
+    
+    self.franka.set_dofs_position(self.franka_init_dof_pos)
     self.franka.set_quat(new_robot_quat)
-    #self.bucket.set_quat(new_robot_quat)
-    #self.lid.set_quat(new_robot_quat)
-
     self.franka.set_pos(new_robot_pos)
     #self.bucket.set_pos(new_robot_pos + gs.tensor([0, 0, bucket_offset]))
     #self.lid.set_pos(new_robot_pos + gs.tensor([0, 0, lid_offset]))
@@ -369,14 +331,12 @@ with torch.no_grad():
   cass.cam.start_recording()
 
   import time
-  for i in range(1000):
-    for _ in range(15):
+  for i in range(10):
+    for _ in range(200):
       cass.scene.step()
-    #for _ in range(15):  
-    cass.cam.render()
-      # input()
-    
-    #cass.reset()
+      cass.cam.render()
+
+    cass.reset()
     
   #
 
