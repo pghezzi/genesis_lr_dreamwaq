@@ -145,7 +145,7 @@ class Creator():
                 #  upper_bound = (1,1,1),
                 particle_size = 0.01,
             ),
-            show_viewer=True,
+            show_viewer=False,
         )
 
     self.cam = self.scene.add_camera(
@@ -267,20 +267,8 @@ class Creator():
     if self.lid and self.franka:
       self.lid.attach(self.franka, "base")
     self.scene.build(**kwargs)
-    
     # If the liquid and robot are added, 
     # then set their initial pose and cache some values for reset
-    self.franka_init_pos = torch.zeros_like(
-      self.franka.get_pos()
-    )
-    
-    self.franka_init_quat = torch.zeros_like(
-      self.franka.get_quat()
-    )
-    
-    self.franka_init_vel = torch.zeros_like(
-      self.franka.get_vel()
-    )
     if self.liquids:
       self.liquid_init_pos = torch.zeros_like(
           self.liquids[0].get_particles_pos()
@@ -289,13 +277,12 @@ class Creator():
       active = torch.randint(0, len(self.liquids), (self.num_envs,1))
       for i, liquid in enumerate(self.liquids):
         liquid.set_particles_active(active == i)
-    self.franka_init_dof_pos =  torch.zeros_like(
-      self.franka.get_dofs_position()
-    )
-    
-    self.franka_init_dof_pos[:] = self.franka.get_dofs_position()
-    self.franka_init_pos[:] = self.franka.get_pos()
-    self.franka_init_quat[:] = self.franka.get_quat()
+    self.franka_init_dof_pos = self.franka.get_dofs_position().detach().clone()
+    self.franka_dof_pos = self.franka.get_dofs_position().detach().clone()
+    self.franka_init_pos = self.franka.get_pos().detach().clone()
+    self.franka_pos = self.franka.get_dofs_position().detach().clone()
+    self.franka_init_quat = self.franka.get_quat().detach().clone()
+    self.franka_dof_pos = self.franka.get_dofs_position().detach().clone()
 
   def reset(self):
     #cass.scene.reset()
@@ -315,7 +302,7 @@ class Creator():
     #link_cube = np.array([cube_link.idx],   dtype=gs.np_int)
     #link_franka = np.array([base.idx], dtype=gs.np_int)
     #link_lid = np.array([lid_link.idx], dtype=gs.np_int)
-
+    
     # Random x/y offsets
     rand_pos_offset = 1.0*torch.rand_like(self.franka_init_pos)
     # Zeroout the random height offset
@@ -359,34 +346,35 @@ class Creator():
 
 
 
+with torch.no_grad():
+  cass = Creator()
+  cass.add_robot()
+  cass.add_box()
+  cass.build(n_envs=6, env_spacing=(1.0, 1.0))
 
-cass = Creator()
-cass.add_robot()
-cass.add_box()
-cass.build(n_envs=6, env_spacing=(1.0, 1.0))
 
+  cass.cam.start_recording()
 
-cass.cam.start_recording()
+  import time
+  for i in range(1000):
+    for _ in range(15):
+      cass.scene.step()
+    #for _ in range(15):  
+    cass.cam.render()
+      # input()
+    
+    #cass.reset()
+    
+  #
 
-import time
-for i in range(150):
-  cass.scene.step()
-  #for _ in range(15):  
-  cass.cam.render()
-    # input()
-  
-  #cass.reset()
-  
-#
+  #variables can be changed at run time
 
-#variables can be changed at run time
+  # for i in range(500)_create_envs
+  #   cass.scene.step()
+  #   cass.cam.render()
 
-# for i in range(500):
-#   cass.scene.step()
-#   cass.cam.render()
+  from datetime import datetime
 
-from datetime import datetime
+  cass.cam.stop_recording(save_to_filename=f'video_liquid_{liquid_mass}_{datetime.now().timestamp()}.mp4', fps=60)
 
-cass.cam.stop_recording(save_to_filename=f'video_liquid_{liquid_mass}_{datetime.now().timestamp()}.mp4', fps=60)
-
-#https://github.com/Genesis-Embodied-AI/Genesis/blob/main/genesis/engine/entities/sph_entity.py
+  #https://github.com/Genesis-Embodied-AI/Genesis/blob/main/genesis/engine/entities/sph_entity.py
