@@ -19,6 +19,24 @@ from legged_gym.utils.helpers import class_to_dict
 from legged_gym.utils.gs_utils import *
 from .legged_robot_config import LeggedRobotCfg
 
+liquid_mass = 1000
+go1_torso_height = 0.114
+
+# Cube Parameters
+outer_x = 2.0;  # X dimension
+outer_y = 2.0;  # Y dimension
+outer_z = 2.0;  # total outer height
+wall_thickness = .20
+bottom_thickness = 0.21
+stl_scale = 0.1
+liquid_init_buffer = 0.035 # (needs to be slightly bigger than particle size I suspect)
+
+bucket_offset = (go1_torso_height/2.0) + (0.5*stl_scale*outer_z)
+#  ^^^ 
+# (go1_torso_height/2.0)  - half-"thickness" of torso 
+# (0.5*stl_scale*outer_z) - box is scaled from all sides, so half of the scaled height
+
+lid_offset = (go1_torso_height/2.0) + (stl_scale*outer_z) + (0.5*stl_scale*wall_thickness)
 
 class LeggedRobot(BaseTask):
     def __init__(self, cfg: LeggedRobotCfg, sim_device, headless):
@@ -289,7 +307,7 @@ class LeggedRobot(BaseTask):
         # create scene
         self.scene = gs.Scene(
             sim_options=gs.options.SimOptions(
-                dt=self.sim_dt,
+                dt=0.0008,
                 substeps=self.sim_substeps),
             viewer_options=gs.options.ViewerOptions(
                 max_FPS=int(1 / self.dt * self.cfg.control.decimation),
@@ -299,7 +317,7 @@ class LeggedRobot(BaseTask):
             ),
             vis_options=gs.options.VisOptions(rendered_envs_idx= self.cfg.viewer.rendered_envs_idx),
             rigid_options=gs.options.RigidOptions(
-                dt=self.sim_dt,
+                #dt=self.sim_dt,
                 constraint_solver=gs.constraint_solver.Newton,
                 enable_collision=True,
                 enable_joint_limit=True,
@@ -307,6 +325,11 @@ class LeggedRobot(BaseTask):
                 batch_dofs_info=True,   # batch dof info for all envs
                 batch_joints_info=True,
                 batch_links_info=True,
+            ),
+            sph_options=gs.options.SPHOptions(
+                #  lower_bound = (-1,-1,-1),
+                #  upper_bound = (1,1,1),
+                particle_size = 0.01,
             ),
             show_viewer=not self.headless,
         )
@@ -458,13 +481,23 @@ class LeggedRobot(BaseTask):
         # base pos: xy [-1, 1]
         if self.custom_origins:
             self.base_pos[envs_idx] = self.base_init_pos
-            self.base_pos[envs_idx] += self.env_origins[envs_idx]
-            self.base_pos[envs_idx, :2] += gs_rand_float(-1.0, 1.0, (len(envs_idx), 2), self.device)
+            new_particle_pos_offset = self.env_origins[envs_idx]
+            new_particle_pos_offset[:, :2] = gs_rand_float(-1.0, 1.0, (len(envs_idx), 2), self.device)
+            self.base_pos[envs_idx] += new_particle_pos_offset
+            #self.base_pos[envs_idx, :2] += 
         else:
             self.base_pos[envs_idx] = self.base_init_pos
+            new_particle_pos_offset = self.env_origins[envs_idx]
             self.base_pos[envs_idx] += self.env_origins[envs_idx]
         self.robot.set_pos(
             self.base_pos[envs_idx], zero_velocity=False, envs_idx=envs_idx)
+        new_particle_posistions = self.liquid_init_pos+new_particle_pos_offset[:, None, :]
+        active = torch.randint(0, len(self.liquids), (self.num_envs,1))
+        for i, liquid in enumerate(self.liquids):
+            liquid.set_particles_active(active == i)
+            liquid.set_particles_vel(0)
+            liquid.set_particles_pos(new_particle_posistions)
+
 
         # base quat
         self.base_quat[envs_idx] = self.base_init_quat.reshape(1, -1)
@@ -741,8 +774,53 @@ class LeggedRobot(BaseTask):
             visualize_contact=self.debug,
         )
 
+
+        self.bucket = self.scene.add_entity(
+            material=gs.materials.Rigid(
+                gravity_compensation=1.0,
+                ),
+            morph=gs.morphs.Mesh(
+                file="cube_2.stl",
+                scale=(stl_scale, stl_scale, stl_scale),    # adjust scale if needed
+                pos= (0, 0, bucket_offset + 0.01),      # position
+                quat=(1.0, 0.0, 0.0, 0.0), # no rotation; uses w, x, y, z quaternion
+                decimate=False,
+                convexify=False
+            ),
+            surface=gs.surfaces.Glass(opacity=0.4)
+        )
+
+        self.lid = self.scene.add_entity(
+            material=gs.materials.Rigid(
+                gravity_compensation=1.0,
+                ),
+            morph=gs.morphs.Box(pos=(0, 0, lid_offset),
+                                size=(stl_scale*outer_x, stl_scale*outer_y, stl_scale*wall_thickness)),
+            
+            surface=gs.surfaces.Glass(opacity=0.4)
+        )
+
+        ap = np.array(self.cfg.init_state.pos)
+        ap[2] += bucket_offset
+
+        scaled_width = outer_x * stl_scale - 2.0 * (stl_scale*wall_thickness)
+        scaled_depth = outer_y * stl_scale - 2.0 * (stl_scale*wall_thickness)
+        scaled_height = outer_z * stl_scale - stl_scale*bottom_thickness
+        self.liquids = [
+        self.scene.add_entity(
+            material=gs.materials.SPH.Liquid(rho=liquid_mass),
+            morph=gs.morphs.Box(pos=ap, 
+                            size=(scaled_width-liquid_init_buffer,scaled_depth-liquid_init_buffer,scaled_height-liquid_init_buffer)),
+            surface=gs.surfaces.Water(color=x),
+        ) for x in [(1,0,0),(0,1,0),(1,1,0),(0,0,1),(1,0,1),(0,1,1)]
+        ]
+
+        self.bucket.attach(self.robot, "base")
+        self.lid.attach(self.robot, "base")
         # build
         self.scene.build(n_envs=self.num_envs)
+
+        self.liquid_init_pos = self.liquids[0].get_particles_pos().detach().clone()
 
         self._get_env_origins()
 
