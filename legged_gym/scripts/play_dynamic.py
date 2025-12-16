@@ -7,6 +7,7 @@ from legged_gym.utils import  get_args, export_policy_as_jit, task_registry, Log
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 
 def play(args):
@@ -41,10 +42,19 @@ def play(args):
     env_cfg.commands.ranges.lin_vel_x = [-1.0, 1.0]
     env_cfg.commands.ranges.lin_vel_y = [-1., 1.]
     env_cfg.commands.ranges.ang_vel_yaw = [0., 0.]
+    
     env_cfg.commands.ranges.heading = [0, 0]
+    env_cfg.commands.resampling_time = 5.0
+
+    # load policy
+    train_cfg.runner.resume = True
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
+
+    ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
+    
+    policy = ppo_runner.get_inference_policy(device=env.device)
 
     _, _ = env.reset()
     
@@ -52,13 +62,6 @@ def play(args):
     
     if type(obs) == tuple:
         obs = obs[0]
-    
-    # load policy
-    train_cfg.runner.resume = True
-    
-    ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
-    
-    policy = ppo_runner.get_inference_policy(device=env.device)
     
     # export policy as a jit module (used to run it from C++)
     if EXPORT_POLICY:
@@ -86,13 +89,21 @@ def play(args):
     # for RECORD_FRAMES
     stop_record = 2000
 
+    pos_rewards = []
+    tau_rewards = []
+    total_grfs  = []
+
 
     if RECORD_FRAMES:
         env.floating_camera.start_recording()
 
-    for i in range(10*int(env.max_episode_length)):
+    for i in range(5*int(env.max_episode_length)):
         actions = policy(obs.detach(), obs_hist.detach())
         obs, _, obs_hist, pos_rews, tau_rews, dones, infos, grfs = env.step(actions.detach())
+
+        pos_rewards.append(pos_rews.cpu().numpy().tolist())
+        tau_rewards.append(tau_rews.cpu().numpy().tolist())
+        total_grfs.append(grfs.cpu().numpy().tolist())
         
         if MOVE_CAMERA:
             camera_position += camera_vel * env.dt
@@ -107,16 +118,6 @@ def play(args):
             env.set_camera(camera_position_follow, camera_lookat_follow)
             env.floating_camera.render()
         
-        if RECORD_FRAMES and i == stop_record:
-            try:
-                filename_mp4 = f"{train_cfg.runner.experiment_name}_{train_cfg.runner.run_name}.mp4"
-            except:
-                from datetime import datetime
-                filename_mp4 = f"{datetime.now().timestamp()}"
-            
-            env.floating_camera.stop_recording(save_to_filename=filename_mp4, fps=30)
-            print("Saved recording to " + filename_mp4)
-        
         # print debug info
         # print("base lin vel: ", env.base_lin_vel[robot_index, :].cpu().numpy())
         # print("base yaw angle: ", env.base_euler[robot_index, 2].item())
@@ -124,33 +125,50 @@ def play(args):
         # print("foot_height: ", env.link_pos[robot_index, env.feet_indices, 2].cpu().numpy())
         # cmd_x, cmd_y, cmd_yaw = env.commands[robot_index, 0].item(), env.commands[robot_index, 1].item(), env.commands[robot_index, 2].item()
         # base_x, base_y, base_yaw = env.base_lin_vel[robot_index, 0].item(), env.base_lin_vel[robot_index, 1].item(), env.base_ang_vel[robot_index, 2].item()
+
+        repeat_pos_scales = torch.from_numpy(np.array(env.cfg.control.action_scale)).repeat(1,4).to(env.device)
+        # actions_scaled = pos_actions * self.cfg.control.action_scale
+        actions_scaled = F.tanh(actions[:,0:12]) * repeat_pos_scales
+
+        if infos["episode"]:
+            num_episodes = torch.sum(env.reset_buf).item()
+            if num_episodes>0:
+                logger.log_rewards(infos["episode"], num_episodes)
         
-        if i < stop_state_log:
-            logger.log_states(
-                {
-                    'dof_pos_target': actions[robot_index, joint_index].item() * env.cfg.control.action_scale, 
-                    'dof_pos': env.dof_pos[robot_index, joint_index].item(),
-                    'dof_vel': env.dof_vel[robot_index, joint_index].item(),
-                    'dof_torque': env.torques[robot_index, joint_index].item(),
-                    'command_x': env.commands[robot_index, 0].item(),
-                    'command_y': env.commands[robot_index, 1].item(),
-                    'command_yaw': env.commands[robot_index, 2].item(),
-                    'base_vel_x': env.base_lin_vel[robot_index, 0].item(),
-                    'base_vel_y': env.base_lin_vel[robot_index, 1].item(),
-                    'base_vel_z': env.base_lin_vel[robot_index, 2].item(),
-                    'base_vel_yaw': env.base_ang_vel[robot_index, 2].item(),
-                    'contact_forces_z': env.link_contact_forces[robot_index, env.feet_indices, 2].cpu().numpy()
-                }
-            )
-        elif i==stop_state_log:
-            logger.plot_states()
-        if  0 < i < stop_rew_log:
-            if infos["episode"]:
-                num_episodes = torch.sum(env.reset_buf).item()
-                if num_episodes>0:
-                    logger.log_rewards(infos["episode"], num_episodes)
-        elif i==stop_rew_log:
-            logger.print_rewards()
+        logger.log_states(
+            {
+                'dof_pos_target': actions_scaled[robot_index, joint_index].item(), 
+                'dof_pos': env.dof_pos[robot_index, joint_index].item(),
+                'dof_vel': env.dof_vel[robot_index, joint_index].item(),
+                'dof_torque': env.torques[robot_index, joint_index].item(),
+                'command_x': env.commands[robot_index, 0].item(),
+                'command_y': env.commands[robot_index, 1].item(),
+                'command_yaw': env.commands[robot_index, 2].item(),
+                'base_vel_x': env.base_lin_vel[robot_index, 0].item(),
+                'base_vel_y': env.base_lin_vel[robot_index, 1].item(),
+                'base_vel_z': env.base_lin_vel[robot_index, 2].item(),
+                'base_vel_yaw': env.base_ang_vel[robot_index, 2].item(),
+                'contact_forces_z': env.link_contact_forces[robot_index, env.feet_indices, 2].cpu().numpy()
+            }
+        )
+
+    logger.plot_states()
+    logger.print_rewards()
+    if RECORD_FRAMES:
+        try:
+            filename_mp4 = f"{train_cfg.runner.experiment_name}_{train_cfg.runner.load_run}.mp4"
+        except:
+            from datetime import datetime
+            filename_mp4 = f"{datetime.now().timestamp()}"
+        
+        env.floating_camera.stop_recording(save_to_filename=filename_mp4, fps=30)
+        print("Saved recording to " + filename_mp4)
+
+    print("Mean Position Rewards - ", np.mean(pos_rewards))
+    print("Mean Torque Rewards - ", np.mean(tau_rewards))
+    print("Mean GRF-forces - ", np.mean(total_grfs))
+
+    env.shutdown_asynic_pino_workers()
 
 if __name__ == '__main__':
     EXPORT_POLICY = False

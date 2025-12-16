@@ -111,6 +111,8 @@ class OnPolicyRunnerDynamic:
         self.tot_time = 0
         self.current_learning_iteration = 0
 
+        self.env.create_async_pino_workers()
+
         _, _ = self.env.reset()
 
     # 'action': action_network.state_dict(),
@@ -234,7 +236,9 @@ class OnPolicyRunnerDynamic:
         self.current_learning_iteration += num_learning_iterations
         self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(self.current_learning_iteration)))
 
-    # TODO - update to inlcude separate pos and tau PPO losses
+        # Learning is done, shutdown the async. pinocchio workers
+        self.env.shutdown_asynic_pino_workers()
+
     def log(self, locs, width=80, pad=35):
         self.tot_timesteps += self.num_steps_per_env * self.env.num_envs
         self.tot_time += locs['collection_time'] + locs['learn_time']
