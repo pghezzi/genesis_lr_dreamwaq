@@ -182,7 +182,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         decimation = 4 # decimation: Number of control action updates @ sim DT per policy DT
 
         # Assumed order - tau_ff, tau_fb
-        tradeoff_init_weights  = [0.1, 10.0]
+        tradeoff_init_weights  = [0.4, 6.0]
         tradeoff_final_weights = [1.00, 1.0]
         tradeoff_steps = 1500
 
@@ -328,7 +328,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
     
     class policy( LeggedRobotCfgPPO.policy ):
         activation = 'tanh' # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid, swish (SiLU)
-        init_noise_std = 1.00
+        init_noise_std = 0.50
         
         # Context encoder
         cenet_enc_layers=[128,64]
@@ -376,7 +376,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         grf_dim = 12
         
         # debug_warmpinn_wb
-        run_name = 'config_test_08_gentletrade_dynrew_parpino'  # 1500 tradeoff, 1000-step reward_curr, higher Kp, act-dof aligment reward
+        run_name = 'config_test_09_gentletrade_dynrew_parpino_single'  # 1500 tradeoff, 1000-step reward_curr, 3.0-kp, act-dof aligment reward
         experiment_name = 'go1_dynamic'
         save_interval = 50
         

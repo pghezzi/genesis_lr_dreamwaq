@@ -56,7 +56,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
     def reset(self):
         """ Reset all robots"""
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
-        obs, privileged_obs, _, _, _, _, _, _ = self.step(torch.zeros(self.num_envs, 2*self.num_actions, device=self.device, requires_grad=False))
+        obs, privileged_obs, _, _, _, _, _, _, _ = self.step(torch.zeros(self.num_envs, 2*self.num_actions, device=self.device, requires_grad=False))
         return obs, privileged_obs
 
     def step(self, actions):
@@ -115,7 +115,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # print()
         #         
         # Retunring some extra stuff and two separate reward functions
-        return self.obs_buf, self.privileged_obs_buf, self.obs_history, (self.rew_buf+self.pos_rew_buf), (self.rew_buf + self.tau_rew_buf), self.reset_buf, self.extras, (self.grfs_buf * self.obs_scales.grf)
+        return self.obs_buf, self.privileged_obs_buf, self.obs_history, self.rew_buf, self.pos_rew_buf, self.tau_rew_buf, self.reset_buf, self.extras, (self.grfs_buf * self.obs_scales.grf)
 
     
     def create_async_pino_workers(self):

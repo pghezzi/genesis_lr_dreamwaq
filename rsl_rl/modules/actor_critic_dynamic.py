@@ -277,6 +277,12 @@ class ActorCritic_Dynamic(nn.Module):
         self.tau_critic_h2  = nn.Linear(critic_layers[0], critic_layers[1])
         # self.tau_critic_h3  = nn.Linear(critic_layers[1], critic_layers[2])
         self.tau_critic_out = nn.Linear(critic_layers[1], 1)
+        
+        # self.critic_in  = nn.Linear(num_critic_obs, actor_shared_dim)
+        self.critic_h1  = nn.Linear(num_critic_obs, critic_layers[0])
+        self.critic_h2  = nn.Linear(critic_layers[0], critic_layers[1])
+        # self.critic_h3  = nn.Linear(critic_layers[1], critic_layers[2])
+        self.critic_out = nn.Linear(critic_layers[1], 1)
 
         # Used to track these values during training....
         #     These values will not be used during inference (sim or real)
@@ -285,17 +291,14 @@ class ActorCritic_Dynamic(nn.Module):
         self.cenet_z = None
         self.cenet_torso_velo = None
 
-        self.mean_pos = None
-        self.mean_tau = None
+        self.mean_act = None
 
 
-        self.std_pos = nn.Parameter(init_noise_std * torch.ones(num_actions))
-        self.std_tau = nn.Parameter(init_noise_std * torch.ones(num_actions))
+        self.std = nn.Parameter(init_noise_std * torch.ones(2*num_actions))
 
         self.num_actions = num_actions
         
-        self.distribution_pos = None
-        self.distribution_tau = None
+        self.distribution = None
         
         # disable args validation for speedup
         Normal.set_default_validate_args = False
@@ -388,7 +391,7 @@ class ActorCritic_Dynamic(nn.Module):
 
         # for i in range(self.options["action_net"]["num_layers"]-1):
         #     no_decay.update([f"noise_decoder.cross_field_scales_pos.{i}", f"noise_decoder.cross_field_scales_tau.{i}"])
-        no_decay.update([f"std_pos", f"std_tau"])
+        shared_decay.update([f"std"])
 
         # Validate parameter separation
         param_dict   = {pn: p for pn, p in self.named_parameters()}
@@ -496,60 +499,40 @@ class ActorCritic_Dynamic(nn.Module):
             with torch.no_grad():
                 act_tau_act = torch.nan_to_num(act_tau_act, nan=0.0, posinf=0.0, neginf=0.0)
 
-        # out = torch.cat([act_pos_act, act_tau_act], dim=-1)
+        out = torch.cat([act_pos_act, act_tau_act], dim=-1)
         # out = torch.nan_to_num(out, nan=0.0)
 
         # print(act_pos_act)
         # print(act_tau_act)
         # print("----------------------------------\n")
 
-        return act_pos_act, act_tau_act
+        return out
 
     # Functions that are specific to PPO training
     @property
-    def pos_action_mean(self):
-        return self.distribution_pos.mean
-
-    @property
-    def pos_action_std(self):
-        return self.distribution_pos.stddev
-
-    @property
-    def pos_entropy(self):
-        return self.distribution_pos.entropy().sum(dim=-1)
+    def entropy(self):
+        return self.distribution.entropy().sum(dim=-1)
     
     @property
-    def tau_action_mean(self):
-        return self.distribution_tau.mean
+    def action_mean(self):
+        return self.distribution.mean
 
     @property
-    def tau_action_std(self):
-        return self.distribution_tau.stddev
-
-    @property
-    def tau_entropy(self):
-        return self.distribution_tau.entropy().sum(dim=-1)
+    def action_std(self):
+        return self.distribution.stddev
     
-    def get_pos_actions_log_prob(self, actions):
-        return self.distribution_pos.log_prob(actions).sum(dim=-1)
-
-    def get_tau_actions_log_prob(self, actions):
-        return self.distribution_tau.log_prob(actions).sum(dim=-1)
+    def get_actions_log_prob(self, actions):
+        lob_prob = self.distribution.log_prob(actions).sum(dim=-1)
+        # print("log_prob shape - ", lob_prob.shape)
+        return lob_prob
 
     def update_distribution(self, curr_obs):
-        mean_pos, mean_tau = self.actor_forward(curr_obs)
-        self.mean_pos = mean_pos
-        self.mean_tau = mean_tau
+        mean = self.actor_forward(curr_obs)
+        self.mean_act = mean
 
-        # # Clamp Global STD parameters to be safe
-        # std_pos = torch.clamp(self.std_pos, 0.05, 1.1)
-        # std_tau = torch.clamp(self.std_tau, 0.05, 1.1)
+        self.std.data.clamp_(0.2, 1.1)
 
-        self.std_pos.data.clamp_(0.2, 1.1)
-        self.std_tau.data.clamp_(0.2, 1.1)
-
-        self.distribution_pos = Normal(mean_pos, mean_pos * 0.0 + self.std_pos)
-        self.distribution_tau = Normal(mean_tau, mean_tau * 0.0 + self.std_tau)
+        self.distribution = Normal(mean, mean * 0.0 + self.std)
 
     # method used during simulated training
     def act(self, obs, obs_history, **kwargs):
@@ -568,14 +551,10 @@ class ActorCritic_Dynamic(nn.Module):
         self.cenet_z = z
         self.cenet_torso_velo = torso_velo
 
-        pos_sample = self.distribution_pos.sample()
-        tau_sample = self.distribution_tau.sample()
-
-        # The training code-base assumes a single output, and I will keep it as such for now...
-        total_sample = torch.cat([pos_sample, tau_sample], dim=1)
+        sample = self.distribution.sample()
         
         # return a sample from the distribution to be executed in simulation
-        return total_sample
+        return sample
     
 
     # method used during simulated training
@@ -598,14 +577,10 @@ class ActorCritic_Dynamic(nn.Module):
         self.cenet_z = z
         self.cenet_torso_velo = torso_velo
 
-        pos_sample = self.distribution_pos.sample()
-        tau_sample = self.distribution_tau.sample()
+        sample = self.distribution.sample()        
 
-        # The training code-base assumes a single output, and I will keep it as such for now...
-        total_sample = torch.cat([pos_sample, tau_sample], dim=1)
-        
         # return a sample from the distribution to be executed in simulation
-        return total_sample
+        return sample
     
     # Method using during simulated inference
     def act_inference(self,obs,obs_history):
@@ -616,11 +591,9 @@ class ActorCritic_Dynamic(nn.Module):
         current_obs = torch.cat((obs,z,torso_velo), dim=-1)   
         
         # call the actors forward method and return it's results
-        actions_pos, actions_tau = self.actor_forward(current_obs)
+        actions = self.actor_forward(current_obs)
 
-        total_sample = torch.cat([actions_pos, actions_tau], dim=1)
-
-        return total_sample
+        return actions
     
     # Method to run inference on hardware WITHOUT logging the VAE's outputs
     @torch.jit.export
@@ -632,8 +605,9 @@ class ActorCritic_Dynamic(nn.Module):
         current_obs = torch.cat((obs,z,torso_velo), dim=-1)   
         
         # call the actors forward method and return it's results
-        actions_pos, actions_tau = self.actor_forward(current_obs)
-        return actions_pos, actions_tau
+        actions = self.actor_forward(current_obs)
+        return actions
+    
     
     @torch.jit.export
     def act_inference_deploy_log(self, obs, obs_history):
@@ -644,9 +618,25 @@ class ActorCritic_Dynamic(nn.Module):
         current_obs = torch.cat((obs,z,torso_velo), dim=-1)   
         
         # call the actors forward method and return it's results
-        actions_pos, actions_tau = self.actor_forward(current_obs)
+        actions = self.actor_forward(current_obs)
         
-        return actions_pos, actions_tau, z, torso_velo
+        return actions, z, torso_velo
+
+    
+    # Forward method for calculating the value of the current state
+    #     using the privilged critic observation
+    def evaluate(self, critic_observations, **kwargs):
+        # val = self.critic_in(critic_observations)
+        # val = self.activation(val)
+        val = self.critic_h1(critic_observations)
+        val = self.activation(val)
+        val = self.critic_h2(val)
+        val = self.activation(val)
+        # val = self.critic_h3(val)
+        # val = self.activation(val)
+
+        return self.critic_out(val)
+
 
     # Forward method for calculating the value of the current state
     #     using the privilged critic observation

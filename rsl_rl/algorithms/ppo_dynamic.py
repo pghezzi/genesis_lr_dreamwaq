@@ -71,8 +71,7 @@ class PPODynamic:
 
         self.desired_kl = desired_kl
         self.schedule = schedule
-        self.pos_learning_rate = learning_rate
-        self.tau_learning_rate = learning_rate
+        self.learning_rate = learning_rate
 
         # PPO components
         self.actor_critic = actor_critic
@@ -139,18 +138,17 @@ class PPODynamic:
             all_actions = self.actor_critic.act_bootmask(obs,obs_history).detach()
 
         # Compute the actions and values
+        #  - general
+        self.transition.actions = all_actions
+        self.transition.actions_log_prob = self.actor_critic.get_actions_log_prob(all_actions).detach()
+        self.transition.action_mean = self.actor_critic.action_mean.detach()
+        self.transition.action_sigma = self.actor_critic.action_std.detach()
+        self.transition.values = self.actor_critic.evaluate(critic_obs).detach()
+
         #  - Position Control
-        self.transition.pos_actions =  all_actions[:,0:12]
         self.transition.pos_values = self.actor_critic.evaluate_pos(critic_obs).detach()
-        self.transition.pos_actions_log_prob = self.actor_critic.get_pos_actions_log_prob(self.transition.pos_actions).detach()
-        self.transition.pos_action_mean = self.actor_critic.pos_action_mean.detach()
-        self.transition.pos_action_sigma = self.actor_critic.pos_action_std.detach()
         #  - Torque Control
-        self.transition.tau_actions =  all_actions[:,12:24]
         self.transition.tau_values = self.actor_critic.evaluate_tau(critic_obs).detach()
-        self.transition.tau_actions_log_prob = self.actor_critic.get_tau_actions_log_prob(self.transition.tau_actions).detach()
-        self.transition.tau_action_mean = self.actor_critic.tau_action_mean.detach()
-        self.transition.tau_action_sigma = self.actor_critic.tau_action_std.detach()
         
         # need to record obs and critic_obs before env.step()
         self.transition.observations = obs
@@ -168,7 +166,8 @@ class PPODynamic:
         
         return all_actions
     
-    def process_env_step(self, pos_rewards, tau_rewards, dones, infos, grf_labels, obs_labels, gt_forces, mass_mats, bias_vecs, torso_acc):
+    def process_env_step(self, rewards, pos_rewards, tau_rewards, dones, infos, grf_labels, obs_labels, gt_forces, mass_mats, bias_vecs, torso_acc):
+        self.transition.rewards = rewards.clone()
         self.transition.pos_rewards = pos_rewards.clone()
         self.transition.tau_rewards = tau_rewards.clone()
         
@@ -179,6 +178,7 @@ class PPODynamic:
         
         # Bootstrapping on time outs
         if 'time_outs' in infos:
+            self.transition.rewards     += self.gamma * torch.squeeze(self.transition.values * infos['time_outs'].unsqueeze(1).to(self.device), 1)
             self.transition.pos_rewards += self.gamma * torch.squeeze(self.transition.pos_values * infos['time_outs'].unsqueeze(1).to(self.device), 1)
             self.transition.tau_rewards += self.gamma * torch.squeeze(self.transition.tau_values * infos['time_outs'].unsqueeze(1).to(self.device), 1)
 
@@ -229,10 +229,10 @@ class PPODynamic:
         self.storage.compute_returns_tau(last_values_tau, self.gamma, self.lam)
 
     def update(self, action_func, dt, itr, beta=1):
+        mean_surrogate_loss = 0
+        mean_value_loss = 0
         mean_pos_value_loss = 0
-        mean_pos_surrogate_loss = 0
         mean_tau_value_loss = 0
-        mean_tau_surrogate_loss = 0
         mean_autoenc_loss = 0
         mean_decoder_loss = 0
         mean_pinn_loss = 0
@@ -260,13 +260,12 @@ class PPODynamic:
         #     generator = self.storage.reccurent_mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
         # else:
         generator = self.storage.mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
-        for obs_batch, critic_obs_batch, obs_hist_batch, vel_target, \
-            grf_target, obs_target, pos_actions_batch, pos_target_values_batch, \
-            pos_advantages_batch, pos_returns_batch, pos_old_actions_log_prob_batch, pos_old_mu_batch, \
-            pos_old_sigma_batch,  tau_actions_batch, tau_target_values_batch, \
-            tau_advantages_batch, tau_returns_batch, tau_old_actions_log_prob_batch, tau_old_mu_batch, \
-            tau_old_sigma_batch, prev_obs_batch, prev_obs_hist_batch, gt_forces_batch, mass_mat_batch, \
-            bias_vec_batch, torso_accs_batch,  pprev_obs_batch, pprev_obs_hist_batch  in generator:
+        for obs_batch, critic_observations_batch, obs_hist_batch, vel_target, \
+            grf_target, obs_target, actions_batch, old_actions_log_prob_batch, \
+            old_mu_batch, old_sigma_batch, target_values_batch, returns_batch, advantages_batch, \
+            pos_target_values_batch, pos_advantages_batch, pos_returns_batch, tau_target_values_batch, \
+            tau_advantages_batch, tau_returns_batch, prev_obs_batch, prev_obs_hist_batch, gt_forces_batch, mass_mat_batch, \
+            bias_vec_batch, torso_accs_batch, pprev_obs_batch, pprev_obs_hist_batch  in generator:
 
                 self.actor_critic.train()
                 self.enc_optimizer.zero_grad()
@@ -277,7 +276,7 @@ class PPODynamic:
                 else:
                     self.actor_critic.act_bootmask(obs_batch, obs_hist_batch)
 
-                current_actions = torch.cat([self.actor_critic.mean_pos, self.actor_critic.mean_tau], dim=-1)
+                current_actions = self.actor_critic.mean_act
                 
                 # Encoder stuff
                 # pull out some values from the actor that I want to use in the decoder...
@@ -288,18 +287,16 @@ class PPODynamic:
                 cenet_torso_velo = self.actor_critic.cenet_torso_velo
 
                 # PPO stuff
+                #    - Shared
+                actions_log_prob_batch     = self.actor_critic.get_actions_log_prob(actions_batch)
+                mu_batch                   = self.actor_critic.action_mean
+                sigma_batch                = self.actor_critic.action_std
+                entropy_batch              = self.actor_critic.entropy
+                values_batch               = self.actor_critic.evaluate(critic_observations_batch)
                 #    - Position Control
-                pos_actions_log_prob_batch = self.actor_critic.get_pos_actions_log_prob(pos_actions_batch)
-                pos_value_batch            = self.actor_critic.evaluate_pos(critic_obs_batch)
-                pos_mu_batch               = self.actor_critic.pos_action_mean
-                pos_sigma_batch            = self.actor_critic.pos_action_std
-                pos_entropy_batch          = self.actor_critic.pos_entropy
+                pos_value_batch            = self.actor_critic.evaluate_pos(critic_observations_batch)
                 #    - Torque Control
-                tau_actions_log_prob_batch = self.actor_critic.get_tau_actions_log_prob(tau_actions_batch)
-                tau_value_batch            = self.actor_critic.evaluate_tau(critic_obs_batch)
-                tau_mu_batch               = self.actor_critic.tau_action_mean
-                tau_sigma_batch            = self.actor_critic.tau_action_std
-                tau_entropy_batch          = self.actor_critic.tau_entropy
+                tau_value_batch            = self.actor_critic.evaluate_tau(critic_observations_batch)
 
                 # First do the VAE loss function that is shared between both control modailities
                 #     Get the prediction from the decoder
@@ -326,84 +323,57 @@ class PPODynamic:
                 # KL
                 if self.desired_kl != None and self.schedule == 'adaptive':
                     with torch.inference_mode():
-                        pos_kl = torch.sum(
-                            torch.log(pos_sigma_batch / pos_old_sigma_batch + 1.e-5) + (torch.square(pos_old_sigma_batch) + torch.square(pos_old_mu_batch - pos_mu_batch)) / (2.0 * torch.square(pos_sigma_batch)) - 0.5, axis=-1)
-                        pos_kl_mean = torch.mean(pos_kl)
+                        kl = torch.sum(
+                            torch.log(sigma_batch / old_sigma_batch + 1.e-5) + (torch.square(old_sigma_batch) + torch.square(old_mu_batch - mu_batch)) / (2.0 * torch.square(sigma_batch)) - 0.5, axis=-1)
+                        kl_mean = torch.mean(kl)
 
-                        if pos_kl_mean > self.desired_kl * 2.0:
-                            self.pos_learning_rate = max(1e-5, self.pos_learning_rate / 1.5)
-                        elif pos_kl_mean < self.desired_kl / 2.0 and pos_kl_mean > 0.0:
-                            self.pos_learning_rate = min(1e-2, self.pos_learning_rate * 1.5)
+                        if kl_mean > self.desired_kl * 2.0:
+                            self.learning_rate = max(1e-5, self.learning_rate / 1.5)
+                        elif kl_mean < self.desired_kl / 2.0 and kl_mean > 0.0:
+                            self.learning_rate = min(1e-2, self.learning_rate * 1.5)
                         
                         for param_group in self.act_optimizer.optimizer.param_groups:
                         # for param_group in self.act_optimizer.param_groups:
-                            # specifically modifies the learning rate of the position-control specific parameters
-                            if "name" in param_group.keys():
-                                if "pos_branch" in param_group["name"]:
-                                    param_group['lr'] = self.pos_learning_rate
+                            param_group['lr'] = self.learning_rate
 
                 # PPO stuff
                 # PPO Surrogate loss
-                pos_ratio = torch.exp(pos_actions_log_prob_batch - torch.squeeze(pos_old_actions_log_prob_batch))
-                # surrogate = -torch.squeeze(pos_advantages_batch) * pos_ratio
-                # surrogate_clipped = -torch.squeeze(pos_advantages_batch) * torch.clamp(pos_ratio, 1.0 - self.clip_param, 1.0 + self.clip_param)
+                total_advantages_batch = advantages_batch + pos_advantages_batch + tau_advantages_batch
+
+                ratio = torch.exp(actions_log_prob_batch - torch.squeeze(old_actions_log_prob_batch))
+                # surrogate = -torch.squeeze(total_advantages_batch) * ratio
+                # surrogate_clipped = -torch.squeeze(total_advantages_batch) * torch.clamp(ratio, 1.0 - self.clip_param, 1.0 + self.clip_param)
                 # surrogate_loss = torch.max(surrogate, surrogate_clipped).mean()
 
                 # SPO Surrogate loss
-                pos_surrogate_loss = -(torch.squeeze(pos_advantages_batch) * pos_ratio - torch.abs(torch.squeeze(pos_advantages_batch)) * torch.pow(pos_ratio - 1, 2) / (2 * 0.2)).mean()
+                surrogate_loss = -(torch.squeeze(total_advantages_batch) * ratio - torch.abs(torch.squeeze(total_advantages_batch)) * torch.pow(ratio - 1, 2) / (2 * 0.2)).mean()
 
                 # PPO stuff
-                # Value function loss
+                # Value function loss for each of our three value functions
                 if self.use_clipped_value_loss:
+                    # General locomotion performance
+                    value_clipped = target_values_batch + (values_batch - target_values_batch).clamp(-self.clip_param, self.clip_param)
+                    value_losses = (values_batch - returns_batch).pow(2)
+                    value_losses_clipped = (value_clipped - returns_batch).pow(2)
+                    value_loss = torch.max(value_losses, value_losses_clipped).mean()                  
+                    
+                    # Position control specific
                     pos_value_clipped = pos_target_values_batch + (pos_value_batch - pos_target_values_batch).clamp(-self.clip_param, self.clip_param)
                     pos_value_losses = (pos_value_batch - pos_returns_batch).pow(2)
                     pos_value_losses_clipped = (pos_value_clipped - pos_returns_batch).pow(2)
                     pos_value_loss = torch.max(pos_value_losses, pos_value_losses_clipped).mean()
-                else:
-                    pos_value_loss = (pos_returns_batch - pos_value_batch).pow(2).mean()
 
-                pos_loss = pos_surrogate_loss + self.value_loss_coef * pos_value_loss - self.entropy_coef * pos_entropy_batch.mean()
-
-                #   - Torque Control
-                # KL
-                if self.desired_kl != None and self.schedule == 'adaptive':
-                    with torch.inference_mode():
-                        tau_kl = torch.sum(
-                            torch.log(tau_sigma_batch / tau_old_sigma_batch + 1.e-5) + (torch.square(tau_old_sigma_batch) + torch.square(tau_old_mu_batch - tau_mu_batch)) / (2.0 * torch.square(tau_sigma_batch)) - 0.5, axis=-1)
-                        tau_kl_mean = torch.mean(tau_kl)
-
-                        if tau_kl_mean > self.desired_kl * 2.0:
-                            self.tau_learning_rate = max(1e-5, self.tau_learning_rate / 1.5)
-                        elif tau_kl_mean < self.desired_kl / 2.0 and tau_kl_mean > 0.0:
-                            self.tau_learning_rate = min(1e-2, self.tau_learning_rate * 1.5)
-                        
-                        for param_group in self.act_optimizer.optimizer.param_groups:
-                        # for param_group in self.act_optimizer.param_groups:
-                            # Specifically modifies the parameters specific to the torque-control actions
-                            if "name" in param_group.keys():
-                                if "tau_branch" in param_group["name"]:
-                                    param_group['lr'] = self.tau_learning_rate
-
-
-                # Surrogate loss
-                tau_ratio = torch.exp(tau_actions_log_prob_batch - torch.squeeze(tau_old_actions_log_prob_batch))
-                # surrogate = -torch.squeeze(tau_advantages_batch) * tau_ratio
-                # surrogate_clipped = -torch.squeeze(tau_advantages_batch) * torch.clamp(tau_ratio, 1.0 - self.clip_param, 1.0 + self.clip_param)
-                # tau_surrogate_loss = torch.max(surrogate, surrogate_clipped).mean()
-
-                # SPO Surrogate loss
-                tau_surrogate_loss = -(torch.squeeze(tau_advantages_batch) * tau_ratio - torch.abs(torch.squeeze(tau_advantages_batch)) * torch.pow(tau_ratio - 1, 2) / (2 * 0.2)).mean()
-
-                # Value function loss
-                if self.use_clipped_value_loss:
+                    # Torqur control specific
                     tau_value_clipped = tau_target_values_batch + (tau_value_batch - tau_target_values_batch).clamp(-self.clip_param, self.clip_param)
                     tau_value_losses = (tau_value_batch - tau_returns_batch).pow(2)
                     tau_value_losses_clipped = (tau_value_clipped - tau_returns_batch).pow(2)
                     tau_value_loss = torch.max(tau_value_losses, tau_value_losses_clipped).mean()
                 else:
+                    value_loss = (returns_batch - values_batch).pow(2).mean()
+                    pos_value_loss = (pos_returns_batch - pos_value_batch).pow(2).mean()
                     tau_value_loss = (tau_returns_batch - tau_value_batch).pow(2).mean()
 
-                tau_loss = tau_surrogate_loss + self.value_loss_coef * tau_value_loss - self.entropy_coef * tau_entropy_batch.mean()
+                ppo_loss = surrogate_loss + self.value_loss_coef * (value_loss + tau_value_loss+ pos_value_loss) - self.entropy_coef * entropy_batch.mean()
 
                 ###
                 #  PINN Loss
@@ -471,7 +441,7 @@ class PPODynamic:
                 #     # total_ppo_loss = pos_loss + tau_loss
                 #     # total_enc_loss = autoenc_loss
 
-                ppo_losses = [pos_loss+tau_loss]
+                ppo_losses = [ppo_loss]
                 encoder_losses = [autoenc_loss]
 
                 # total_ppo_loss = pos_loss + tau_loss + self.pinn_weight * pinn_loss
@@ -528,10 +498,10 @@ class PPODynamic:
                 # self.spectral_normalization(self.decoder)
 
 
+                mean_surrogate_loss += surrogate_loss.item()
+                mean_value_loss += value_loss.item()
                 mean_pos_value_loss += pos_value_loss.item()
-                mean_pos_surrogate_loss += pos_surrogate_loss.item()
                 mean_tau_value_loss += tau_value_loss.item()
-                mean_tau_surrogate_loss += tau_surrogate_loss.item()
                 mean_autoenc_loss += autoenc_loss.item()
                 mean_decoder_loss += dec_loss.item()
                 # if self.pinn_weight > 0.0:
@@ -542,10 +512,10 @@ class PPODynamic:
                 mean_pinn_loss += pinn_loss
 
         num_updates = self.num_learning_epochs * self.num_mini_batches
+        mean_surrogate_loss /= num_updates
+        mean_value_loss /= num_updates
         mean_pos_value_loss /= num_updates
-        mean_pos_surrogate_loss /= num_updates
         mean_tau_value_loss /= num_updates
-        mean_tau_surrogate_loss /= num_updates
         mean_autoenc_loss /= num_updates
         mean_decoder_loss /= num_updates
         mean_pinn_loss /= num_updates
@@ -565,4 +535,4 @@ class PPODynamic:
 
         self.storage.clear()
 
-        return mean_pos_value_loss, mean_pos_surrogate_loss, mean_tau_value_loss, mean_tau_surrogate_loss, mean_autoenc_loss, mean_decoder_loss, mean_pinn_loss
+        return mean_surrogate_loss, mean_value_loss, mean_pos_value_loss, mean_tau_value_loss, mean_autoenc_loss, mean_decoder_loss, mean_pinn_loss

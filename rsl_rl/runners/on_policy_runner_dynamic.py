@@ -99,7 +99,7 @@ class OnPolicyRunnerDynamic:
 
         # init storage and model
         self.alg.init_storage(self.env.num_envs, self.num_steps_per_env, [self.env.num_obs], [self.env.num_privileged_obs], [self.env.num_obs_hist*self.env.num_obs], \
-                              [self.env.num_actions], [self.policy_cfg["cenet_velo_dim"]], [self.cfg["grf_dim"]], [self.env.wb_dim])
+                              [2*self.env.num_actions], [self.policy_cfg["cenet_velo_dim"]], [self.cfg["grf_dim"]], [self.env.wb_dim])
 
         if "pretrained_path" in self.policy_cfg.keys():
             self._load_pretrained_model()
@@ -148,9 +148,11 @@ class OnPolicyRunnerDynamic:
         self.alg.actor_critic.train() # switch to train mode (for dropout for example)
 
         ep_infos = []
+        rewbuffer = deque(maxlen=100)
         pos_rewbuffer = deque(maxlen=100)
         tau_rewbuffer = deque(maxlen=100)
         lenbuffer = deque(maxlen=100)
+        cur_reward_sum = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
         cur_pos_reward_sum = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
         cur_tau_reward_sum = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
 
@@ -173,7 +175,7 @@ class OnPolicyRunnerDynamic:
                     actions = self.alg.act(obs, critic_obs, obs_hist, torso_velo, prev_obs, prev_obs_hist, pprev_obs, pprev_obs_hist) # obs_t, (obs_t-1)
                          
                     # Submit the predicted action and extract the resulting state... 
-                    obs, privileged_obs, obs_hist, pos_rewards, tau_rewards, dones, infos, grfs = self.env.step(actions)  # obs_t+1  (obs_t)
+                    obs, privileged_obs, obs_hist, rewards, pos_rewards, tau_rewards, dones, infos, grfs = self.env.step(actions)  # obs_t+1  (obs_t)
                     
                     # Create privileged obs
                     critic_obs = privileged_obs if privileged_obs is not None else obs
@@ -183,23 +185,26 @@ class OnPolicyRunnerDynamic:
                     gt_forces, mass_mats, bias_vecs, torso_acc = gt_forces.to(self.device), mass_mats.to(self.device), bias_vecs.to(self.device), torso_acc.to(self.device)
 
                     # move everything to the correct device
-                    obs, critic_obs, obs_hist, pos_rewards, tau_rewards, dones, grfs = obs.to(self.device), critic_obs.to(self.device), \
-                        obs_hist.to(self.device), pos_rewards.to(self.device), tau_rewards.to(self.device), dones.to(self.device), grfs.to(self.device)
+                    obs, critic_obs, obs_hist, rewards, pos_rewards, tau_rewards, dones, grfs = obs.to(self.device), critic_obs.to(self.device), \
+                        obs_hist.to(self.device), rewards.to(self.device), pos_rewards.to(self.device), tau_rewards.to(self.device), dones.to(self.device), grfs.to(self.device)
 
                     # Log the labels associated with the context decoder as well as the typical stuff
-                    self.alg.process_env_step(pos_rewards, tau_rewards, dones, infos, grfs, obs, gt_forces, mass_mats, bias_vecs, torso_acc)
+                    self.alg.process_env_step(rewards, pos_rewards, tau_rewards, dones, infos, grfs, obs, gt_forces, mass_mats, bias_vecs, torso_acc)
 
                     if self.log_dir is not None:
                         # Book keeping
                         if 'episode' in infos:
                             ep_infos.append(infos['episode'])
+                        cur_reward_sum += rewards
                         cur_pos_reward_sum += pos_rewards
                         cur_tau_reward_sum += tau_rewards
                         cur_episode_length += 1
                         new_ids = (dones > 0).nonzero(as_tuple=False)
+                        rewbuffer.extend(cur_reward_sum[new_ids][:, 0].cpu().numpy().tolist())
                         pos_rewbuffer.extend(cur_pos_reward_sum[new_ids][:, 0].cpu().numpy().tolist())
                         tau_rewbuffer.extend(cur_tau_reward_sum[new_ids][:, 0].cpu().numpy().tolist())
                         lenbuffer.extend(cur_episode_length[new_ids][:, 0].cpu().numpy().tolist())
+                        cur_reward_sum[new_ids] = 0
                         cur_pos_reward_sum[new_ids] = 0
                         cur_tau_reward_sum[new_ids] = 0
                         cur_episode_length[new_ids] = 0
@@ -211,7 +216,7 @@ class OnPolicyRunnerDynamic:
                 start = stop
                 self.alg.compute_returns(critic_obs)
             
-            mean_pos_value_loss, mean_pos_surrogate_loss, mean_tau_value_loss, mean_tau_surrogate_loss, mean_autoenc_loss, mean_decoder_loss, mean_pinn_loss = self.alg.update(self.env._get_pinn_actions,self.env.dt,self.env.num_iters)
+            mean_surrogate_loss, mean_value_loss, mean_pos_value_loss, mean_tau_value_loss, mean_autoenc_loss, mean_decoder_loss, mean_pinn_loss = self.alg.update(self.env._get_pinn_actions,self.env.dt,self.env.num_iters)
 
             self.env.step_tradeoff_curriculum()
             if self.env.use_reward_curriculum:
@@ -259,30 +264,30 @@ class OnPolicyRunnerDynamic:
                 self.writer.add_scalar('Episode/' + key, value, locs['it'])
                 ep_string += f"""{f'Mean episode {key}:':>{pad}} {value:.4f}\n"""
         
-        # TODO - update this as well
-        mean_pos_std = self.alg.actor_critic.std_pos.mean()
-        mean_tau_std = self.alg.actor_critic.std_tau.mean()
+        mean_std = self.alg.actor_critic.std.mean()
         
         fps = int(self.num_steps_per_env * self.env.num_envs / (locs['collection_time'] + locs['learn_time']))
         self.writer.add_scalar('Loss/autoenc_function', locs['mean_autoenc_loss'], locs['it'])
         self.writer.add_scalar('Loss/decoder_function', locs['mean_decoder_loss'], locs['it'])
+        
+        self.writer.add_scalar('Loss/surrogate', locs['mean_surrogate_loss'], locs['it'])
+        self.writer.add_scalar('Loss/learning_rate', self.alg.learning_rate, locs['it'])
+        self.writer.add_scalar('Loss/value_function', locs['mean_value_loss'], locs['it'])
         self.writer.add_scalar('Loss/pos_value_function', locs['mean_pos_value_loss'], locs['it'])
-        self.writer.add_scalar('Loss/pos_surrogate', locs['mean_pos_surrogate_loss'], locs['it'])
-        self.writer.add_scalar('Loss/pos_learning_rate', self.alg.pos_learning_rate, locs['it'])
         self.writer.add_scalar('Loss/tau_value_function', locs['mean_tau_value_loss'], locs['it'])
-        self.writer.add_scalar('Loss/tau_surrogate', locs['mean_tau_surrogate_loss'], locs['it'])
-        self.writer.add_scalar('Loss/tau_learning_rate', self.alg.tau_learning_rate, locs['it'])
         self.writer.add_scalar('Loss/pinn_loss', locs['mean_pinn_loss'], locs['it'])
-        self.writer.add_scalar('Policy/mean_pos_noise_std', mean_pos_std.item(), locs['it'])        
-        self.writer.add_scalar('Policy/mean_tau_noise_std', mean_tau_std.item(), locs['it'])
+        self.writer.add_scalar('Loss/learning_rate', self.alg.learning_rate, locs['it'])
+        self.writer.add_scalar('Policy/mean_noise_std', mean_std.item(), locs['it'])        
         self.writer.add_scalar('Perf/total_fps', fps, locs['it'])
         self.writer.add_scalar('Perf/collection time', locs['collection_time'], locs['it'])
         self.writer.add_scalar('Perf/learning_time', locs['learn_time'], locs['it'])
         
         if len(locs['pos_rewbuffer']) > 0:
+            self.writer.add_scalar('Train/mean_reward', statistics.mean(locs['rewbuffer']), locs['it'])
             self.writer.add_scalar('Train/mean_pos_reward', statistics.mean(locs['pos_rewbuffer']), locs['it'])
             self.writer.add_scalar('Train/mean_tau_reward', statistics.mean(locs['tau_rewbuffer']), locs['it'])
             self.writer.add_scalar('Train/mean_episode_length', statistics.mean(locs['lenbuffer']), locs['it'])
+            self.writer.add_scalar('Train/mean_reward/time', statistics.mean(locs['rewbuffer']), self.tot_time)
             self.writer.add_scalar('Train/mean_pos_reward/time', statistics.mean(locs['pos_rewbuffer']), self.tot_time)
             self.writer.add_scalar('Train/mean_tau_reward/time', statistics.mean(locs['tau_rewbuffer']), self.tot_time)
             self.writer.add_scalar('Train/mean_episode_length/time', statistics.mean(locs['lenbuffer']), self.tot_time)
@@ -297,12 +302,12 @@ class OnPolicyRunnerDynamic:
                           f"""{'PINN loss:':>{pad}} {locs['mean_pinn_loss']:.4f}\n"""
                           f"""{'Autoenc function loss:':>{pad}} {locs['mean_autoenc_loss']:.4f}\n"""
                           f"""{'Decoder function loss:':>{pad}} {locs['mean_decoder_loss']:.4f}\n"""
+                          f"""{'Surrogate loss:':>{pad}} {locs['mean_surrogate_loss']:.4f}\n"""
+                          f"""{'Value function loss:':>{pad}} {locs['mean_value_loss']:.4f}\n"""
                           f"""{'Pos Value function loss:':>{pad}} {locs['mean_pos_value_loss']:.4f}\n"""
-                          f"""{'Pos Surrogate loss:':>{pad}} {locs['mean_pos_surrogate_loss']:.4f}\n"""
-                          f"""{'Tau Value function loss:':>{pad}} {locs['mean_tau_value_loss']:.4f}\n"""
-                          f"""{'Tau Surrogate loss:':>{pad}} {locs['mean_tau_surrogate_loss']:.4f}\n"""
-                          f"""{'Mean pos action noise std:':>{pad}} {mean_pos_std.item():.2f}\n"""
-                          f"""{'Mean tau action noise std:':>{pad}} {mean_tau_std.item():.2f}\n"""
+                          f"""{'Tau Value function loss:':>{pad}} {locs['mean_tau_value_loss']:.4f}\n"""                          
+                          f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n"""
+                          f"""{'Mean reward:':>{pad}} {statistics.mean(locs['rewbuffer']):.2f}\n"""
                           f"""{'Mean Pos reward:':>{pad}} {statistics.mean(locs['pos_rewbuffer']):.2f}\n"""
                           f"""{'Mean Tau reward:':>{pad}} {statistics.mean(locs['tau_rewbuffer']):.2f}\n"""
                           f"""{'Mean episode length:':>{pad}} {statistics.mean(locs['lenbuffer']):.2f}\n""")
@@ -316,12 +321,11 @@ class OnPolicyRunnerDynamic:
                           f"""{'PINN loss:':>{pad}} {locs['mean_pinn_loss']:.4f}\n"""
                           f"""{'Autoenc function loss:':>{pad}} {locs['mean_autoenc_loss']:.4f}\n"""
                           f"""{'Decoder function loss:':>{pad}} {locs['mean_decoder_loss']:.4f}\n"""
+                          f"""{'Surrogate loss:':>{pad}} {locs['mean_surrogate_loss']:.4f}\n"""
+                          f"""{'Value function loss:':>{pad}} {locs['mean_value_loss']:.4f}\n"""
                           f"""{'Pos Value function loss:':>{pad}} {locs['mean_pos_value_loss']:.4f}\n"""
-                          f"""{'Pos Surrogate loss:':>{pad}} {locs['mean_pos_surrogate_loss']:.4f}\n"""
-                          f"""{'Tau Value function loss:':>{pad}} {locs['mean_tau_value_loss']:.4f}\n"""
-                          f"""{'Tau Surrogate loss:':>{pad}} {locs['mean_tau_surrogate_loss']:.4f}\n"""
-                          f"""{'Mean pos action noise std:':>{pad}} {mean_pos_std.item():.2f}\n"""
-                          f"""{'Mean tau action noise std:':>{pad}} {mean_tau_std.item():.2f}\n""")
+                          f"""{'Tau Value function loss:':>{pad}} {locs['mean_tau_value_loss']:.4f}\n"""                          
+                          f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n""")
 
         log_string += ep_string
         log_string += (f"""{'-' * width}\n"""
