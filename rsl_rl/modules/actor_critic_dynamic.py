@@ -263,6 +263,9 @@ class ActorCritic_Dynamic(nn.Module):
         # self.act_pos_2_tau_h2 = _ShiftScaleMod(dim=actor_branch_layers[1], activation=activation)
         # self.act_tau_2_pos_h2 = _ShiftScaleMod(dim=actor_branch_layers[1], activation=activation)
 
+        self.act_pos_layernorm = nn.LayerNorm(actor_branch_layers[1])
+        self.act_tau_layernorm = nn.LayerNorm(actor_branch_layers[1])
+
         ###
         #  Construct layers for the critic network
         ###
@@ -289,8 +292,10 @@ class ActorCritic_Dynamic(nn.Module):
         self.mean_tau = None
 
 
-        self.std_pos = nn.Parameter(init_noise_std * torch.ones(num_actions))
-        self.std_tau = nn.Parameter(init_noise_std * torch.ones(num_actions))
+        self.std_pos = nn.Parameter(1.00 * torch.ones(num_actions))
+        self.std_tau = nn.Parameter(0.5 * torch.ones(num_actions))
+
+        # self.std = nn.Parameter(init_noise_std * torch.ones(num_actions))
 
         self.num_actions = num_actions
         
@@ -389,6 +394,7 @@ class ActorCritic_Dynamic(nn.Module):
         # for i in range(self.options["action_net"]["num_layers"]-1):
         #     no_decay.update([f"noise_decoder.cross_field_scales_pos.{i}", f"noise_decoder.cross_field_scales_tau.{i}"])
         no_decay.update([f"std_pos", f"std_tau"])
+        # shared_decay.update([f"std"])
 
         # Validate parameter separation
         param_dict   = {pn: p for pn, p in self.named_parameters()}
@@ -473,6 +479,10 @@ class ActorCritic_Dynamic(nn.Module):
         pos_latent = self.activation(pos_latent)
         tau_latent = self.activation(tau_latent)
 
+        # Perform layer normalization
+        pos_latent = self.act_pos_layernorm(pos_latent)
+        tau_latent = self.act_tau_layernorm(tau_latent)
+
 
         # Now run the final output layers to get both action modalities
         # act_pos_act = F.tanh(self.act_pos_out(pos_latent))
@@ -545,8 +555,10 @@ class ActorCritic_Dynamic(nn.Module):
         # std_pos = torch.clamp(self.std_pos, 0.05, 1.1)
         # std_tau = torch.clamp(self.std_tau, 0.05, 1.1)
 
-        self.std_pos.data.clamp_(0.2, 1.1)
-        self.std_tau.data.clamp_(0.2, 1.1)
+        self.std_pos.data.clamp_(0.05, 5.0)
+        self.std_tau.data.clamp_(0.05, 1.0)
+
+        # self.std.data.clamp_(0.2, 1.1)
 
         self.distribution_pos = Normal(mean_pos, mean_pos * 0.0 + self.std_pos)
         self.distribution_tau = Normal(mean_tau, mean_tau * 0.0 + self.std_tau)

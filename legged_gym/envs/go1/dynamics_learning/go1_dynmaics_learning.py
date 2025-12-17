@@ -66,7 +66,6 @@ class LeggedRobotGo1Dynamic(BaseTask):
             actions (torch.Tensor): Tensor of shape (num_envs, num_actions_per_env)
         """
         # clip the predicted actions
-        
         clip_actions = self.cfg.normalization.clip_actions
         self.actions = torch.clip(
             actions, -clip_actions, clip_actions).to(self.device)
@@ -506,9 +505,8 @@ class LeggedRobotGo1Dynamic(BaseTask):
                     self._added_base_mass,        # 1
                     self._base_com_bias,          # 3
                     self._rand_push_vels[:, :2],  # 2
-                    self._joint_armature,         # 1
-                    self._joint_stiffness,        # 1
-                    self._joint_damping,          # 1
+                    torch.ones_like(self._added_base_mass)*self.feedforward_tau_weight, # 1
+                    torch.ones_like(self._added_base_mass)*self.feedback_tau_weight,    # 1
                     # mass of water tank
                     # stickness of water in tank
                 ),
@@ -1474,15 +1472,19 @@ class LeggedRobotGo1Dynamic(BaseTask):
             remapped_step = 12.0 * raw_step + (-6.0)  # between [-6, 6]
             gentle_step = 1.0 / (1.0 + np.exp(-remapped_step))
 
-            self.feedforward_tau_weight = gentle_step*self.bound_diff[0] + self.tradeoff_lowerbounds[0]
-            self.feedback_tau_weight    = gentle_step*self.bound_diff[1] + self.tradeoff_lowerbounds[1]
+            self.feedforward_tau_weight = raw_step*self.bound_diff[0] + self.tradeoff_lowerbounds[0]
+            self.feedback_tau_weight    = raw_step*self.bound_diff[1] + self.tradeoff_lowerbounds[1]
 
 
-        # Randomly set the weights back to the "initial" configuration - encouraging
-        #     the policy to retain it's ability to walk via position control AND torque
+        # Randomly set the weights to the "opposite" setting, where the primary driver is position-control and the secondary is torques configuration - 
+        #   encouraging the policy discover and retain the ability to walk via position control
         if random.random() < 0.5:
-            self.feedforward_tau_weight = self.tradeoff_lowerbounds[0]
-            self.feedback_tau_weight    = self.tradeoff_lowerbounds[1]
+            raw_step = float(self.num_iters)/float(self.tradeoff_num_steps)   # between [0,1]
+            
+            random_step = random.uniform(0.0, raw_step)
+
+            self.feedforward_tau_weight = random_step*self.bound_diff[0] + self.tradeoff_lowerbounds[0]
+            self.feedback_tau_weight    = random_step*self.bound_diff[1] + self.tradeoff_lowerbounds[1]
 
         print("self.feedforward_tau_weight: ", self.feedforward_tau_weight)
         print("self.feedback_tau_weight: ", self.feedback_tau_weight)
@@ -1790,21 +1792,6 @@ class LeggedRobotGo1Dynamic(BaseTask):
         out_of_limits += (self.dof_pos - \
                           self.dof_pos_limits[:, 1]).clip(min=0.)
         return torch.sum(out_of_limits, dim=1)
-    
-    def _reward_dof_act_alignment(self):
-        # control_type = 'P'
-        # Pull out the position control actions
-        pos_actions = self.actions[:,0:12]
-
-        # Scale the position actions
-        repeat_pos_scales = torch.from_numpy(np.array(self.cfg.control.action_scale)).repeat(1,4).to(self.device)
-        # actions_scaled = pos_actions * self.cfg.control.action_scale
-        actions_scaled = pos_actions * repeat_pos_scales
-
-        error = torch.sum(torch.square(actions_scaled - self.dof_pos), dim=-1)
-
-        return error
-
 
     # def _reward_dof_vel_limits(self):
     #     # Penalize dof velocities too close to the limit
@@ -1844,10 +1831,33 @@ class LeggedRobotGo1Dynamic(BaseTask):
     
     def _reward_task_alignment(self):
         # Penalize un-aligned torques (feedforward torque is in the opposite direction as feedback)
-        un_algined = torch.sum((self.feedforward_torques * self.feedback_torques < 0), dim=-1) * -1.0
-        # Reward algined torques 
-        algined = torch.sum((self.feedforward_torques * self.feedback_torques > 0), dim=-1)
-        return un_algined + algined    
+        un_algined = torch.sum((self.feedforward_torques * self.feedback_torques < 0), dim=-1)
+        # # Reward algined torques 
+        # algined = torch.sum((self.feedforward_torques * self.feedback_torques > 0), dim=-1)
+        # return un_algined + algined   
+        return un_algined 
+    
+    def _reward_dof_tracking(self):
+        # control_type = 'P'
+        # Pull out the position control actions
+        pos_actions = self.actions[:,0:12]
+
+        # Scale the position actions
+        repeat_pos_scales = torch.from_numpy(np.array(self.cfg.control.action_scale)).repeat(1,4).to(self.device)
+        # actions_scaled = pos_actions * self.cfg.control.action_scale
+        actions_ = pos_actions * repeat_pos_scales + self.default_dof_pos
+        error = torch.sum(torch.square(self.dof_pos - actions_), dim=-1)
+        return -torch.exp(-4.0*error)
+    
+    def _reward_torque_pd_ratio(self):
+        feedforward_norm = torch.norm(self.feedforward_torques, dim=-1)
+        feedback_norm = torch.norm(self.feedback_torques, dim=-1)
+
+        ratio = feedforward_norm / (feedback_norm + 1e-6)
+
+        # Enforce that we want the PD targets to carry the majority of the effort early on during training
+        penalty = torch.clamp(ratio - 0.5, min=0)
+        return penalty
     
     # Consider tests when this objective is filtered by in-contact legs
     def _reward_wb_dynamics(self):
@@ -1888,8 +1898,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # calculate the error between the observed COM movement (accelerations) and the GRF profile
         torso_acc_error = torch.norm(self.torso_6dof_acceleration[:,0:3] - grf_acc, dim=-1)
 
-        return torch.exp(-torso_acc_error) 
-
+        return torch.exp(-torso_acc_error)
 
     def _reward_feet_air_time(self):
         # Reward long steps
@@ -1906,6 +1915,12 @@ class LeggedRobotGo1Dynamic(BaseTask):
     def _reward_stand_still(self):
         # Penalize motion at zero commands
         return torch.sum(torch.abs(self.dof_pos - self.default_dof_pos), dim=1) * (torch.norm(self.commands[:, :2], dim=1) < 0.1)
+    
+    def _reward_stand_still_contact(self):
+        # encourage all four feet to be in contact with the ground if we are supposed to stand still
+        contact = torch.sum(self.link_contact_forces[:, self.feet_indices, 2] < 1., dim=-1)
+        comd_filter = torch.norm(self.commands[:, :2], dim=1) < 0.1
+        return torch.sum(comd_filter*contact, dim=-1)
     
     def _reward_feet_contact_forces(self):
         # penalize high contact forces

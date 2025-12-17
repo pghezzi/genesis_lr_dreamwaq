@@ -128,7 +128,7 @@ def play(args):
 
         repeat_pos_scales = torch.from_numpy(np.array(env.cfg.control.action_scale)).repeat(1,4).to(env.device)
         # actions_scaled = pos_actions * self.cfg.control.action_scale
-        actions_scaled = F.tanh(actions[:,0:12]) * repeat_pos_scales
+        actions_scaled = F.tanh(actions[:,0:12]) * repeat_pos_scales + env.default_dof_pos
 
         if infos["episode"]:
             num_episodes = torch.sum(env.reset_buf).item()

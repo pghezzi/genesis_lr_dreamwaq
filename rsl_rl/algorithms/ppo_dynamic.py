@@ -403,7 +403,7 @@ class PPODynamic:
                 else:
                     tau_value_loss = (tau_returns_batch - tau_value_batch).pow(2).mean()
 
-                tau_loss = tau_surrogate_loss + self.value_loss_coef * tau_value_loss - self.entropy_coef * tau_entropy_batch.mean()
+                tau_loss = tau_surrogate_loss + self.value_loss_coef * tau_value_loss - 0.001 * tau_entropy_batch.mean()
 
                 ###
                 #  PINN Loss
