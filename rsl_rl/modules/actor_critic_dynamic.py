@@ -293,7 +293,7 @@ class ActorCritic_Dynamic(nn.Module):
 
 
         self.std_pos = nn.Parameter(1.00 * torch.ones(num_actions))
-        self.std_tau = nn.Parameter(0.5 * torch.ones(num_actions))
+        self.std_tau = nn.Parameter(1.00 * torch.ones(num_actions))
 
         # self.std = nn.Parameter(init_noise_std * torch.ones(num_actions))
 

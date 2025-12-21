@@ -43,11 +43,12 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.height_samples = None
         self.debug_viz = self.cfg.env.debug_viz
         self.init_done = False
-        self._parse_cfg(self.cfg)
+        self._parse_cfg(self.cfg, sim_device)
         super().__init__(self.cfg, sim_device, headless)
 
         self._init_buffers()
-        self._prepare_reward_function()
+        self._prepare_reward_function()    
+                
         self.init_done = True
 
     def get_observations(self):
@@ -70,7 +71,9 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.actions = torch.clip(
             actions, -clip_actions, clip_actions).to(self.device)
         
-        self.actions = F.tanh(self.actions)
+        # only apply the tanh to the torque output, basically bounding the torques but letting the 
+        #      position targets do their own thing
+        # self.actions[:,12:] = F.tanh(self.actions[:,12:])
 
         # Perform random control delay if approperiate
         if self.cfg.domain_rand.randomize_ctrl_delay:
@@ -326,11 +329,22 @@ class LeggedRobotGo1Dynamic(BaseTask):
         if self.cfg.commands.curriculum and (self.common_step_counter % self.max_episode_length ==0):
             self.update_command_curriculum(env_ids)
 
+        # fill extras
+        self.extras["episode"] = {}
+        for key in self.episode_sums.keys():
+            self.extras["episode"]['rew_' + key] = torch.mean(
+                self.episode_sums[key][env_ids]) / self.max_episode_length_s
+            self.episode_sums[key][env_ids] = 0.
+
+        # Update the position/torque control tradeoff curriculum 
+        if self.use_tradeoff:
+            self.step_tradeoff_curriculum(env_ids)
+
+        self._resample_commands(env_ids)
+
         # reset robot states
         self._reset_dofs(env_ids)
         self._reset_root_states(env_ids)
-
-        self._resample_commands(env_ids)
 
         # domain randomization
         if self.cfg.domain_rand.randomize_friction:
@@ -367,6 +381,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
 
         self.feet_air_time[env_ids] = 0.
         self.feet_air_time_raibert[env_ids] = 0.
+        self.feet_touch_time[env_ids] = 0.
         self.episode_length_buf[env_ids] = 0
         self.reset_buf[env_ids] = 1
         self.grfs_buf[env_ids] = 0.
@@ -386,12 +401,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.llast_obs_hist[env_ids]     = 0. 
         self.torso_6dof_acceleration[env_ids] = 0.
 
-        # fill extras
-        self.extras["episode"] = {}
-        for key in self.episode_sums.keys():
-            self.extras["episode"]['rew_' + key] = torch.mean(
-                self.episode_sums[key][env_ids]) / self.max_episode_length_s
-            self.episode_sums[key][env_ids] = 0.
+
         # log additional curriculum info
         if self.cfg.terrain.curriculum:
             self.extras["episode"]["terrain_level"] = torch.mean(
@@ -464,11 +474,15 @@ class LeggedRobotGo1Dynamic(BaseTask):
                                 #   (self.dof_tau - self.default_dof_tau)*self.obs_scales.dof_tau,    # 12 DOF
                                   self.actions[:,0:12],                        # 12 DOF
                                   self.actions[:,12:24]), dim=-1)              # 12 DOF  total of - 57
-        # add perceptive inputs if not blind
-        if self.cfg.terrain.measure_heights:
-            heights = torch.clip(self.base_pos[:, 2].unsqueeze(
-                1) - 0.5 - self.measured_heights, -1, 1.) * self.obs_scales.height_measurements
-            self.obs_buf = torch.cat((self.obs_buf, heights), dim=-1)
+        # # add perceptive inputs if not blind
+        # if self.cfg.terrain.measure_heights:
+        #     heights = torch.clip(self.base_pos[:, 2].unsqueeze(
+        #         1) - 0.5 - self.measured_heights, -1, 1.) * self.obs_scales.height_measurements
+        #     self.obs_buf = torch.cat((self.obs_buf, heights), dim=-1)
+
+
+        # heights = torch.clip(self.base_pos[:, 2].unsqueeze(1) - 0.5 - self.measured_heights, -1, 1.) * self.obs_scales.height_measurements
+        # heights += (2.0 * torch.rand_like(heights) - 1.0)*self.height_noise_vec
 
         # add noise if needed
         if self.add_noise:
@@ -505,8 +519,9 @@ class LeggedRobotGo1Dynamic(BaseTask):
                     self._added_base_mass,        # 1
                     self._base_com_bias,          # 3
                     self._rand_push_vels[:, :2],  # 2
-                    torch.ones_like(self._added_base_mass)*self.feedforward_tau_weight, # 1
-                    torch.ones_like(self._added_base_mass)*self.feedback_tau_weight,    # 1
+                    self.feedforward_tau_weight, # 1
+                    self.feedback_tau_weight,    # 1
+                    # heights,                     # 121
                     # mass of water tank
                     # stickness of water in tank
                 ),
@@ -631,6 +646,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         if self.cfg.domain_rand.push_robots:
             self._push_robots()
 
+
     def _resample_commands(self, env_ids):
         """ Randommly select commands of some environments
 
@@ -661,12 +677,14 @@ class LeggedRobotGo1Dynamic(BaseTask):
 
         repeat_pos_scales = torch.from_numpy(np.array(self.cfg.control.action_scale)).repeat(1,4).to(self.device)
         # actions_scaled = pos_actions * self.cfg.control.action_scale
-        actions_scaled = pos_actions * repeat_pos_scales
+        actions_scaled = pos_actions * repeat_pos_scales + self.default_dof_pos
+
+        actions_scaled = torch.clamp(actions_scaled, self.dof_pos_limits_hard[0,0], self.dof_pos_limits_hard[0,1])
 
         # Calculate the feedback-control torques
         #     include PD scaling values 
         self.feedback_torques = (
-            (self._kp_scale * self.p_gains) * (actions_scaled + self.default_dof_pos - self.dof_pos) - (self._kd_scale * self.d_gains) * self.dof_vel
+            (self._kp_scale * self.p_gains) * (actions_scaled - self.dof_pos) - (self._kd_scale * self.d_gains) * self.dof_vel
         )
         # Combine with the scaled + offset torque actions
         # print("FeedForward Torque - ")
@@ -685,28 +703,15 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # self.feedforward_torques *= self.feedforward_tau_weight
         # self.feedback_torques *= self.feedback_tau_weight
 
-        # torques = self.feedback_torques
-        
-        # torques = self.feedforward_torques + self.feedback_torques
-        # print(self.feedforward_torques[0:5,:])
-        # print(self.feedforward_tau_weight * self.feedforward_torques[0:5,:])
-        # print("self.default_dof_tau")
-        # print(self.default_dof_tau)
-        # print("self.feedforward_torques")
-        # print(self.feedforward_torques[0:5,:])
-        # print("self.feedback_torques")
-        # print(self.feedback_tau_weight * self.feedback_torques[0:5,:])
-        # print("---------------------------------------")
-        # print("Output Torques")
-        # print(torques[0:5,:])
         # Have the limit be exceeded a little bit to get reward feedback based on exceeding the limits
-        # return torch.clip(torques, -self.torque_limits, self.torque_limits)
-        return torques
+        return torch.clip(torques, -1.1*self.torque_limits, 1.1*self.torque_limits)
+        # return torques
+        
         # return self.feedback_torques
 
     def _get_pinn_actions(self, actions):
         # apply the tanh activation to scale between [-1, 1]
-        actions = F.tanh(actions)
+        # actions = F.tanh(actions)
         # Pull out the position control actions
         pos_actions = actions[:,0:12]
         # pull out the torque control actions
@@ -717,12 +722,19 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # actions_scaled = pos_actions * self.cfg.control.action_scale
         actions_scaled = pos_actions * repeat_pos_scales
         target_dof_pos = actions_scaled + self.default_dof_pos
-        
+        target_dof_pos = torch.clamp(target_dof_pos, self.dof_pos_limits_hard[0,0], self.dof_pos_limits_hard[0,1])
+
         # Scale and shift the torque actions
         repeat_torque_scales = torch.from_numpy(np.array(self.cfg.control.torque_scale)).repeat(1,4).to(self.device)
         feedforward_torques = (tau_actions * repeat_torque_scales + self.default_dof_tau)
 
         return target_dof_pos, feedforward_torques
+    
+    def _get_pinn_feedback(self, pos_actions, dof_pos, dof_vel):
+        feedback_torques = (
+            self._cahed_pgain * (pos_actions + self.default_dof_pos - dof_pos) - self._cahed_dgain * dof_vel
+        )
+        return feedback_torques
 
 
     def _compute_target_dof_pos(self, actions):
@@ -777,6 +789,8 @@ class LeggedRobotGo1Dynamic(BaseTask):
             self.base_pos[envs_idx] += self.env_origins[envs_idx]
         self.robot.set_pos(
             self.base_pos[envs_idx], zero_velocity=False, envs_idx=envs_idx)
+        
+        self.last_base_pos[envs_idx] = self.base_pos[envs_idx]
 
         # base quat
         self.base_quat[envs_idx] = self.base_init_quat.reshape(1, -1)
@@ -796,10 +810,13 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # reset root states - velocity
         self.base_lin_vel[envs_idx] = (
             gs_rand_float(-0.5, 0.5, (len(envs_idx), 3), self.device))
+        
         self.base_ang_vel[envs_idx] = (
             gs_rand_float(-0.5, 0.5, (len(envs_idx), 3), self.device))
+
         base_vel = torch.concat(
             [self.base_lin_vel[envs_idx], self.base_ang_vel[envs_idx]], dim=1)
+        
         self.robot.set_dofs_velocity(velocity=base_vel, dofs_idx_local=[
                                      0, 1, 2, 3, 4, 5], envs_idx=envs_idx)
 
@@ -812,11 +829,30 @@ class LeggedRobotGo1Dynamic(BaseTask):
             dofs_vel = self.robot.get_dofs_velocity()  # (num_envs, num_dof) [0:3] ~ base_link_vel
             push_vel = gs_rand_float(-max_push_vel_xy,
                                      max_push_vel_xy, (self.num_envs, 2), self.device)
+            # # Half of the time at random, push the robots
+            # #   towards the desired command
+            # if random.random() < 0.5:
+            #     push_vel = self.commands[:,0:2]
+            
             self._rand_push_vels[:, :2] = push_vel.detach().clone()
+            
             push_vel[((self.common_step_counter + self.env_identities) %
                       int(self.push_interval_s / self.dt) != 0)] = 0
             dofs_vel[:, :2] += push_vel
+            
             self.robot.set_dofs_velocity(dofs_vel)
+
+    def _push_towards_cmd(self):
+        """ Random pushes the robots. Emulates an impulse by setting a randomized base velocity. 
+        """
+        if self.push_interval_s > 0 and not self.debug:
+            # in Genesis, base link also has DOF, it's 6DOF if not fixed.
+            dofs_vel = self.robot.get_dofs_velocity()  # (num_envs, num_dof) [0:3] ~ base_link_vel
+            cmd_scaled = 0.01*self.commands[:,0:2]
+            dofs_vel[:, :2] += cmd_scaled
+            self._rand_push_vels[:, :2] = cmd_scaled.detach().clone()
+            self.robot.set_dofs_velocity(dofs_vel)
+
 
     def _update_terrain_curriculum(self, env_ids):
         """ Implements the game-inspired curriculum.
@@ -853,7 +889,6 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # If the tracking reward is above 80% of the maximum, increase the range of commands
         if torch.mean(self.episode_sums["tracking_lin_vel"][env_ids]) / self.max_episode_length > \
                 self.cfg.commands.curriculum_threshold * self.reward_scales["tracking_lin_vel"]:
-            
 
             self.command_ranges["lin_vel_x"][0] = np.clip(
                 self.command_ranges["lin_vel_x"][0] - 0.5, -self.cfg.commands.max_curriculum, 0.)
@@ -871,6 +906,10 @@ class LeggedRobotGo1Dynamic(BaseTask):
             [torch.Tensor]: Vector of scales used to multiply a uniform distribution in [-1, 1]
         """
         noise_vec = torch.zeros_like(self.obs_buf[0])
+
+
+        self.height_noise_vec = torch.zeros(121, device=self.device)
+
         
         self.add_noise = self.cfg.noise.add_noise
         
@@ -908,7 +947,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         noise_vec[45:57] = 0.
         
         if self.cfg.terrain.measure_heights:
-            noise_vec[48:235] = noise_scales.height_measurements * noise_level * self.obs_scales.height_measurements
+            self.height_noise_vec[:] = noise_scales.height_measurements * noise_level * self.obs_scales.height_measurements
         return noise_vec
 
     # ----------------------------------------
@@ -971,16 +1010,23 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.base_pos = torch.zeros(
             (self.num_envs, 3), device=self.device, dtype=gs.tc_float)
         
+        self.last_base_pos = torch.zeros_like(self.base_pos)
+        
         self.base_quat = torch.zeros(
             (self.num_envs, 4), device=self.device, dtype=gs.tc_float)
         
         self.feet_air_time = torch.zeros(
             (self.num_envs, len(self.feet_indices)), device=self.device, dtype=gs.tc_float)
         
+        self.feet_touch_time = torch.zeros(
+            (self.num_envs, len(self.feet_indices)), device=self.device, dtype=gs.tc_float)
+        
         self.feet_air_time_raibert = torch.zeros(
             (self.num_envs, len(self.feet_indices)), device=self.device, dtype=gs.tc_float)
         
         self.last_contacts = torch.zeros((self.num_envs, len(self.feet_indices)), device=self.device, dtype=gs.tc_int)
+
+        self.last_lifts = torch.zeros((self.num_envs, len(self.feet_indices)), device=self.device, dtype=gs.tc_int)
 
         self.raibert_last_contacts = torch.zeros((self.num_envs, len(self.feet_indices)), device=self.device, dtype=gs.tc_int) 
         
@@ -1104,8 +1150,13 @@ class LeggedRobotGo1Dynamic(BaseTask):
                 if key in dof_name:
                     self.p_gains.append(stiffness[key])
                     self.d_gains.append(damping[key])
+
         self.p_gains = torch.tensor(self.p_gains, device=self.device)
         self.d_gains = torch.tensor(self.d_gains, device=self.device)
+
+        self._cahed_pgain = self.p_gains.clone()
+        self._cahed_dgain = self.d_gains.clone()
+
         self.p_gains = self.p_gains[None, :].repeat(self.num_envs, 1)
         self.d_gains = self.d_gains[None, :].repeat(self.num_envs, 1)
         # PD control params
@@ -1327,6 +1378,10 @@ class LeggedRobotGo1Dynamic(BaseTask):
             self.robot.get_dofs_limit(self.motors_dof_idx), dim=1)
         self.torque_limits = self.robot.get_dofs_force_range(self.motors_dof_idx)[1]
 
+        self.dof_pos_limits_hard = self.dof_pos_limits.clone()
+
+        print(self.dof_pos_limits_hard.shape)
+
         for i in range(self.dof_pos_limits.shape[0]):
             # soft limits
             m = (self.dof_pos_limits[i, 0] + self.dof_pos_limits[i, 1]) / 2
@@ -1417,7 +1472,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
             added_mass, [base_link_id, ], env_ids)
 
     def _randomize_com_displacement(self, env_ids):
-
+        ''' Randomize base COM'''
         min_displacement, max_displacement = self.cfg.domain_rand.com_displacement_range
         base_link_id = 1
 
@@ -1462,33 +1517,40 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.robot.set_dofs_damping(
             damping, self.motors_dof_idx, envs_idx=env_ids)
         
-    def step_tradeoff_curriculum(self):
-        self.feedforward_tau_weight = self.tradeoff_upperbounds[0]
-        self.feedback_tau_weight = self.tradeoff_upperbounds[1]
-
-        if self.num_iters < self.tradeoff_num_steps:
-            raw_step = float(self.num_iters)/float(self.tradeoff_num_steps)   # between [0,1]
-            print(raw_step)
-            remapped_step = 12.0 * raw_step + (-6.0)  # between [-6, 6]
-            gentle_step = 1.0 / (1.0 + np.exp(-remapped_step))
-
-            self.feedforward_tau_weight = raw_step*self.bound_diff[0] + self.tradeoff_lowerbounds[0]
-            self.feedback_tau_weight    = raw_step*self.bound_diff[1] + self.tradeoff_lowerbounds[1]
-
-
-        # Randomly set the weights to the "opposite" setting, where the primary driver is position-control and the secondary is torques configuration - 
-        #   encouraging the policy discover and retain the ability to walk via position control
-        if random.random() < 0.5:
-            raw_step = float(self.num_iters)/float(self.tradeoff_num_steps)   # between [0,1]
+    def step_tradeoff_curriculum(self, env_ids):
+        # If the tracking reward is above XX% of the maximum, increase the tradeoff
+        if torch.mean(self.episode_sums["tracking_lin_vel"][env_ids]) / self.max_episode_length > \
+                self.cfg.control.tradeoff_threshold * self.reward_scales["tracking_lin_vel"]:
             
-            random_step = random.uniform(0.0, raw_step)
+            print("^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*")
+            print(torch.mean(self.episode_sums["tracking_lin_vel"][env_ids]) / self.max_episode_length)
+            print(self.cfg.control.tradeoff_threshold * self.reward_scales["tracking_lin_vel"])
 
-            self.feedforward_tau_weight = random_step*self.bound_diff[0] + self.tradeoff_lowerbounds[0]
-            self.feedback_tau_weight    = random_step*self.bound_diff[1] + self.tradeoff_lowerbounds[1]
+            # Increment the tradeoff step-counter for these successful envs.
+            self.tradeoff_step_ctr[env_ids] += 1.0
 
-        print("self.feedforward_tau_weight: ", self.feedforward_tau_weight)
-        print("self.feedback_tau_weight: ", self.feedback_tau_weight)
+            # Check if this increased the step count of any env beyond the maximum and then reset
+            max_step_mask = self.tradeoff_step_ctr > self.tradeoff_num_steps
+            self.tradeoff_step_ctr[max_step_mask] = self.tradeoff_num_steps
 
+        # apply the curriculum scaling
+        self.feedforward_tau_weight = self.tradeoff_step_ctr*float(1.0/self.tradeoff_num_steps)*self.bound_diff[0] + self.tradeoff_lowerbounds[0]
+        self.feedback_tau_weight    = self.tradeoff_step_ctr*float(1.0/self.tradeoff_num_steps)*self.bound_diff[1] + self.tradeoff_lowerbounds[1]
+
+        # if random.random() < 0.5:
+        #     # step_ctr * (1.0/num_steps) -> is the per-env upper bound. Multipled by a random float between [0,1)
+        #     random_step_size = self.tradeoff_step_ctr*float(1.0/self.tradeoff_num_steps) * torch.rand((self.num_envs, 1))
+
+        #     self.feedforward_tau_weight = random_step_size*self.bound_diff[0] + self.tradeoff_lowerbounds[0]
+        #     self.feedback_tau_weight    = random_step_size*self.bound_diff[1] + self.tradeoff_lowerbounds[1]
+
+        # print("Max - self.feedforward_tau_weight: ", torch.max(self.feedforward_tau_weight))
+        # print("Min - self.feedforward_tau_weight: ", torch.min(self.feedforward_tau_weight))
+        # print("Max - self.feedback_tau_weight: ", torch.max(self.feedback_tau_weight))
+        # print("Min - self.feedback_tau_weight: ", torch.min(self.feedback_tau_weight))
+    
+    
+    
     def step_reward_curriculum(self):
         # Safety catch
         if not self.use_reward_curriculum:
@@ -1525,7 +1587,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
                 if key in self.tau_reward_scales:
                     self.tau_reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
 
-    def _parse_cfg(self, cfg):
+    def _parse_cfg(self, cfg, sim_device):
         self.dt = self.cfg.control.dt
         # use self-implemented pd controller
         self.sim_dt = self.dt / self.cfg.control.decimation
@@ -1577,9 +1639,16 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.tradeoff_upperbounds = np.array(self.cfg.control.tradeoff_final_weights)
         self.tradeoff_num_steps = self.cfg.control.tradeoff_steps
         self.bound_diff = self.tradeoff_upperbounds - self.tradeoff_lowerbounds 
+        
+        self.use_tradeoff = self.cfg.control.use_tradeoff_curriculum
+        # self.feedforward_tau_weight = 1.0
+        # self.feedback_tau_weight = 1.0
+
+        self.feedforward_tau_weight = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float)
+        self.feedback_tau_weight = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float)
+        self.tradeoff_step_ctr = torch.zeros((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float)
+
         self.num_iters = 0
-        self.feedforward_tau_weight = 1.0
-        self.feedback_tau_weight = 1.0
 
     def _draw_debug_vis(self):
         """ Draws visualizations for dubugging (slows down simulation a lot).
@@ -1792,6 +1861,18 @@ class LeggedRobotGo1Dynamic(BaseTask):
         out_of_limits += (self.dof_pos - \
                           self.dof_pos_limits[:, 1]).clip(min=0.)
         return torch.sum(out_of_limits, dim=1)
+    
+    def _reward_dof_act_limits(self):
+        pos_actions = self.actions[:,0:12]
+        repeat_pos_scales = torch.from_numpy(np.array(self.cfg.control.action_scale)).repeat(1,4).to(self.device)
+        # actions_scaled = pos_actions * self.cfg.control.action_scale
+        actions_scaled = pos_actions * repeat_pos_scales + self.default_dof_pos
+        
+        # Penalize dof positions too close to the limit
+        out_of_limits = -(actions_scaled - self.dof_pos_limits_hard[:, 0]).clip(max=0.)  # lower limit
+        out_of_limits += (actions_scaled - \
+                          self.dof_pos_limits_hard[:, 1]).clip(min=0.)
+        return torch.sum(out_of_limits, dim=1)
 
     # def _reward_dof_vel_limits(self):
     #     # Penalize dof velocities too close to the limit
@@ -1846,19 +1927,105 @@ class LeggedRobotGo1Dynamic(BaseTask):
         repeat_pos_scales = torch.from_numpy(np.array(self.cfg.control.action_scale)).repeat(1,4).to(self.device)
         # actions_scaled = pos_actions * self.cfg.control.action_scale
         actions_ = pos_actions * repeat_pos_scales + self.default_dof_pos
-        error = torch.sum(torch.square(self.dof_pos - actions_), dim=-1)
-        return -torch.exp(-4.0*error)
+        error = torch.sum(torch.square(actions_ - self.dof_pos), dim=-1)
+        return torch.exp(-4.0*error)
     
-    def _reward_torque_pd_ratio(self):
-        feedforward_norm = torch.norm(self.feedforward_torques, dim=-1)
-        feedback_norm = torch.norm(self.feedback_torques, dim=-1)
+    # def _reward_torque_pd_ratio(self):
+    #     feedforward_norm = torch.norm(self.feedforward_torques, dim=-1)
+    #     feedback_norm = torch.norm(self.feedback_torques, dim=-1)
 
-        ratio = feedforward_norm / (feedback_norm + 1e-6)
+    #     ratio = feedforward_norm / (feedback_norm + 1e-6)
 
-        # Enforce that we want the PD targets to carry the majority of the effort early on during training
-        penalty = torch.clamp(ratio - 0.5, min=0)
-        return penalty
+    #     # Enforce that we want the PD targets to carry the majority of the effort early on during training
+    #     penalty = torch.clamp(ratio - 0.5, min=0)
+    #     return penalty
     
+    # # Curriculum, sensitive torque ratio reward
+    # def _reward_torque_pd_ratio(self):
+    #     # Per-env torque magnitudes
+    #     ff_norm = torch.norm(self.feedforward_torques, dim=-1)
+    #     pd_norm = torch.norm(self.feedback_torques, dim=-1)
+
+    #     # Actual ratio
+    #     ratio = ff_norm / (pd_norm + 1e-6)
+
+    #     # Curriculum progress (per env)
+    #     alpha = self.tradeoff_step_ctr / float(self.tradeoff_num_steps)
+    #     alpha = torch.clamp(alpha, 0.0, 1.0)
+
+    #     # Desired ratio schedule
+    #     r_min = 0.1    # PD-dominant early
+    #     r_max = 1.4    # FF-dominant late
+    #     target_ratio = r_min + alpha * (r_max - r_min)
+
+    #     # Log-ratio error (scale-invariant)
+    #     log_err = torch.log((ratio + 1e-6) / (target_ratio + 1e-6))
+    #     loss = log_err ** 2
+
+    #     # Convert to reward
+    #     reward = torch.exp(-2.0 * loss)
+
+    #     return reward
+
+
+    # Curriculum, sensitive torque ratio reward and robust to several potential "failure" modes
+    #     where the policy learns to "cheat" the ratio
+    def _reward_robust_torque_pd_ratio(self):
+        # Per-env mechanical power (harder to cheat than pure torques)
+        ff_power = torch.abs(torch.sum(self.feedforward_torques * self.dof_vel, dim=-1))
+        pd_power = torch.abs(torch.sum(self.feedback_torques * self.dof_vel, dim=-1))
+
+        # Actual ratio
+        ratio = ff_power / (pd_power + 1e-6)
+        target_ratio = 1.8
+
+        # Log-ratio error (scale-invariant)
+        loss = torch.square(torch.log((ratio + 1e-6) / (target_ratio + 1e-6)))
+                
+        # Convert to reward
+        reward = torch.exp(-2.0 * loss)
+
+        # Now apply gating terms based on potential failure cases....
+        # total effort based gating to prevent trival solution of decreasing the torque output from both modalities
+        # which results in a "stable" ratio without any power production
+        total_effort = ff_power + pd_power
+        effort_gate = F.tanh(total_effort)
+        reward *= effort_gate
+
+        # prevent feedforward (or possibly PD) torques from learning to simply dominate and "cancel out"
+        #    the torques produced from feedback control. 
+        cos_sim = F.cosine_similarity(self.feedforward_torques, self.feedback_torques, dim=-1)
+        aligned_torques_gate = torch.clamp(cos_sim, min=0.0)  # only reward non-conflicting torques
+        reward *= aligned_torques_gate
+
+        return reward
+
+    # Curriculum, sensitive torque ratio reward and robust to several potential "failure" modes
+    #     where the policy learns to "cheat" the ratio
+    def _reward_aligned_torques(self):
+        # prevent feedforward (or possibly PD) torques from learning to simply dominate and "cancel out"
+        #    the torques produced from feedback control. 
+        cos_sim = F.cosine_similarity(self.feedforward_torques, self.feedback_torques, dim=-1)
+        aligned_torques_gate = torch.clamp(cos_sim, min=0.0)  # only reward non-conflicting torques
+
+        return torch.exp(-4.0*aligned_torques_gate)
+
+    def _reward_foot_swing(self):
+        fz = self.link_contact_forces[:, self.feet_indices, 2]
+        foot_vel_xy = torch.norm(self.feet_vel[:, :, :2], dim=-1)
+
+        swing_mask = (fz < 10.0).float()
+        
+        return torch.sum(swing_mask*foot_vel_xy, dim=1) 
+
+    def _reward_sparse_contacts(self):
+        fz = self.link_contact_forces[:, self.feet_indices, 2]
+        contact_prob = torch.sigmoid(10.0*(fz - 10.0))
+        num_contacts = torch.sum(contact_prob, dim=-1)
+        
+        return torch.exp(-torch.square(num_contacts - 2.0)) 
+
+
     # Consider tests when this objective is filtered by in-contact legs
     def _reward_wb_dynamics(self):
         # reward the combined torque + position control values that result in stable next-step whole-body dynamics
@@ -1873,6 +2040,28 @@ class LeggedRobotGo1Dynamic(BaseTask):
         filtered_error = contact_filter * error
         
         return torch.exp(-torch.norm(filtered_error, dim=1))
+
+    def _reward_robust_wb_dynamics(self):
+        eps = 1e-6
+
+        # dynamics residual 
+        residual = self.wb_dynamics_buff[:,6:] - self.contact_forces_buff[:,6:] - self.torques
+
+        # Apply soft (to make this a continuous reward signal) contact weighting to avoid over-penalizing for leg movement
+        contact_magnitude = torch.clamp(self.contact_forces_buff[:,6:], min=0.0)
+        contact_max = torch.max(contact_magnitude, dim=1, keepdim=True)[0]
+        contact_weight = contact_magnitude / (contact_max + eps)
+        residual *= contact_weight
+
+        # create a "relative" reward to make it more robust to scale (more dynamic movements would be penalized by just being larger out of necessity otherwise)
+        rel_residual = torch.norm(residual, dim=1) / (eps + torch.norm(self.torques, dim=1) + torch.norm(self.contact_forces_buff[:,6:], dim=1))
+
+        # Also create a "power consistency" compoent of the reward that is harder to cheat than pure torques residuals
+        power_consitency = torch.abs(torch.sum(residual * self.dof_vel,dim=-1))
+
+        reward = torch.exp(-4.0*rel_residual - 0.5*power_consitency)
+
+        return reward
 
     # Rewards control torques (feedforward + feedback) and blanace with the GRF profile at the joint-level
     #     thereby encouraging control torques and contact forces that conform to the systems rigid-body dynamics 
@@ -1911,6 +2100,19 @@ class LeggedRobotGo1Dynamic(BaseTask):
         rew_airTime *= torch.norm(self.commands[:, :2], dim=1) > 0.1  # no reward for zero command
         self.feet_air_time *= ~contact_filt
         return rew_airTime
+    
+    def _reward_max_contact_time(self):
+        contact = self.link_contact_forces[:, self.feet_indices, 2] > 10.0
+
+        self.feet_touch_time += self.dt * contact
+        excess_time = torch.clamp(self.feet_touch_time - 0.5, min=0.0)
+        penalty = torch.sum(excess_time, dim=1)
+        moving = torch.norm(self.commands[:, :2], dim=1) > 0.1
+        penalty *= moving
+        self.feet_touch_time *= contact
+
+        return -penalty
+        
 
     def _reward_stand_still(self):
         # Penalize motion at zero commands
@@ -1930,12 +2132,26 @@ class LeggedRobotGo1Dynamic(BaseTask):
         cmd_mag = torch.norm(self.commands[:, :2], dim=1)
         should_move = cmd_mag > 0.1
 
-        vel_mag = torch.norm(self.base_lin_vel[:, :2], dim=1)
+        # # negative distance from movement threshold
+        # lack_of_motion = (0.1 - vel_mag).clamp(min=0.0)
 
-        # negative distance from movement threshold
-        lack_of_motion = (0.1 - vel_mag).clamp(min=0.0)
+        disp = torch.norm(
+            self.base_pos[:, :2] - self.last_base_pos[:, :2],
+            dim=1
+        )
 
+        # 1 m/s forwards -> 1.2*1.0*0.01 -> 0.012 m
+        min_disp = 8.0*cmd_mag*self.dt
+        #  Basic penalty
+        lack_of_motion = (min_disp - disp).clamp(min=0.0)
         penalty = lack_of_motion * should_move.float()
+
+        # explicitly enforce foot motion with base motion to prevent "cheating" the reward by jiggling in place
+        feet_not_moving = torch.norm(self.feet_vel[:, :, :2], dim=-1).mean(dim=1) < 0.05
+        cheat_penalty = feet_not_moving * should_move
+        
+        self.last_base_pos[:] = self.base_pos
+        penalty += cheat_penalty.float() * 0.1
         
         return penalty
 
@@ -1984,6 +2200,8 @@ class LeggedRobotGo1Dynamic(BaseTask):
         first_contact = (self.feet_air_time_raibert > 0.) * contact_filt
         self.feet_air_time_raibert += self.dt
         self.feet_air_time_raibert *= ~contact_filt
+        
+        airtime_filter = self.feet_air_time_raibert > 0.1
 
         inv_base_quat = inv_quat(self.base_quat)
 
@@ -2036,7 +2254,9 @@ class LeggedRobotGo1Dynamic(BaseTask):
             dim=-1)  # (num_env, 4)
 
         # filter by the first contact AND square the error
-        raibert_error = torch.norm(first_contact * foot_error_xy, dim=-1)
+        # raibert_error = torch.norm(first_contact * foot_error_xy, dim=-1)
+        
+        raibert_error = torch.norm(airtime_filter * foot_error_xy, dim=-1)
 
         return torch.exp(-raibert_error / self.cfg.rewards.foot_clearance_tracking_sigma)
         # return torch.exp(-raibert_error)

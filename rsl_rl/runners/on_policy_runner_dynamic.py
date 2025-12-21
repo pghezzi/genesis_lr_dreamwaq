@@ -137,7 +137,7 @@ class OnPolicyRunnerDynamic:
             self.env.episode_length_buf = torch.randint_like(self.env.episode_length_buf, high=int(self.env.max_episode_length))
         
         obs,obs_hist,torso_velo = self.env.get_observations()
-        self.env.step_tradeoff_curriculum()
+        # self.env.step_tradeoff_curriculum()
         if self.env.use_reward_curriculum:
             self.env.step_reward_curriculum()
         
@@ -211,9 +211,14 @@ class OnPolicyRunnerDynamic:
                 start = stop
                 self.alg.compute_returns(critic_obs)
             
-            mean_pos_value_loss, mean_pos_surrogate_loss, mean_tau_value_loss, mean_tau_surrogate_loss, mean_autoenc_loss, mean_decoder_loss, mean_pinn_loss = self.alg.update(self.env._get_pinn_actions,self.env.dt,self.env.num_iters)
+            mean_pos_value_loss, mean_pos_surrogate_loss, mean_tau_value_loss, mean_tau_surrogate_loss, mean_autoenc_loss, mean_decoder_loss, mean_pinn_loss = self.alg.update(self.env._get_pinn_actions,self.env._get_pinn_feedback, self.env.dt,self.env.num_iters)
 
-            self.env.step_tradeoff_curriculum()
+            # self.env.step_tradeoff_curriculum()
+            print("Max - self.feedforward_tau_weight: ", torch.max(self.env.feedforward_tau_weight).item())
+            print("Min - self.feedforward_tau_weight: ", torch.min(self.env.feedforward_tau_weight).item())
+            print("Max - self.feedback_tau_weight: ", torch.max(self.env.feedback_tau_weight).item())
+            print("Min - self.feedback_tau_weight: ", torch.min(self.env.feedback_tau_weight).item())
+            
             if self.env.use_reward_curriculum:
                 self.env.step_reward_curriculum()
             self.env.num_iters += 1
