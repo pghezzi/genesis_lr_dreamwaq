@@ -216,8 +216,10 @@ class OnPolicyRunnerDynamic:
             # self.env.step_tradeoff_curriculum()
             print("Max - self.feedforward_tau_weight: ", torch.max(self.env.feedforward_tau_weight).item())
             print("Min - self.feedforward_tau_weight: ", torch.min(self.env.feedforward_tau_weight).item())
+            print("Avg - self.feedforward_tau_weight: ", torch.mean(self.env.feedforward_tau_weight).item())
             print("Max - self.feedback_tau_weight: ", torch.max(self.env.feedback_tau_weight).item())
             print("Min - self.feedback_tau_weight: ", torch.min(self.env.feedback_tau_weight).item())
+            print("Avg - self.feedback_tau_weight: ", torch.mean(self.env.feedback_tau_weight).item())
             
             if self.env.use_reward_curriculum:
                 self.env.step_reward_curriculum()

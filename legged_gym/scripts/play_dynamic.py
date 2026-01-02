@@ -93,6 +93,11 @@ def play(args):
     tau_rewards = []
     total_grfs  = []
 
+    print("Max - self.feedforward_tau_weight: ", torch.max(env.feedforward_tau_weight).item())
+    print("Min - self.feedforward_tau_weight: ", torch.min(env.feedforward_tau_weight).item())
+    print("Max - self.feedback_tau_weight: ", torch.max(env.feedback_tau_weight).item())
+    print("Min - self.feedback_tau_weight: ", torch.min(env.feedback_tau_weight).item())
+
 
     if RECORD_FRAMES:
         env.floating_camera.start_recording()
@@ -129,6 +134,10 @@ def play(args):
         repeat_pos_scales = torch.from_numpy(np.array(env.cfg.control.action_scale)).repeat(1,4).to(env.device)
         # actions_scaled = pos_actions * self.cfg.control.action_scale
         actions_scaled = F.tanh(actions[:,0:12]) * repeat_pos_scales + env.default_dof_pos
+        
+        repeat_tau_scales = torch.from_numpy(np.array(env.cfg.control.torque_scale)).repeat(1,4).to(env.device)
+        # actions_scaled = pos_actions * self.cfg.control.action_scale
+        torques_scaled = F.tanh(actions[:,12:24]) * repeat_tau_scales
 
         if infos["episode"]:
             num_episodes = torch.sum(env.reset_buf).item()
@@ -140,6 +149,7 @@ def play(args):
                 'dof_pos_target': actions_scaled[robot_index, joint_index].item(), 
                 'dof_pos': env.dof_pos[robot_index, joint_index].item(),
                 'dof_vel': env.dof_vel[robot_index, joint_index].item(),
+                'dof_tau_target': torques_scaled[robot_index, joint_index].item(),
                 'dof_torque': env.torques[robot_index, joint_index].item(),
                 'command_x': env.commands[robot_index, 0].item(),
                 'command_y': env.commands[robot_index, 1].item(),

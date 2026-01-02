@@ -329,13 +329,6 @@ class LeggedRobotGo1Dynamic(BaseTask):
         if self.cfg.commands.curriculum and (self.common_step_counter % self.max_episode_length ==0):
             self.update_command_curriculum(env_ids)
 
-        # fill extras
-        self.extras["episode"] = {}
-        for key in self.episode_sums.keys():
-            self.extras["episode"]['rew_' + key] = torch.mean(
-                self.episode_sums[key][env_ids]) / self.max_episode_length_s
-            self.episode_sums[key][env_ids] = 0.
-
         # Update the position/torque control tradeoff curriculum 
         if self.use_tradeoff:
             self.step_tradeoff_curriculum(env_ids)
@@ -401,7 +394,13 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.llast_obs_hist[env_ids]     = 0. 
         self.torso_6dof_acceleration[env_ids] = 0.
 
-
+        # fill extras
+        self.extras["episode"] = {}
+        for key in self.episode_sums.keys():
+            self.extras["episode"]['rew_' + key] = torch.mean(
+                self.episode_sums[key][env_ids]) / self.max_episode_length_s
+            self.episode_sums[key][env_ids] = 0.
+            
         # log additional curriculum info
         if self.cfg.terrain.curriculum:
             self.extras["episode"]["terrain_level"] = torch.mean(
@@ -462,7 +461,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
             self.episode_sums["termination"] += rew
 
     def compute_observations(self):
-        """ Computes observations
+        """ Computes observationscompute_obs
         """
         self.llast_obs_buf = self.last_obs_buf.clone().detach()
         self.last_obs_buf = self.obs_buf.clone().detach()
@@ -519,6 +518,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
                     self._added_base_mass,        # 1
                     self._base_com_bias,          # 3
                     self._rand_push_vels[:, :2],  # 2
+                    # self._rand_wrench_vels[:, :2], # 2
                     self.feedforward_tau_weight, # 1
                     self.feedback_tau_weight,    # 1
                     # heights,                     # 121
@@ -829,18 +829,40 @@ class LeggedRobotGo1Dynamic(BaseTask):
             dofs_vel = self.robot.get_dofs_velocity()  # (num_envs, num_dof) [0:3] ~ base_link_vel
             push_vel = gs_rand_float(-max_push_vel_xy,
                                      max_push_vel_xy, (self.num_envs, 2), self.device)
-            # # Half of the time at random, push the robots
-            # #   towards the desired command
-            # if random.random() < 0.5:
-            #     push_vel = self.commands[:,0:2]
-            
             self._rand_push_vels[:, :2] = push_vel.detach().clone()
-            
             push_vel[((self.common_step_counter + self.env_identities) %
                       int(self.push_interval_s / self.dt) != 0)] = 0
             dofs_vel[:, :2] += push_vel
-            
             self.robot.set_dofs_velocity(dofs_vel)
+        # if self.push_interval_s > 0 and not self.debug:
+        #     max_push_vel_xy = self.cfg.domain_rand.max_push_vel_xy
+        #     max_push_torque = self.cfg.domain_rand.max_push_torque
+            
+        #     # interval gating
+        #     push_mask = (
+        #         (self.common_step_counter + self.env_identities)
+        #         % int(self.push_interval_s / self.dt)
+        #     ) == 0
+            
+        #     # in Genesis, base link also has DOF, it's 6DOF if not fixed.
+        #     dofs_vel = self.robot.get_dofs_velocity()  # (num_envs, num_dof) [0:3] ~ base_link_vel
+        #     lin_vel = gs_rand_float(-max_push_vel_xy,
+        #                              max_push_vel_xy, (self.num_envs, 2), self.device)
+        #     self._rand_push_vels[:, :2] = lin_vel.detach().clone()
+        #     lin_vel[~push_mask] = 0.0
+        #     dofs_vel[:, :2] += lin_vel
+            
+        #     # ang_push = gs_rand_float(
+        #     #     -max_push_torque,
+        #     #     max_push_torque,
+        #     #     (self.num_envs, 2),   # roll, pitch
+        #     #     self.device
+        #     # )
+        #     # self._rand_wrench_vels[:, :2] = ang_push.detach().clone()
+        #     # ang_push[~push_mask] = 0.0
+        #     # dofs_vel[:, 3:5] += ang_push
+            
+        #     self.robot.set_dofs_velocity(dofs_vel)
 
     def _push_towards_cmd(self):
         """ Random pushes the robots. Emulates an impulse by setting a randomized base velocity. 
@@ -1232,8 +1254,8 @@ class LeggedRobotGo1Dynamic(BaseTask):
 
         # print( (self.reward_scales.keys() | self.pos_reward_scales.keys() | self.tau_reward_scales.keys()))
 
-        if self.use_reward_curriculum:
-            self.step_reward_curriculum()
+        # if self.use_reward_curriculum:
+        #     self.step_reward_curriculum()
 
         # reward episode sums, across all reward groups
         self.episode_sums = {name: torch.zeros(self.num_envs, dtype=gs.tc_float, device=self.device, requires_grad=False)
@@ -1420,6 +1442,8 @@ class LeggedRobotGo1Dynamic(BaseTask):
             self.num_envs, 1, dtype=torch.float, device=self.device, requires_grad=False)
         self._rand_push_vels = torch.zeros(
             self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
+        self._rand_wrench_vels = torch.zeros(
+            self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self._base_com_bias = torch.zeros(
             self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self._joint_armature = torch.zeros(
@@ -1518,7 +1542,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
             damping, self.motors_dof_idx, envs_idx=env_ids)
         
     def step_tradeoff_curriculum(self, env_ids):
-        # If the tracking reward is above XX% of the maximum, increase the tradeoff
+        # If the tracking reward is above XX% of the maximum, increase the tradeoff        
         if torch.mean(self.episode_sums["tracking_lin_vel"][env_ids]) / self.max_episode_length > \
                 self.cfg.control.tradeoff_threshold * self.reward_scales["tracking_lin_vel"]:
             
@@ -1537,12 +1561,12 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.feedforward_tau_weight = self.tradeoff_step_ctr*float(1.0/self.tradeoff_num_steps)*self.bound_diff[0] + self.tradeoff_lowerbounds[0]
         self.feedback_tau_weight    = self.tradeoff_step_ctr*float(1.0/self.tradeoff_num_steps)*self.bound_diff[1] + self.tradeoff_lowerbounds[1]
 
-        # if random.random() < 0.5:
-        #     # step_ctr * (1.0/num_steps) -> is the per-env upper bound. Multipled by a random float between [0,1)
-        #     random_step_size = self.tradeoff_step_ctr*float(1.0/self.tradeoff_num_steps) * torch.rand((self.num_envs, 1))
+        if random.random() < 0.25:
+            # step_ctr * (1.0/num_steps) -> is the per-env upper bound. Multipled by a random float between [0,1)
+            random_step_size = self.tradeoff_step_ctr*float(1.0/self.tradeoff_num_steps) * torch.rand((self.num_envs, 1))
 
-        #     self.feedforward_tau_weight = random_step_size*self.bound_diff[0] + self.tradeoff_lowerbounds[0]
-        #     self.feedback_tau_weight    = random_step_size*self.bound_diff[1] + self.tradeoff_lowerbounds[1]
+            self.feedforward_tau_weight = random_step_size*self.bound_diff[0] + self.tradeoff_lowerbounds[0]
+            self.feedback_tau_weight    = random_step_size*self.bound_diff[1] + self.tradeoff_lowerbounds[1]
 
         # print("Max - self.feedforward_tau_weight: ", torch.max(self.feedforward_tau_weight))
         # print("Min - self.feedforward_tau_weight: ", torch.min(self.feedforward_tau_weight))
@@ -1598,7 +1622,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.pos_reward_scales = class_to_dict(self.cfg.rewards.pos_scales)
         self.tau_reward_scales = class_to_dict(self.cfg.rewards.tau_scales)
 
-        self.use_reward_curriculum = self.cfg.rewards.reward_curriculum
+        self.use_reward_curriculum = self.cfg.rewards.use_reward_curriculum
 
         self.reward_curr_keys = self.cfg.rewards.reward_curriculum.curr_reward_keys
         self.reward_curr_bounds = self.cfg.rewards.reward_curriculum.curr_reward_bounds

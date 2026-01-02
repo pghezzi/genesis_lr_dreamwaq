@@ -84,12 +84,12 @@ class PPODynamic:
         self.enc_optimizer = PCGrad(self.enc_optimizer, reduction='sum')
 
         # # We want to reduce the LR of the critic
-        # for param_group in self.act_optimizer.optimizer.param_groups:
-        # # for param_group in self.act_optimizer.param_groups:
-        #     # specifically modifies the learning rate of the position-control specific parameters
-        #     if "name" in param_group.keys():
-        #         if "critic" in param_group["name"]:
-        #             param_group['lr'] = learning_rate * 0.5
+        for param_group in self.act_optimizer.optimizer.param_groups:
+        # for param_group in self.act_optimizer.param_groups:
+            # specifically modifies the learning rate of the position-control specific parameters
+            if "name" in param_group.keys():
+                if "critic" in param_group["name"]:
+                    param_group['lr'] = (learning_rate / 3.0)
 
         self.decoder = decoder_network
         self.decoder_optimizer = optim.Adam(self.decoder.parameters(), lr=learning_rate)
@@ -404,7 +404,7 @@ class PPODynamic:
                 else:
                     tau_value_loss = (tau_returns_batch - tau_value_batch).pow(2).mean()
 
-                tau_loss = tau_surrogate_loss + self.value_loss_coef * tau_value_loss - 0.001 * tau_entropy_batch.mean()
+                tau_loss = tau_surrogate_loss + self.value_loss_coef * tau_value_loss - self.entropy_coef * tau_entropy_batch.mean()
 
                 ###
                 #  PINN Loss
@@ -528,12 +528,15 @@ class PPODynamic:
                     # print(pinn_ratio * pinn_loss.clone().detach())
                     # print("------------------------")
 
-                    ppo_losses = [pos_loss+tau_loss, 
-                                  self.pinn_weight * pinn_loss, 
-                                  self.pinn_weight * task_align_loss, 
+                    ppo_losses = [pos_loss+tau_loss,
+                                  self.pinn_weight * pinn_loss,
+                                  self.pinn_weight * task_align_loss,
                                   self.pinn_weight * task_ratio_loss]
                     
-                    encoder_losses = [autoenc_loss,  self.pinn_weight * pinn_loss]
+                    encoder_losses = [autoenc_loss, 
+                                      self.pinn_weight * pinn_loss,
+                                      self.pinn_weight * task_align_loss,
+                                      self.pinn_weight * task_ratio_loss]
                     # total_ppo_loss = pos_loss + tau_loss + self.pinn_weight * pinn_ratio * pinn_loss
                     # total_enc_loss = autoenc_loss + self.pinn_weight * pinn_ratio * pinn_loss
                 else:

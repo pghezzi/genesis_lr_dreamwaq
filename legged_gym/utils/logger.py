@@ -81,7 +81,7 @@ class Logger:
         if log["dof_pos"]:
             a.plot(time, log["dof_pos"], label='measured')
         if log["dof_pos_target"]:
-            a.plot(time, log["dof_pos_target"], label='target')
+            a.plot(time, log["dof_pos_target"], label='target', alpha=0.7)
         a.set(xlabel='time [s]', ylabel='Position [rad]', title='DOF Position')
         if log["dof_pos"] or log["dof_pos_target"]:
             a.legend()
@@ -161,6 +161,7 @@ class Logger:
         a = axs[2, 2]
         if log["dof_torque"] != []:
             a.plot(time, log["dof_torque"], label='measured')
+            a.plot(time, log["dof_tau_target"], label='target', alpha=0.7)
             a.legend()
         a.set(xlabel='time [s]', ylabel='Joint Torque [Nm]', title='Torque')
 

@@ -260,23 +260,26 @@ class ActorCritic_Dynamic(nn.Module):
         self.act_pos_2_tau_h1 = _ShiftScaleMod(dim=actor_branch_layers[0], activation=activation)
         self.act_tau_2_pos_h1 = _ShiftScaleMod(dim=actor_branch_layers[0], activation=activation)
         #     Applied after h2
-        # self.act_pos_2_tau_h2 = _ShiftScaleMod(dim=actor_branch_layers[1], activation=activation)
-        # self.act_tau_2_pos_h2 = _ShiftScaleMod(dim=actor_branch_layers[1], activation=activation)
+        self.act_pos_2_tau_h2 = _ShiftScaleMod(dim=actor_branch_layers[1], activation=activation)
+        self.act_tau_2_pos_h2 = _ShiftScaleMod(dim=actor_branch_layers[1], activation=activation)
 
-        self.act_pos_layernorm = nn.LayerNorm(actor_branch_layers[1])
-        self.act_tau_layernorm = nn.LayerNorm(actor_branch_layers[1])
+        self.act_pos_layernorm_1 = nn.LayerNorm(actor_branch_layers[0])
+        self.act_tau_layernorm_1 = nn.LayerNorm(actor_branch_layers[0])
+
+        self.act_pos_layernorm_2 = nn.LayerNorm(actor_branch_layers[1])
+        self.act_tau_layernorm_2 = nn.LayerNorm(actor_branch_layers[1])
 
         ###
         #  Construct layers for the critic network
         ###
-        # self.pos_critic_in  = nn.Linear(num_critic_obs, actor_shared_dim)
-        self.pos_critic_h1  = nn.Linear(num_critic_obs, critic_layers[0])
+        self.pos_critic_in  = nn.Linear(num_critic_obs, actor_shared_dim)
+        self.pos_critic_h1  = nn.Linear(actor_shared_dim, critic_layers[0])
         self.pos_critic_h2  = nn.Linear(critic_layers[0], critic_layers[1])
         # self.pos_critic_h3  = nn.Linear(critic_layers[1], critic_layers[2])
         self.pos_critic_out = nn.Linear(critic_layers[1], 1)
 
-        # self.tau_critic_in  = nn.Linear(num_critic_obs, actor_shared_dim)
-        self.tau_critic_h1  = nn.Linear(num_critic_obs, critic_layers[0])
+        self.tau_critic_in  = nn.Linear(num_critic_obs, actor_shared_dim)
+        self.tau_critic_h1  = nn.Linear(actor_shared_dim, critic_layers[0])
         self.tau_critic_h2  = nn.Linear(critic_layers[0], critic_layers[1])
         # self.tau_critic_h3  = nn.Linear(critic_layers[1], critic_layers[2])
         self.tau_critic_out = nn.Linear(critic_layers[1], 1)
@@ -318,23 +321,31 @@ class ActorCritic_Dynamic(nn.Module):
                     nn.init.zeros_(m.bias)
 
         # # Optionally set small initial output weights (to reduce initial action magnitude)
-        nn.init.uniform_(self.act_pos_out.weight, -3e-6, 3e-6)
+        nn.init.uniform_(self.act_pos_out.weight, -3e-3, 3e-3)
         nn.init.uniform_(self.act_tau_out.weight, -3e-6, 3e-6)
         nn.init.zeros_(self.act_pos_out.bias)
         nn.init.zeros_(self.act_tau_out.bias)
 
     def _init_critic_weights(self):
         # Xavier for linears, zeros for biases
-        critic_layers = [self.pos_critic_in, self.pos_critic_h1, self.pos_critic_h2, self.pos_critic_h3, self.tau_critic_h3,
-                         self.pos_critic_out, self.tau_critic_in, self.tau_critic_h1, self.tau_critic_h2, self.tau_critic_out]
+        # critic_layers = [self.pos_critic_in, self.pos_critic_h1, self.pos_critic_h2, self.pos_critic_h3, self.tau_critic_h3,
+        #                  self.pos_critic_out, self.tau_critic_in, self.tau_critic_h1, self.tau_critic_h2, self.tau_critic_out]
+        critic_layers = [self.pos_critic_h1, self.pos_critic_h2, self.pos_critic_out, 
+                         self.tau_critic_h1, self.tau_critic_h2, self.tau_critic_out]
         for critic_layer in critic_layers:
             # nn.init.xavier_uniform_(critic_layer.weight)
             nn.init.orthogonal_(critic_layer.weight)
             if critic_layer.bias is not None:
                 nn.init.zeros_(critic_layer.bias)
 
-        self.std_pos = nn.Parameter(self.init_noise_std * torch.ones(self.num_actions))
-        self.std_tau = nn.Parameter(self.init_noise_std * torch.ones(self.num_actions))
+        self.std_pos = nn.Parameter(1.0 * torch.ones(self.num_actions))
+        self.std_tau = nn.Parameter(1.0 * torch.ones(self.num_actions))
+
+        # # Optionally set small initial output weights (to reduce initial action magnitude)
+        nn.init.uniform_(self.act_pos_out.weight, -3e-6, 3e-6)
+        nn.init.uniform_(self.act_tau_out.weight, -3e-6, 3e-6)
+        nn.init.zeros_(self.act_pos_out.bias)
+        nn.init.zeros_(self.act_tau_out.bias)
         
 
     def get_optim_groups(self, weight_decay: float = 1e-4, strong_decay: float = 1e-1):
@@ -380,8 +391,8 @@ class ActorCritic_Dynamic(nn.Module):
                             shared_decay.add(fpn)
                         elif "context_encoder" in fpn:
                             encoder.add(fpn)
-                        # elif "critic" in fpn:
-                        #     critic_set.add(fpn)
+                        elif "critic" in fpn:
+                            critic_set.add(fpn)
                         else:
                             if "pos" in fpn:
                                 pos_decay.add(fpn)
@@ -410,7 +421,7 @@ class ActorCritic_Dynamic(nn.Module):
         params_act = [{"params": [param_dict[pn] for pn in sorted(pos_decay)],     "weight_decay": weight_decay, "name":"pos_branch"},
                       {"params": [param_dict[pn] for pn in sorted(tau_decay)],     "weight_decay": weight_decay, "name":"tau_branch"},
                       {"params": [param_dict[pn] for pn in sorted(shared_decay)],  "weight_decay": weight_decay, "name":"shared"},
-                    #   {"params": [param_dict[pn] for pn in sorted(critic_set)],    "weight_decay": weight_decay, "name":"critic"},
+                      {"params": [param_dict[pn] for pn in sorted(critic_set)],    "weight_decay": weight_decay, "name":"critic"},
                       {"params": [param_dict[pn] for pn in sorted(no_decay)],      "weight_decay": 0.0},
                       {"params": [param_dict[pn] for pn in sorted(special_decay)], "weight_decay": strong_decay}]
         
@@ -467,21 +478,25 @@ class ActorCritic_Dynamic(nn.Module):
         pos_latent = self.activation(pos_latent)
         tau_latent = self.activation(tau_latent)
 
+        # Perform layer normalization
+        pos_latent = self.act_pos_layernorm_1(pos_latent)
+        tau_latent = self.act_tau_layernorm_1(tau_latent)
+
         # REPEAT
         #     position
         pos_latent = self.act_pos_h2(pos_latent)
         #     torque
         tau_latent = self.act_tau_h2(tau_latent)
         #     now perform the cross-conditioning
-        # pos_latent = self.act_tau_2_pos_h2(pos_latent, tau_latent)  # perform FiLM on pos_latent using tau_latent
-        # tau_latent = self.act_pos_2_tau_h2(tau_latent, pos_latent)  # perform FiLM on tau_latent using pos_latent
+        pos_latent = self.act_tau_2_pos_h2(pos_latent, tau_latent)  # perform FiLM on pos_latent using tau_latent
+        tau_latent = self.act_pos_2_tau_h2(tau_latent, pos_latent)  # perform FiLM on tau_latent using pos_latent
         # perform activation
         pos_latent = self.activation(pos_latent)
         tau_latent = self.activation(tau_latent)
 
         # Perform layer normalization
-        pos_latent = self.act_pos_layernorm(pos_latent)
-        tau_latent = self.act_tau_layernorm(tau_latent)
+        pos_latent = self.act_pos_layernorm_2(pos_latent)
+        tau_latent = self.act_tau_layernorm_2(tau_latent)
 
 
         # Now run the final output layers to get both action modalities
@@ -495,8 +510,8 @@ class ActorCritic_Dynamic(nn.Module):
 
         # CLAMP LOGITS
         #    These SHOULD be generous clamp values...
-        act_pos_act = torch.clamp(act_pos_act, -5.0, 5.0)
-        act_tau_act = torch.clamp(act_tau_act, -5.0, 5.0)
+        # act_pos_act = torch.clamp(act_pos_act, -5.0, 5.0)
+        # act_tau_act = torch.clamp(act_tau_act, -5.0, 5.0)
 
         if torch.isnan(act_pos_act).any():
             with torch.no_grad():
@@ -663,9 +678,9 @@ class ActorCritic_Dynamic(nn.Module):
     # Forward method for calculating the value of the current state
     #     using the privilged critic observation
     def evaluate_pos(self, critic_observations, **kwargs):
-        # val = self.pos_critic_in(critic_observations)
-        # val = self.activation(val)
-        val = self.pos_critic_h1(critic_observations)
+        val = self.pos_critic_in(critic_observations)
+        val = self.activation(val)
+        val = self.pos_critic_h1(val)
         val = self.activation(val)
         val = self.pos_critic_h2(val)
         val = self.activation(val)
@@ -677,9 +692,9 @@ class ActorCritic_Dynamic(nn.Module):
     # Forward method for calculating the value of the current state
     #     using the privilged critic observation
     def evaluate_tau(self, critic_observations, **kwargs):
-        # val = self.tau_critic_in(critic_observations)
-        # val = self.activation(val)
-        val = self.tau_critic_h1(critic_observations)
+        val = self.tau_critic_in(critic_observations)
+        val = self.activation(val)
+        val = self.tau_critic_h1(val)
         val = self.activation(val)
         val = self.tau_critic_h2(val)
         val = self.activation(val)
