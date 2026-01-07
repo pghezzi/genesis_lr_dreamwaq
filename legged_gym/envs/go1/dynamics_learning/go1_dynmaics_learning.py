@@ -125,7 +125,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         wb_correct_pino_2_model_ordering.extend(self.pino_2_model_joint_act_map)
         
         # For safeties shake, use only 90% of available CPU's
-        num_cpus = int(mp.cpu_count() * 0.9)
+        num_cpus = int(mp.cpu_count() * 0.95)
 
         # Build the class that manages (1) shared input/output memeory and (2) invoking worker processes 
         self.async_pino_manager = PinocchioAsync(
@@ -451,6 +451,8 @@ class LeggedRobotGo1Dynamic(BaseTask):
             self.episode_sums[name] += rew
 
         if self.cfg.rewards.only_positive_rewards:
+            self.tau_rew_buf[:] = torch.clip(self.tau_rew_buf[:], min=0.)
+            self.pos_rew_buf[:] = torch.clip(self.pos_rew_buf[:], min=0.)
             self.rew_buf[:] = torch.clip(self.rew_buf[:], min=0.)
         
         # add termination reward after clipping
@@ -679,7 +681,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # actions_scaled = pos_actions * self.cfg.control.action_scale
         actions_scaled = pos_actions * repeat_pos_scales + self.default_dof_pos
 
-        actions_scaled = torch.clamp(actions_scaled, self.dof_pos_limits_hard[0,0], self.dof_pos_limits_hard[0,1])
+        actions_scaled = torch.clamp(actions_scaled, 1.5*self.dof_pos_limits_hard[0,0], 1.5*self.dof_pos_limits_hard[0,1])
 
         # Calculate the feedback-control torques
         #     include PD scaling values 
@@ -2037,10 +2039,18 @@ class LeggedRobotGo1Dynamic(BaseTask):
     def _reward_foot_swing(self):
         fz = self.link_contact_forces[:, self.feet_indices, 2]
         foot_vel_xy = torch.norm(self.feet_vel[:, :, :2], dim=-1)
-
         swing_mask = (fz < 10.0).float()
         
-        return torch.sum(swing_mask*foot_vel_xy, dim=1) 
+        # Gate by actual torso translation
+        base_vel_xy = torch.norm(self.base_lin_vel[:, :2], dim=1)
+
+        # Soft gating (keeps gradients clean)
+        vel_gate = torch.clamp(
+            base_vel_xy / 0.15,   # ~15 cm/s threshold
+            max=1.0
+        )
+
+        return torch.sum(swing_mask*foot_vel_xy, dim=1) * vel_gate
 
     def _reward_sparse_contacts(self):
         fz = self.link_contact_forces[:, self.feet_indices, 2]

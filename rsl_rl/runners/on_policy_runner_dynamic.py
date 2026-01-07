@@ -122,11 +122,11 @@ class OnPolicyRunnerDynamic:
         print(pretrained_path)
         loaded_dict = torch.load(pretrained_path)
         # Load the pretrained action-network and encoder
-        self.alg.actor_critic.load_state_dict(loaded_dict['action'])
+        self.alg.actor_critic.load_state_dict(loaded_dict['model_state_dict'])
         # re-initalize the critic network weights which where not pretrained (to be safe)
-        self.alg.actor_critic._init_critic_weights()
+        # self.alg.actor_critic._init_critic_weights()
         # Load the pretrained decoder network
-        self.alg.decoder.load_state_dict(loaded_dict['decoder'])
+        self.alg.decoder.load_state_dict(loaded_dict['decoder_state_dict'])
     
     def learn(self, num_learning_iterations, init_at_random_ep_len=False):
         # initialize writer
@@ -138,8 +138,8 @@ class OnPolicyRunnerDynamic:
         
         obs,obs_hist,torso_velo = self.env.get_observations()
         # self.env.step_tradeoff_curriculum()
-        if self.env.use_reward_curriculum:
-            self.env.step_reward_curriculum()
+        # if self.env.use_reward_curriculum:
+        #     self.env.step_reward_curriculum()
         
         privileged_obs = self.env.get_privileged_observations()
         critic_obs = privileged_obs if privileged_obs is not None else obs
@@ -221,8 +221,8 @@ class OnPolicyRunnerDynamic:
             print("Min - self.feedback_tau_weight: ", torch.min(self.env.feedback_tau_weight).item())
             print("Avg - self.feedback_tau_weight: ", torch.mean(self.env.feedback_tau_weight).item())
             
-            if self.env.use_reward_curriculum:
-                self.env.step_reward_curriculum()
+            # if self.env.use_reward_curriculum:
+            #     self.env.step_reward_curriculum()
             self.env.num_iters += 1
 
             # # enable additional domain randomizations
@@ -343,9 +343,9 @@ class OnPolicyRunnerDynamic:
         torch.save({
             'model_state_dict': self.alg.actor_critic.state_dict(),
             'act_optimizer_state_dict': self.alg.act_optimizer.optimizer.state_dict(),
-            'enc_optimizer_state_dict': self.alg.enc_optimizer.optimizer.state_dict(),
+            # 'enc_optimizer_state_dict': self.alg.enc_optimizer.optimizer.state_dict(),
             # 'act_optimizer_state_dict': self.alg.act_optimizer.state_dict(),
-            # 'enc_optimizer_state_dict': self.alg.enc_optimizer.state_dict(),
+            'enc_optimizer_state_dict': self.alg.enc_optimizer.state_dict(),
             'decoder_state_dict': self.alg.decoder.state_dict(),
             'decoder_opt_state_dict': self.alg.decoder_optimizer.state_dict(),
             'iter': self.current_learning_iteration,
@@ -359,9 +359,9 @@ class OnPolicyRunnerDynamic:
         # Load optimizer(s)
         if load_optimizer:
             self.alg.act_optimizer.optimizer.load_state_dict(loaded_dict['act_optimizer_state_dict'])
-            self.alg.enc_optimizer.optimizer.load_state_dict(loaded_dict['enc_optimizer_state_dict'])
+            # self.alg.enc_optimizer.optimizer.load_state_dict(loaded_dict['enc_optimizer_state_dict'])
             # self.alg.act_optimizer.load_state_dict(loaded_dict['act_optimizer_state_dict'])
-            # self.alg.enc_optimizer.load_state_dict(loaded_dict['enc_optimizer_state_dict'])
+            self.alg.enc_optimizer.load_state_dict(loaded_dict['enc_optimizer_state_dict'])
             self.alg.decoder_optimizer.load_state_dict(loaded_dict['decoder_opt_state_dict'])
         # Load the VAE decoder model...
         self.alg.decoder.load_state_dict(loaded_dict['decoder_state_dict'])

@@ -120,9 +120,9 @@ class GO1DynamicCfg( LeggedRobotCfg ):
 
     class domain_rand(LeggedRobotCfg.domain_rand):
         randomize_friction = True
-        friction_range = [0.5, 1.25]
+        friction_range = [0.2, 1.7]
         randomize_base_mass = True
-        added_mass_range = [-1.0, 2.0]
+        added_mass_range = [-1.0, 1.0]
         push_robots = True
         push_interval_s = 15
         max_push_vel_xy = 1.0
@@ -162,18 +162,18 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         lookat = [0., 0, 1.]  # [m]
         rendered_envs_idx = [i for i in range(0, 3, 1)]  # number of environments to be rendered
         rendered_envs_idx.extend([i for i in range(200, 203, 1)])  # number of environments to be rendered
-        rendered_envs_idx.extend([i for i in range(500, 503, 1)])  # number of environments to be rendered
-        rendered_envs_idx.extend([i for i in range(750, 753, 1)])  # number of environments to be rendered
+        # rendered_envs_idx.extend([i for i in range(500, 503, 1)])  # number of environments to be rendered
+        # rendered_envs_idx.extend([i for i in range(750, 753, 1)])  # number of environments to be rendered
         rendered_envs_idx.extend([i for i in range(900, 903, 1)])  # number of environments to be rendered
 
         rendered_envs_idx.extend([i for i in range(1500, 1503, 1)])
-        rendered_envs_idx.extend([i for i in range(1900, 1903, 1)])
-        rendered_envs_idx.extend([i for i in range(3500, 3503, 1)])
+        # rendered_envs_idx.extend([i for i in range(1900, 1903, 1)])
+        # rendered_envs_idx.extend([i for i in range(3500, 3503, 1)])
         rendered_envs_idx.extend([i for i in range(4000, 4003, 1)])
 
         rendered_envs_idx.extend([i for i in range(1700, 1703, 1)])
-        rendered_envs_idx.extend([i for i in range(2200, 2203, 1)])
-        rendered_envs_idx.extend([i for i in range(3700, 3703, 1)])
+        # rendered_envs_idx.extend([i for i in range(2200, 2203, 1)])
+        # rendered_envs_idx.extend([i for i in range(3700, 3703, 1)])
         rendered_envs_idx.extend([i for i in range(3900, 3903, 1)])
         # rendered_envs_idx = [0, 1000, 3500]
         add_camera = False
@@ -208,7 +208,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         # Much smaller values than typical... only used for feedback control
         #     default values are taken from - https://arxiv.org/pdf/1909.06586
         stiffness = {'joint': 3.0}   # [N*m/rad]
-        damping   = {'joint': 0.5}     # [N*m*s/rad]
+        damping   = {'joint': 0.05}     # [N*m*s/rad]
         
         # stiffness = {'joint': 20.0}   # [N*m/rad]
         # damping   = {'joint': 0.5}     # [N*m*s/rad]
@@ -220,14 +220,14 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         torque_scale = [10.0, 10.0, 10.0] # action scale:  target torque = torque_scale * tau_action + defaultTorque
         
         
-        dt =  0.02  # control frequency 50Hz
-        decimation = 4 # decimation: Number of control action updates @ sim DT per policy DT
+        dt =  0.01  # control frequency 50Hz
+        decimation = 5 # decimation: Number of control action updates @ sim DT per policy DT
 
         # Assumed order - tau_ff, tau_fb
-        tradeoff_init_weights  = [0.30, 8.0]
+        tradeoff_init_weights  = [0.10, 10.0]
         tradeoff_final_weights = [1.00, 1.0]
         tradeoff_steps = 10
-        tradeoff_threshold = 0.50
+        tradeoff_threshold = 0.85
         use_tradeoff_curriculum = True
 
 
@@ -236,11 +236,11 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         termination_terms = ["roll", "pitch", "height_min", "height_max"]
         roll_threshold    = 1.2  # [rad] ~ 40 degrees
         pitch_threshold   = 0.7  # [rad] ~ 20 degrees
-        height_min = 0.25       # [m]
+        height_min = 0.20       # [m]
         height_max = 1.50        # [m]
 
     class rewards( LeggedRobotCfg.rewards ):
-        soft_dof_pos_limit = 0.80
+        soft_dof_pos_limit = 0.90
         soft_torque_limit = 0.90
         base_height_target = 0.30
         tracking_sigma = 0.25 # tracking reward = exp(-error^2/sigma)
@@ -249,9 +249,9 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         foot_height_offset = 0.022   # height of the foot coordinate origin above ground [m]
         
         foot_clearance_tracking_sigma = 0.01
-        only_positive_rewards = False
+        only_positive_rewards = True
 
-        use_reward_curriculum = True
+        use_reward_curriculum = False
 
         max_contact_force = 200.0
         class scales( LeggedRobotCfg.rewards.scales ):
@@ -259,39 +259,39 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             termination      = -100.0
             collision        = -1.0
             dof_pos_limits        = -10.0
-            dof_close_to_default  = -0.1
-            torque_limits         = -10.0
-            no_motion_penalty     = -2.0
-            alive_bonus           = 0.1
+            dof_close_to_default  = -0.05
+            torque_limits         = 0.0
+            
+            no_motion_penalty     = 0.0
+            alive_bonus           = 0.0
 
             # stand_still_contact = -0.1
             # stand_still         = -0.1
 
-            # dof_act_alignment     = -0.001
-            # task_alignment        = -0.001
-
             # command tracking
             tracking_lin_vel  = 1.0
             tracking_ang_vel  = 0.5
-            dof_tracking      = 0.05
-            # robust_torque_pd_ratio = 0.05
-            aligned_torques   = 0.1
+            dof_tracking      = 0.00
+            aligned_torques   = 0.05
             sparse_contacts   = 0.05
-            foot_swing  = 0.075
+            foot_swing  = 0.00
             
             # smoothness and stability
-            lin_vel_z        = -1.0
-            base_height      = -0.5
+            lin_vel_z        = -2.0
+            base_height      = -1.0
             ang_vel_xy       = -0.05
-            orientation      = -0.5
+            orientation      = -1.0
             dof_acc          = -2.5e-7
             joint_power      = -2.e-5
             joint_power_dist = -1.e-5
-            torques          = 0.0 # don't need to use this when we already have joint power above...
+            torques          = 0.0     # don't need to use this when we already have joint power above...
 
             # Zero out some values that are used in the individual reward classes below
-            action_rate       = 0.0
-            action_smoothness = 0.0
+            action_rate       = -0.01
+            action_smoothness = -0.01
+
+            feedforward_torques   = -2.0e-4
+            dof_act_limits        = -0.01
 
             # promot stable WB locomotion
             # wb_dynamics = 0.1
@@ -300,24 +300,24 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             # floating_base_stability  = 0.01
 
             # gait
-            feet_air_time    = 1.0              # tracking reward for long steps
-            max_contact_time = 0.5              # penalty for feet being in contact for too long
-            foot_clearance   = 0.1              # tracking reward for feet reaching the desired clearance
-            foot_slip      = -0.01            # penalty for feet slipping
+            feet_air_time    = 1.0            # tracking reward for long steps
+            max_contact_time = 0.5            # penalty for feet being in contact for too long
+            foot_clearance   = 0.05           # tracking reward for feet reaching the desired clearance
+            foot_slip        = 0.00           # penalty for feet slipping
             feet_contact_forces = -1.0e-1     # penalty for high contact forces on the feet
-            raibert  = 0.01                   # tracking reward foot placement in x/y-plane
+            raibert  = 0.0                    # tracking reward foot placement in x/y-plane
 
         class pos_scales():
-            dof_act_limits        = -0.1
-            pos_action_rate       = -0.01   # new
-            pos_action_smoothness = -0.01   # new
-            feedback_torques      = -2.e-4  # new
+            dof_act_limits        = 0.0
+            pos_action_rate       = 0.0   # new
+            pos_action_smoothness = 0.0   # new
+            feedback_torques      = 0.0  # new
 
         class tau_scales():
             task_alignment        = 0.0
-            tau_action_rate       = -0.01   # new
-            tau_action_smoothness = -0.01   # new
-            feedforward_torques   = -2.e-4  # new
+            tau_action_rate       = 0.0   # new
+            tau_action_smoothness = 0.0   # new
+            feedforward_torques   = 0.0  # new
 
         class reward_curriculum():
             # curr_reward_keys = ["tau_action_rate", "tau_action_smoothness", "feedforward_torques",
@@ -327,36 +327,37 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             #                     "feet_contact_forces"]
             #                     # "wb_dynamics"]
 
-            curr_reward_keys = ["tau_action_rate", "tau_action_smoothness",
-                                "pos_action_rate", "pos_action_smoothness",
-                                "dof_close_to_default", "dof_acc", "joint_power", "joint_power_dist",
-                                "raibert", "feet_contact_forces", "feedback_torques", "feedforward_torques"]
+            # curr_reward_keys = ["tau_action_rate", "tau_action_smoothness",
+            #                     "pos_action_rate", "pos_action_smoothness",
+            #                     "dof_close_to_default", "dof_acc", "joint_power", "joint_power_dist",
+            #                     "raibert", "feet_contact_forces", "feedback_torques", "feedforward_torques"]
 
             # curr_reward_keys = ["tau_action_rate", "tau_action_smoothness", "feedforward_torques",
             #                     "pos_action_rate", "pos_action_smoothness", "feedback_torques",
             #                     "dof_close_to_default", "dof_acc", "joint_power", "joint_power_dist"]
             #                     # "wb_dynamics"]
+
+            curr_reward_keys = ["tau_action_rate", "tau_action_smoothness",
+                                "pos_action_rate", "pos_action_smoothness",
+                                "dof_acc", "joint_power", "joint_power_dist",
+                                "feet_contact_forces", 
+                                "feedback_torques", "feedforward_torques"]
             
-            curr_reward_bounds = {"tau_action_rate":[-1.0e-7, -1.0e-2],
-                                  "tau_action_smoothness":[-1.0e-7, -1.0e-2],
+            curr_reward_bounds = {"tau_action_rate":[-1.0e-10, -1.0e-2],
+                                  "tau_action_smoothness":[-1.0e-10, -1.0e-2],
                                   
-                                  "pos_action_rate":[-1.0e-7, -1.0e-2],
-                                  "pos_action_smoothness":[-1.0e-7, -1.0e-2],
+                                  "pos_action_rate":[-1.0e-10, -1.0e-2],
+                                  "pos_action_smoothness":[-1.0e-10, -1.0e-2],
                                   
-                                  "dof_close_to_default":[-0.001, -0.1],
-                                  "dof_acc":[-2.5e-11, -2.5e-7],
+                                  "dof_acc":[-1.0e-12, -2.5e-7],
                                   
-                                  "joint_power":[-2.0e-8, -2.0e-5],
-                                  "joint_power_dist":[-1.0e-8, -1.0e-5],
+                                  "joint_power":[-2.0e-10, -2.0e-5],
+                                  "joint_power_dist":[-1.0e-10, -1.0e-5],
                                   
                                   "feedback_torques":[-2.0e-8, -2.0e-4],
                                   "feedforward_torques":[-2.0e-8, -2.0e-4],
 
-                                #   "stable_grf_dynamics":[1e-4, 1.0e-2],
-                                #   "floating_base_stability":[1e-4, 1.0e-2],
-
-                                  "raibert":[0.01, 0.0001],
-                                  "feet_contact_forces":[-1.0e-5,-1e-1]
+                                  "feet_contact_forces":[-1.0e-10,-1e-1]
                                  }
 
             curr_steps = 8000
@@ -523,10 +524,10 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         dropout = 0.1
 
         pinn_loss_weight = 1.0e-3
-        pinn_warmup = 50
+        pinn_warmup = 100
         pinn_init_steps = 0
 
-        # pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/rsl_rl/modules/pretrained_models/dynamic/12_21_202521_14_56_no_pinn/no_pinn_epoch_499.pth"
+        # pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/logs/go1_dynamic/Dec25_22-49-15_config_test_26_gentletrade_dynrew_parpino_success/model_5000.pt"
 
     class algorithm( LeggedRobotCfgPPO.algorithm ):
         entropy_coef = 0.01
@@ -551,13 +552,13 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         grf_dim = 12
         
         # debug_warmpinn_wb
-        run_name = 'config_test_33'  # 1500 tradeoff, 1000-step reward_curr, higher Kp, act-dof aligment reward, no-tanh on position control...
+        run_name = 'config_test_45'  # 1500 tradeoff, 1000-step reward_curr, higher Kp, act-dof aligment reward, no-tanh on position control...
         experiment_name = 'go1_dynamic'
         save_interval = 100
         
         
-        load_run = "Dec25_22-49-15_config_test_26_gentletrade_dynrew_parpino"
-        checkpoint = 5000
+        load_run = "Jan06_12-51-07_config_test_39_bootstrap_success"
+        checkpoint = 400
 
         # Load parameters for first function policy
         # run_name = 'test_01'

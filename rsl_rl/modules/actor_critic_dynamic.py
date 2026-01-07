@@ -295,8 +295,8 @@ class ActorCritic_Dynamic(nn.Module):
         self.mean_tau = None
 
 
-        self.std_pos = nn.Parameter(1.00 * torch.ones(num_actions))
-        self.std_tau = nn.Parameter(1.00 * torch.ones(num_actions))
+        self.std_pos = nn.Parameter(init_noise_std * torch.ones(num_actions))
+        self.std_tau = nn.Parameter(init_noise_std * torch.ones(num_actions))
 
         # self.std = nn.Parameter(init_noise_std * torch.ones(num_actions))
 
@@ -309,7 +309,7 @@ class ActorCritic_Dynamic(nn.Module):
         Normal.set_default_validate_args = False
 
         # initalize the weights
-        self._init_weights()
+        # self._init_weights()
 
     def _init_weights(self):
         # Xavier for linears, zeros for biases
@@ -321,7 +321,7 @@ class ActorCritic_Dynamic(nn.Module):
                     nn.init.zeros_(m.bias)
 
         # # Optionally set small initial output weights (to reduce initial action magnitude)
-        nn.init.uniform_(self.act_pos_out.weight, -3e-3, 3e-3)
+        nn.init.uniform_(self.act_pos_out.weight, -3e-2, 3e-2)
         nn.init.uniform_(self.act_tau_out.weight, -3e-6, 3e-6)
         nn.init.zeros_(self.act_pos_out.bias)
         nn.init.zeros_(self.act_tau_out.bias)
@@ -338,8 +338,8 @@ class ActorCritic_Dynamic(nn.Module):
             if critic_layer.bias is not None:
                 nn.init.zeros_(critic_layer.bias)
 
-        self.std_pos = nn.Parameter(1.0 * torch.ones(self.num_actions))
-        self.std_tau = nn.Parameter(1.0 * torch.ones(self.num_actions))
+        self.std_pos = nn.Parameter(0.5 * torch.ones(self.num_actions))
+        self.std_tau = nn.Parameter(0.5 * torch.ones(self.num_actions))
 
         # # Optionally set small initial output weights (to reduce initial action magnitude)
         nn.init.uniform_(self.act_pos_out.weight, -3e-6, 3e-6)
@@ -571,7 +571,7 @@ class ActorCritic_Dynamic(nn.Module):
         # std_tau = torch.clamp(self.std_tau, 0.05, 1.1)
 
         self.std_pos.data.clamp_(0.05, 5.0)
-        self.std_tau.data.clamp_(0.05, 1.0)
+        self.std_tau.data.clamp_(0.05, 3.0)
 
         # self.std.data.clamp_(0.2, 1.1)
 

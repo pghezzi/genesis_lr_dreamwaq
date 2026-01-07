@@ -81,7 +81,7 @@ class PPODynamic:
         self.act_optimizer, self.enc_optimizer = actor_critic.configure_optimizers(learning_rate)
         self.transition = RolloutStorageDynamics.Transition()
         self.act_optimizer = PCGrad(self.act_optimizer, reduction='sum')
-        self.enc_optimizer = PCGrad(self.enc_optimizer, reduction='sum')
+        # self.enc_optimizer = PCGrad(self.enc_optimizer, reduction='sum')
 
         # # We want to reduce the LR of the critic
         for param_group in self.act_optimizer.optimizer.param_groups:
@@ -243,7 +243,7 @@ class PPODynamic:
         # print("self.pinn_init: ", self.pinn_init)
         # print("self.pinn_warmup_steps: ", self.pinn_warmup_steps)
 
-        if itr > self.pinn_init and self.num_pinn_updates < self.pinn_warmup_steps:
+        if itr > self.pinn_init and self.num_pinn_updates < (self.pinn_warmup_steps+1):
             self.pinn_weight = (float(self.num_pinn_updates)/float(self.pinn_warmup_steps))*self.pinn_weight_final 
 
         # prob_pinn = self.storage.get_iter_reward_cv(itr)
@@ -270,7 +270,6 @@ class PPODynamic:
             bias_vec_batch, torso_accs_batch,  pprev_obs_batch, pprev_obs_hist_batch  in generator:
 
                 self.actor_critic.train()
-                self.enc_optimizer.zero_grad()
                 self.act_optimizer.zero_grad()
 
                 if self.use_boot:
@@ -280,13 +279,13 @@ class PPODynamic:
 
                 current_actions = torch.cat([self.actor_critic.mean_pos, self.actor_critic.mean_tau], dim=-1)
                 
-                # Encoder stuff
-                # pull out some values from the actor that I want to use in the decoder...
-                #    avoids a second separate run through the encoder + aligns RL update with enc update...
-                mean_latent = self.actor_critic.cenet_mean
-                logvar_latent = self.actor_critic.cenet_logvar
-                cenet_latent = self.actor_critic.cenet_z
-                cenet_torso_velo = self.actor_critic.cenet_torso_velo
+                # # Encoder stuff
+                # # pull out some values from the actor that I want to use in the decoder...
+                # #    avoids a second separate run through the encoder + aligns RL update with enc update...
+                # mean_latent = self.actor_critic.cenet_mean
+                # logvar_latent = self.actor_critic.cenet_logvar
+                # cenet_latent = self.actor_critic.cenet_z
+                # cenet_torso_velo = self.actor_critic.cenet_torso_velo
 
                 # PPO stuff
                 #    - Position Control
@@ -301,26 +300,6 @@ class PPODynamic:
                 tau_mu_batch               = self.actor_critic.tau_action_mean
                 tau_sigma_batch            = self.actor_critic.tau_action_std
                 tau_entropy_batch          = self.actor_critic.tau_entropy
-
-                # First do the VAE loss function that is shared between both control modailities
-                #     Get the prediction from the decoder
-                self.decoder.eval()
-                dec_input = torch.cat((cenet_latent, cenet_torso_velo), dim=-1)
-                enc_update_obs_decode = self.decoder(dec_input)
-                
-                grf_target.requires_grad = False
-                obs_target.requires_grad = False
-                
-                # decode_target = torch.cat((obs_target, grf_target), dim=-1)
-                decode_target = obs_target
-                vel_target.requires_grad = False
-                
-                with torch.no_grad():
-                    all_enc_obs_targets.extend(decode_target.detach().cpu().numpy())
-                    all_enc_recons.extend(enc_update_obs_decode.clone().detach().cpu().numpy())
-
-                # autoenc_loss = (nn.MSELoss()(cenet_torso_velo,vel_target) + nn.MSELoss()(enc_update_obs_decode,decode_target) + beta*(-0.5 * torch.sum(1 + logvar_latent - mean_latent.pow(2) - logvar_latent.exp())))/self.num_mini_batches
-                autoenc_loss = F.mse_loss(cenet_torso_velo,vel_target) + F.mse_loss(enc_update_obs_decode,decode_target) + beta*(-0.5 * torch.sum(1 + logvar_latent - mean_latent.pow(2) - logvar_latent.exp()))
 
                 # Now calculate the PPO/SPO losses for each RL task
                 #   - Position Control
@@ -498,20 +477,20 @@ class PPODynamic:
                                                               prev_effort_gate*task_alignment_prev + \
                                                               pprev_effort_gate*task_alignment_pprev))
                     
-                    # Finally, create a loss based on achiving a desired ratio of mechanical power.
-                    tagret_ratio = 1.8
-                    ratio_curr  =  ff_power_val_curr  / (pd_power_val_curr + 1e-6)
-                    ratio_prev  =  ff_power_val_prev  / (pd_power_val_prev + 1e-6)
-                    ratio_pprev =  ff_power_val_pprev / (pd_power_val_pprev + 1e-6)
+                    # # Finally, create a loss based on achiving a desired ratio of mechanical power.
+                    # tagret_ratio = 1.8
+                    # ratio_curr  =  ff_power_val_curr  / (pd_power_val_curr + 1e-6)
+                    # ratio_prev  =  ff_power_val_prev  / (pd_power_val_prev + 1e-6)
+                    # ratio_pprev =  ff_power_val_pprev / (pd_power_val_pprev + 1e-6)
 
-                    curr_error  =  torch.log((ratio_curr + 1e-6)  / (tagret_ratio + 1e-6))
-                    prev_error  =  torch.log((ratio_prev + 1e-6)  / (tagret_ratio + 1e-6))
-                    pprev_error =  torch.log((ratio_pprev + 1e-6) / (tagret_ratio + 1e-6))
+                    # curr_error  =  torch.log((ratio_curr + 1e-6)  / (tagret_ratio + 1e-6))
+                    # prev_error  =  torch.log((ratio_prev + 1e-6)  / (tagret_ratio + 1e-6))
+                    # pprev_error =  torch.log((ratio_pprev + 1e-6) / (tagret_ratio + 1e-6))
 
-                    total_ratio_error = torch.square(curr_effort_gate*curr_error + prev_effort_gate*prev_error + pprev_effort_gate*pprev_error)
-                    normalized_ratio_error = total_ratio_error / (1+total_ratio_error)
+                    # total_ratio_error = torch.square(curr_effort_gate*curr_error + prev_effort_gate*prev_error + pprev_effort_gate*pprev_error)
+                    # normalized_ratio_error = total_ratio_error / (1+total_ratio_error)
 
-                    task_ratio_loss = torch.mean(normalized_ratio_error)
+                    # task_ratio_loss = torch.mean(normalized_ratio_error)
 
                 
                 ###
@@ -530,18 +509,18 @@ class PPODynamic:
 
                     ppo_losses = [pos_loss+tau_loss,
                                   self.pinn_weight * pinn_loss,
-                                  self.pinn_weight * task_align_loss,
-                                  self.pinn_weight * task_ratio_loss]
+                                  self.pinn_weight * task_align_loss]
+                                #   self.pinn_weight * task_ratio_loss]
                     
-                    encoder_losses = [autoenc_loss, 
-                                      self.pinn_weight * pinn_loss,
-                                      self.pinn_weight * task_align_loss,
-                                      self.pinn_weight * task_ratio_loss]
+                    # encoder_losses = [autoenc_loss, 
+                    #                   self.pinn_weight * pinn_loss,
+                    #                   self.pinn_weight * task_align_loss]
+                                    #   self.pinn_weight * task_ratio_loss]
                     # total_ppo_loss = pos_loss + tau_loss + self.pinn_weight * pinn_ratio * pinn_loss
                     # total_enc_loss = autoenc_loss + self.pinn_weight * pinn_ratio * pinn_loss
                 else:
                     ppo_losses = [pos_loss+tau_loss]
-                    encoder_losses = [autoenc_loss]
+                    # encoder_losses = [autoenc_loss]
                     # total_ppo_loss = pos_loss + tau_loss
                     # total_enc_loss = autoenc_loss
 
@@ -577,20 +556,40 @@ class PPODynamic:
                 # total_ppo_loss.backward(retain_graph=True)
                 nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
                 # self.act_zclip.step(self.actor_critic)
+                self.act_optimizer.step()
 
-                if use_pinn and self.pinn_weight > 0:
-                    self.enc_optimizer.pc_backward_pinn(encoder_losses)
-                else:
-                    self.enc_optimizer.pc_backward(encoder_losses)
+
+                ###
+                #   Perform encoder update step...
+                ###
+                self.enc_optimizer.zero_grad()
+                mean_latent, logvar_latent, cenet_latent, cenet_torso_velo = self.actor_critic.cenet_enc_forward(obs_hist_batch)
+                self.decoder.eval()
+                dec_input = torch.cat((cenet_latent, cenet_torso_velo), dim=-1)
+                enc_update_obs_decode = self.decoder(dec_input)
+                
+                grf_target.requires_grad = False
+                obs_target.requires_grad = False
+                
+                # decode_target = torch.cat((obs_target, grf_target), dim=-1)
+                decode_target = obs_target
+                vel_target.requires_grad = False
+                
+                with torch.no_grad():
+                    all_enc_obs_targets.extend(decode_target.detach().cpu().numpy())
+                    all_enc_recons.extend(enc_update_obs_decode.clone().detach().cpu().numpy())
+
+                # autoenc_loss = (nn.MSELoss()(cenet_torso_velo,vel_target) + nn.MSELoss()(enc_update_obs_decode,decode_target) + beta*(-0.5 * torch.sum(1 + logvar_latent - mean_latent.pow(2) - logvar_latent.exp())))/self.num_mini_batches
+                autoenc_loss = F.mse_loss(cenet_torso_velo,vel_target) + F.mse_loss(enc_update_obs_decode,decode_target) + beta*(-0.5 * torch.sum(1 + logvar_latent - mean_latent.pow(2) - logvar_latent.exp()))
+
+                autoenc_loss.backward()
+                # if use_pinn and self.pinn_weight > 0:
+                #     self.enc_optimizer.pc_backward_pinn(encoder_losses)
+                # else:
+                #     self.enc_optimizer.pc_backward(encoder_losses)
                 # total_enc_loss.backward()
                 nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
                 # self.enc_zclip.step(self.actor_critic)
-
-                # Step both optimizers AFTER calling the backwards pass for both
-                #    This is to account for the fact that the enc-losses may include PPO updates
-                #    so if we steped Act before Enc, then it will cause an error
-                #    NOTE - PCGrad includes 'retain_graph=True' in it's backward calls. So the comp.-graph is still valid.
-                self.act_optimizer.step()
                 self.enc_optimizer.step()
 
                 # Perfrom a separate update on the decoder....
@@ -615,14 +614,12 @@ class PPODynamic:
                 mean_autoenc_loss += autoenc_loss.item()
                 mean_decoder_loss += dec_loss.item()
                 if self.pinn_weight > 0.0:
-                    mean_pinn_loss += pinn_loss.item() + task_align_loss.item() + task_ratio_loss.item()
+                    mean_pinn_loss += pinn_loss.item() + task_align_loss.item() # + task_ratio_loss.item()
                 else:
-                    mean_pinn_loss += pinn_loss + task_align_loss + task_ratio_loss
+                    mean_pinn_loss += pinn_loss + task_align_loss # + task_ratio_loss
                     
-                if use_pinn:
-                    self.num_pinn_updates += 1
-
-                # mean_pinn_loss += pinn_loss
+        if use_pinn and itr > self.pinn_init:
+            self.num_pinn_updates += 1
 
         num_updates = self.num_learning_epochs * self.num_mini_batches
         mean_pos_value_loss /= num_updates
