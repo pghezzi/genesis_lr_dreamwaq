@@ -400,7 +400,8 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         pinn_warmup = 100
         pinn_init_steps = 0
 
-        pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/logs/go1_dynamic/Dec25_22-49-15_config_test_26_gentletrade_dynrew_parpino_success/model_5000.pt"
+        pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/rsl_rl/" \
+                            "modules/pretrained_models/dynamic/12_27_202508_21_32_no_pinn/no_pinn_epoch_499.pth"
 
     class algorithm( LeggedRobotCfgPPO.algorithm ):
         entropy_coef = 0.01
