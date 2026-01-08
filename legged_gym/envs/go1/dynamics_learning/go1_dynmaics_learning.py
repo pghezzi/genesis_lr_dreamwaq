@@ -120,7 +120,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         return self.obs_buf, self.privileged_obs_buf, self.obs_history, (self.rew_buf+self.pos_rew_buf), (self.rew_buf + self.tau_rew_buf), self.reset_buf, self.extras, (self.grfs_buf * self.obs_scales.grf)
 
     
-    def create_async_pino_workers(self, exp_id='01'):
+    def create_async_pino_workers(self):
         wb_correct_pino_2_model_ordering = [0,1,2,3,4,5]
         wb_correct_pino_2_model_ordering.extend(self.pino_2_model_joint_act_map)
         
@@ -135,9 +135,8 @@ class LeggedRobotGo1Dynamic(BaseTask):
             wb_correct_pino_2_model_ordering,
             self.wb_dim,
             (12,1),
-            num_cpus,
-            exp_id
-        )
+            num_cpus
+            )
 
     def shutdown_asynic_pino_workers(self):
         # clear shared memory and persistent CPU workers
@@ -1561,8 +1560,8 @@ class LeggedRobotGo1Dynamic(BaseTask):
             self.tradeoff_step_ctr[max_step_mask] = self.tradeoff_num_steps
 
         # apply the curriculum scaling
-        self.feedforward_tau_weight = self.tradeoff_step_ctr*float(1.0/self.tradeoff_num_steps)*self.bound_diff[0] + self.tradeoff_lowerbounds[0]
-        self.feedback_tau_weight    = self.tradeoff_step_ctr*float(1.0/self.tradeoff_num_steps)*self.bound_diff[1] + self.tradeoff_lowerbounds[1]
+        self.feedforward_tau_weight[env_ids]  = self.tradeoff_step_ctr[env_ids] *float(1.0/self.tradeoff_num_steps)*self.bound_diff[0] + self.tradeoff_lowerbounds[0]
+        self.feedback_tau_weight[env_ids]     = self.tradeoff_step_ctr[env_ids] *float(1.0/self.tradeoff_num_steps)*self.bound_diff[1] + self.tradeoff_lowerbounds[1]
 
         if random.random() < 0.50:
             # step_ctr * (1.0/num_steps) -> is the per-env upper bound. Multipled by a random float between [0,1)

@@ -111,7 +111,7 @@ class OnPolicyRunnerDynamic:
         self.tot_time = 0
         self.current_learning_iteration = 0
 
-        self.env.create_async_pino_workers(exp_id=self.cfg["exp_id"])
+        self.env.create_async_pino_workers()
 
         _, _ = self.env.reset()
 

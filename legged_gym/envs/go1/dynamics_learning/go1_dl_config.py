@@ -45,6 +45,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
     #     terrain_proportions = [0.2, 0.2, 0.2, 0.2, 0.2]
     #     # trimesh only:
     #     slope_treshold = 0.75 # slopes above this threshold will be corrected to vertical surfaces
+
     class init_state( LeggedRobotCfg.init_state ):
         leg_joint_limits = [[-1.047, 1.047], [-0.663, 2.966], [-0.837, -2.721],
                             [-1.047, 1.047], [-0.663, 2.966], [-0.837, -2.721],
@@ -161,20 +162,20 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         pos = [2, 2, 2]       # [m]
         lookat = [0., 0, 1.]  # [m]
         rendered_envs_idx = [i for i in range(0, 3, 1)]  # number of environments to be rendered
-        rendered_envs_idx.extend([i for i in range(200, 203, 1)])  # number of environments to be rendered
-        # rendered_envs_idx.extend([i for i in range(500, 503, 1)])  # number of environments to be rendered
-        # rendered_envs_idx.extend([i for i in range(750, 753, 1)])  # number of environments to be rendered
-        rendered_envs_idx.extend([i for i in range(900, 903, 1)])  # number of environments to be rendered
+        # rendered_envs_idx.extend([i for i in range(200, 203, 1)])  # number of environments to be rendered
+        # # rendered_envs_idx.extend([i for i in range(500, 503, 1)])  # number of environments to be rendered
+        # # rendered_envs_idx.extend([i for i in range(750, 753, 1)])  # number of environments to be rendered
+        # rendered_envs_idx.extend([i for i in range(900, 903, 1)])  # number of environments to be rendered
 
-        rendered_envs_idx.extend([i for i in range(1500, 1503, 1)])
-        # rendered_envs_idx.extend([i for i in range(1900, 1903, 1)])
-        # rendered_envs_idx.extend([i for i in range(3500, 3503, 1)])
-        rendered_envs_idx.extend([i for i in range(4000, 4003, 1)])
+        # rendered_envs_idx.extend([i for i in range(1500, 1503, 1)])
+        # # rendered_envs_idx.extend([i for i in range(1900, 1903, 1)])
+        # # rendered_envs_idx.extend([i for i in range(3500, 3503, 1)])
+        # rendered_envs_idx.extend([i for i in range(4000, 4003, 1)])
 
-        rendered_envs_idx.extend([i for i in range(1700, 1703, 1)])
-        # rendered_envs_idx.extend([i for i in range(2200, 2203, 1)])
-        # rendered_envs_idx.extend([i for i in range(3700, 3703, 1)])
-        rendered_envs_idx.extend([i for i in range(3900, 3903, 1)])
+        # rendered_envs_idx.extend([i for i in range(1700, 1703, 1)])
+        # # rendered_envs_idx.extend([i for i in range(2200, 2203, 1)])
+        # # rendered_envs_idx.extend([i for i in range(3700, 3703, 1)])
+        # rendered_envs_idx.extend([i for i in range(3900, 3903, 1)])
         # rendered_envs_idx = [0, 1000, 3500]
         add_camera = False
 
@@ -422,12 +423,10 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         num_steps_per_env = 100 # per iteration
         max_iterations = 4000 # number of policy updates
         grf_dim = 12
-
-        exp_id = 'branch_film_nopinn_01'
         
         # debug_warmpinn_wb
-        run_name = 'config_test_50_boot_source'  # 1500 tradeoff, 1000-step reward_curr, higher Kp, act-dof aligment reward, no-tanh on position control...
-        experiment_name = 'go1_dynamic'
+        run_name = 'full_approach_boot_01'
+        experiment_name = 'rss_go1_dynamic'
         save_interval = 100
         
         
