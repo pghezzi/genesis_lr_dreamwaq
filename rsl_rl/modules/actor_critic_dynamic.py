@@ -298,8 +298,6 @@ class ActorCritic_Dynamic(nn.Module):
         self.std_pos = nn.Parameter(init_noise_std * torch.ones(num_actions))
         self.std_tau = nn.Parameter(init_noise_std * torch.ones(num_actions))
 
-        # self.std = nn.Parameter(init_noise_std * torch.ones(num_actions))
-
         self.num_actions = num_actions
         
         self.distribution_pos = None
@@ -327,25 +325,26 @@ class ActorCritic_Dynamic(nn.Module):
         nn.init.zeros_(self.act_tau_out.bias)
 
     def _init_critic_weights(self):
-        # Xavier for linears, zeros for biases
-        # critic_layers = [self.pos_critic_in, self.pos_critic_h1, self.pos_critic_h2, self.pos_critic_h3, self.tau_critic_h3,
+        # # Xavier for linears, zeros for biases
+        # critic_layers = [self.pos_critic_in, self.pos_critic_h1, self.pos_critic_h2,
         #                  self.pos_critic_out, self.tau_critic_in, self.tau_critic_h1, self.tau_critic_h2, self.tau_critic_out]
-        critic_layers = [self.pos_critic_h1, self.pos_critic_h2, self.pos_critic_out, 
-                         self.tau_critic_h1, self.tau_critic_h2, self.tau_critic_out]
-        for critic_layer in critic_layers:
-            # nn.init.xavier_uniform_(critic_layer.weight)
-            nn.init.orthogonal_(critic_layer.weight)
-            if critic_layer.bias is not None:
-                nn.init.zeros_(critic_layer.bias)
+        # for critic_layer in critic_layers:
+        #     # nn.init.xavier_uniform_(critic_layer.weight)
+        #     nn.init.orthogonal_(critic_layer.weight)
+        #     if critic_layer.bias is not None:
+        #         nn.init.zeros_(critic_layer.bias)
+                
+        self.std_pos.data.fill_(0.75)
+        self.std_tau.data.fill_(0.5)
 
-        self.std_pos = nn.Parameter(0.5 * torch.ones(self.num_actions))
-        self.std_tau = nn.Parameter(0.5 * torch.ones(self.num_actions))
+        # self.std_pos = nn.Parameter(1.0 * torch.ones(self.num_actions))
+        # self.std_tau = nn.Parameter(1.0 * torch.ones(self.num_actions))
 
-        # # Optionally set small initial output weights (to reduce initial action magnitude)
-        nn.init.uniform_(self.act_pos_out.weight, -3e-6, 3e-6)
-        nn.init.uniform_(self.act_tau_out.weight, -3e-6, 3e-6)
-        nn.init.zeros_(self.act_pos_out.bias)
-        nn.init.zeros_(self.act_tau_out.bias)
+        # # # Optionally set small initial output weights (to reduce initial action magnitude)
+        # nn.init.uniform_(self.act_pos_out.weight, -3e-6, 3e-6)
+        # nn.init.uniform_(self.act_tau_out.weight, -3e-6, 3e-6)
+        # nn.init.zeros_(self.act_pos_out.bias)
+        # nn.init.zeros_(self.act_tau_out.bias)
         
 
     def get_optim_groups(self, weight_decay: float = 1e-4, strong_decay: float = 1e-1):

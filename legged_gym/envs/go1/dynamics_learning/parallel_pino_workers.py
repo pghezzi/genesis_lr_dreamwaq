@@ -13,7 +13,7 @@ class SharedTensors:
     Allocates shared memory buffers used by both the main process and worker processes.
     """
 
-    def __init__(self, num_envs, num_dof, foot_dim=(4,3)):
+    def __init__(self, num_envs, num_dof, foot_dim=(4,3), exp_id="01"):
         self.num_envs = num_envs
         self.DOF = num_dof
         self.FOOT_DIM = foot_dim
@@ -22,18 +22,18 @@ class SharedTensors:
 
         # Inputs
         #      the plus (1) accounts for the quat. representation of orientation used by pinocchio
-        self.q       = self.make("q",       (num_envs, self.DOF+1))
-        self.qd      = self.make("qd",      (num_envs, self.DOF))
-        self.qd_prev = self.make("qd_prev", (num_envs, self.DOF))
-        self.grf     = self.make("grf",     (num_envs, *self.FOOT_DIM))
-        self.dt      = self.make("dt",      (1,))
+        self.q       = self.make("_".join("q", exp_id),       (num_envs, self.DOF+1))
+        self.qd      = self.make("_".join("qd", exp_id),      (num_envs, self.DOF))
+        self.qd_prev = self.make("_".join("qd_prev", exp_id), (num_envs, self.DOF))
+        self.grf     = self.make("_".join("grf", exp_id),     (num_envs, *self.FOOT_DIM))
+        self.dt      = self.make("_".join("dt", exp_id),      (1,))
 
         # Outputs
-        self.wb_dynamics = self.make("wb_dynamics", (num_envs, self.DOF))
-        self.wb_contacts = self.make("wb_contacts", (num_envs, self.DOF))
-        self.mass_mat    = self.make("mass_mat",    (num_envs, self.DOF, self.DOF))
-        self.bias        = self.make("bias",        (num_envs, self.DOF))
-        self.acc6d       = self.make("acc6d",       (num_envs, 6))
+        self.wb_dynamics = self.make("_".join("wb_dynamics", exp_id), (num_envs, self.DOF))
+        self.wb_contacts = self.make("_".join("wb_contacts", exp_id), (num_envs, self.DOF))
+        self.mass_mat    = self.make("_".join("mass_mat", exp_id),    (num_envs, self.DOF, self.DOF))
+        self.bias        = self.make("_".join("bias", exp_id),        (num_envs, self.DOF))
+        self.acc6d       = self.make("_".join("acc6d", exp_id),       (num_envs, 6))
 
     def make(self, name, shape, dtype=np.float32):
         nbytes = np.prod(shape) * np.dtype(dtype).itemsize
@@ -168,7 +168,8 @@ class PinocchioAsync:
                  correct_idxs,
                  wb_dim,
                  foot_dim,
-                 num_cpu):
+                 num_cpu,
+                 exp_id):
 
         self.pino_model = pino_model
         self.num_envs = num_envs
@@ -176,7 +177,7 @@ class PinocchioAsync:
         self.correct_idxs = correct_idxs
 
         # Shared memory
-        self.shared = SharedTensors(num_envs, num_dof=wb_dim, foot_dim=foot_dim)
+        self.shared = SharedTensors(num_envs, num_dof=wb_dim, foot_dim=foot_dim, exp_id=exp_id)
 
         # Spawn workers
         self.task_q = mp.Queue()

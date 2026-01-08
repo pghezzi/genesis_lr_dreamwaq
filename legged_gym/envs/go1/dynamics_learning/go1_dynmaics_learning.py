@@ -120,7 +120,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         return self.obs_buf, self.privileged_obs_buf, self.obs_history, (self.rew_buf+self.pos_rew_buf), (self.rew_buf + self.tau_rew_buf), self.reset_buf, self.extras, (self.grfs_buf * self.obs_scales.grf)
 
     
-    def create_async_pino_workers(self):
+    def create_async_pino_workers(self, exp_id='01'):
         wb_correct_pino_2_model_ordering = [0,1,2,3,4,5]
         wb_correct_pino_2_model_ordering.extend(self.pino_2_model_joint_act_map)
         
@@ -135,7 +135,8 @@ class LeggedRobotGo1Dynamic(BaseTask):
             wb_correct_pino_2_model_ordering,
             self.wb_dim,
             (12,1),
-            num_cpus
+            num_cpus,
+            exp_id
         )
 
     def shutdown_asynic_pino_workers(self):
@@ -681,7 +682,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # actions_scaled = pos_actions * self.cfg.control.action_scale
         actions_scaled = pos_actions * repeat_pos_scales + self.default_dof_pos
 
-        actions_scaled = torch.clamp(actions_scaled, 1.5*self.dof_pos_limits_hard[0,0], 1.5*self.dof_pos_limits_hard[0,1])
+        # actions_scaled = torch.clamp(actions_scaled, 1.5*self.dof_pos_limits_hard[0,0], 1.5*self.dof_pos_limits_hard[0,1])
 
         # Calculate the feedback-control torques
         #     include PD scaling values 
@@ -825,46 +826,46 @@ class LeggedRobotGo1Dynamic(BaseTask):
     def _push_robots(self):
         """ Random pushes the robots. Emulates an impulse by setting a randomized base velocity. 
         """
-        if self.push_interval_s > 0 and not self.debug:
-            max_push_vel_xy = self.cfg.domain_rand.max_push_vel_xy
-            # in Genesis, base link also has DOF, it's 6DOF if not fixed.
-            dofs_vel = self.robot.get_dofs_velocity()  # (num_envs, num_dof) [0:3] ~ base_link_vel
-            push_vel = gs_rand_float(-max_push_vel_xy,
-                                     max_push_vel_xy, (self.num_envs, 2), self.device)
-            self._rand_push_vels[:, :2] = push_vel.detach().clone()
-            push_vel[((self.common_step_counter + self.env_identities) %
-                      int(self.push_interval_s / self.dt) != 0)] = 0
-            dofs_vel[:, :2] += push_vel
-            self.robot.set_dofs_velocity(dofs_vel)
         # if self.push_interval_s > 0 and not self.debug:
         #     max_push_vel_xy = self.cfg.domain_rand.max_push_vel_xy
-        #     max_push_torque = self.cfg.domain_rand.max_push_torque
-            
-        #     # interval gating
-        #     push_mask = (
-        #         (self.common_step_counter + self.env_identities)
-        #         % int(self.push_interval_s / self.dt)
-        #     ) == 0
-            
         #     # in Genesis, base link also has DOF, it's 6DOF if not fixed.
         #     dofs_vel = self.robot.get_dofs_velocity()  # (num_envs, num_dof) [0:3] ~ base_link_vel
-        #     lin_vel = gs_rand_float(-max_push_vel_xy,
+        #     push_vel = gs_rand_float(-max_push_vel_xy,
         #                              max_push_vel_xy, (self.num_envs, 2), self.device)
-        #     self._rand_push_vels[:, :2] = lin_vel.detach().clone()
-        #     lin_vel[~push_mask] = 0.0
-        #     dofs_vel[:, :2] += lin_vel
-            
-        #     # ang_push = gs_rand_float(
-        #     #     -max_push_torque,
-        #     #     max_push_torque,
-        #     #     (self.num_envs, 2),   # roll, pitch
-        #     #     self.device
-        #     # )
-        #     # self._rand_wrench_vels[:, :2] = ang_push.detach().clone()
-        #     # ang_push[~push_mask] = 0.0
-        #     # dofs_vel[:, 3:5] += ang_push
-            
+        #     self._rand_push_vels[:, :2] = push_vel.detach().clone()
+        #     push_vel[((self.common_step_counter + self.env_identities) %
+        #               int(self.push_interval_s / self.dt) != 0)] = 0
+        #     dofs_vel[:, :2] += push_vel
         #     self.robot.set_dofs_velocity(dofs_vel)
+        if self.push_interval_s > 0 and not self.debug:
+            max_push_vel_xy = self.cfg.domain_rand.max_push_vel_xy
+            max_push_torque = self.cfg.domain_rand.max_push_torque
+            
+            # interval gating
+            push_mask = (
+                (self.common_step_counter + self.env_identities)
+                % int(self.push_interval_s / self.dt)
+            ) == 0
+            
+            # in Genesis, base link also has DOF, it's 6DOF if not fixed.
+            dofs_vel = self.robot.get_dofs_velocity()  # (num_envs, num_dof) [0:3] ~ base_link_vel
+            lin_vel = gs_rand_float(-max_push_vel_xy,
+                                     max_push_vel_xy, (self.num_envs, 2), self.device)
+            self._rand_push_vels[:, :2] = lin_vel.detach().clone()
+            lin_vel[~push_mask] = 0.0
+            dofs_vel[:, :2] += lin_vel
+            
+            ang_push = gs_rand_float(
+                -max_push_torque,
+                max_push_torque,
+                (self.num_envs, 2),   # roll, pitch
+                self.device
+            )
+            self._rand_wrench_vels[:, :2] = ang_push.detach().clone()
+            ang_push[~push_mask] = 0.0
+            dofs_vel[:, 3:5] += ang_push
+            
+            self.robot.set_dofs_velocity(dofs_vel)
 
     def _push_towards_cmd(self):
         """ Random pushes the robots. Emulates an impulse by setting a randomized base velocity. 
@@ -1548,9 +1549,9 @@ class LeggedRobotGo1Dynamic(BaseTask):
         if torch.mean(self.episode_sums["tracking_lin_vel"][env_ids]) / self.max_episode_length > \
                 self.cfg.control.tradeoff_threshold * self.reward_scales["tracking_lin_vel"]:
             
-            print("^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*")
-            print(torch.mean(self.episode_sums["tracking_lin_vel"][env_ids]) / self.max_episode_length)
-            print(self.cfg.control.tradeoff_threshold * self.reward_scales["tracking_lin_vel"])
+            # print("^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*^*")
+            # print(torch.mean(self.episode_sums["tracking_lin_vel"][env_ids]) / self.max_episode_length)
+            # print(self.cfg.control.tradeoff_threshold * self.reward_scales["tracking_lin_vel"])
 
             # Increment the tradeoff step-counter for these successful envs.
             self.tradeoff_step_ctr[env_ids] += 1.0
@@ -1563,20 +1564,13 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.feedforward_tau_weight = self.tradeoff_step_ctr*float(1.0/self.tradeoff_num_steps)*self.bound_diff[0] + self.tradeoff_lowerbounds[0]
         self.feedback_tau_weight    = self.tradeoff_step_ctr*float(1.0/self.tradeoff_num_steps)*self.bound_diff[1] + self.tradeoff_lowerbounds[1]
 
-        if random.random() < 0.25:
+        if random.random() < 0.50:
             # step_ctr * (1.0/num_steps) -> is the per-env upper bound. Multipled by a random float between [0,1)
             random_step_size = self.tradeoff_step_ctr*float(1.0/self.tradeoff_num_steps) * torch.rand((self.num_envs, 1))
 
-            self.feedforward_tau_weight = random_step_size*self.bound_diff[0] + self.tradeoff_lowerbounds[0]
-            self.feedback_tau_weight    = random_step_size*self.bound_diff[1] + self.tradeoff_lowerbounds[1]
+            self.feedforward_tau_weight[env_ids] = random_step_size[env_ids]*self.bound_diff[0] + self.tradeoff_lowerbounds[0]
+            self.feedback_tau_weight[env_ids]    = random_step_size[env_ids]*self.bound_diff[1] + self.tradeoff_lowerbounds[1]
 
-        # print("Max - self.feedforward_tau_weight: ", torch.max(self.feedforward_tau_weight))
-        # print("Min - self.feedforward_tau_weight: ", torch.min(self.feedforward_tau_weight))
-        # print("Max - self.feedback_tau_weight: ", torch.max(self.feedback_tau_weight))
-        # print("Min - self.feedback_tau_weight: ", torch.min(self.feedback_tau_weight))
-    
-    
-    
     def step_reward_curriculum(self):
         # Safety catch
         if not self.use_reward_curriculum:
@@ -2125,7 +2119,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
 
     def _reward_feet_air_time(self):
         # Reward long steps
-        contact = self.link_contact_forces[:, self.feet_indices, 2] > 1.
+        contact = self.link_contact_forces[:, self.feet_indices, 2] > 10.
         contact_filt = torch.logical_or(contact, self.last_contacts)
         self.last_contacts = contact
         first_contact = (self.feet_air_time > 0.) * contact_filt
@@ -2137,14 +2131,12 @@ class LeggedRobotGo1Dynamic(BaseTask):
     
     def _reward_max_contact_time(self):
         contact = self.link_contact_forces[:, self.feet_indices, 2] > 10.0
-
         self.feet_touch_time += self.dt * contact
         excess_time = torch.clamp(self.feet_touch_time - 0.5, min=0.0)
         penalty = torch.sum(excess_time, dim=1)
         moving = torch.norm(self.commands[:, :2], dim=1) > 0.1
         penalty *= moving
         self.feet_touch_time *= contact
-
         return -penalty
         
 
@@ -2154,9 +2146,9 @@ class LeggedRobotGo1Dynamic(BaseTask):
     
     def _reward_stand_still_contact(self):
         # encourage all four feet to be in contact with the ground if we are supposed to stand still
-        contact = torch.sum(self.link_contact_forces[:, self.feet_indices, 2] < 1., dim=-1)
+        contact = torch.sum(self.link_contact_forces[:, self.feet_indices, 2] < 1.0, dim=-1)
         comd_filter = torch.norm(self.commands[:, :2], dim=1) < 0.1
-        return torch.sum(comd_filter*contact, dim=-1)
+        return comd_filter*contact
     
     def _reward_feet_contact_forces(self):
         # penalize high contact forces

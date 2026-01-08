@@ -227,39 +227,27 @@ class PPODynamic:
         last_values_tau = self.actor_critic.evaluate_tau(last_critic_obs).detach()
         self.storage.compute_returns_tau(last_values_tau, self.gamma, self.lam)
 
-    def update(self, action_func, fb_func, dt, itr, beta=1):
+    def update(self, action_func, fb_func, dt, itr, beta=1.0):
         mean_pos_value_loss = 0
         mean_pos_surrogate_loss = 0
         mean_tau_value_loss = 0
         mean_tau_surrogate_loss = 0
         mean_autoenc_loss = 0
+        mean_vel_loss = 0
+        mean_recon_loss = 0
+        mean_kld_loss = 0
         mean_decoder_loss = 0
         mean_pinn_loss = 0
 
         all_enc_obs_targets = []
         all_enc_recons     = []
 
-        # print("itr: ", itr)
-        # print("self.pinn_init: ", self.pinn_init)
-        # print("self.pinn_warmup_steps: ", self.pinn_warmup_steps)
-
-        if itr > self.pinn_init and self.num_pinn_updates < (self.pinn_warmup_steps+1):
-            self.pinn_weight = (float(self.num_pinn_updates)/float(self.pinn_warmup_steps))*self.pinn_weight_final 
-
-        # prob_pinn = self.storage.get_iter_reward_cv(itr)
-        # use_pinn = random.random() < prob_pinn
-
         use_pinn = True
 
-        print(self.pinn_weight)
-        # print(prob_pinn)
-        # print(use_pinn)
+        if itr > self.pinn_init and self.num_pinn_updates < (self.pinn_warmup_steps+1):
+            self.pinn_weight = (float(self.num_pinn_updates)/float(self.pinn_warmup_steps))*self.pinn_weight_final
+            print(self.pinn_weight)
 
-        # use_pinn = False
-
-        # if self.actor_critic.is_recurrent:
-        #     generator = self.storage.reccurent_mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
-        # else:
         generator = self.storage.mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
         for obs_batch, critic_obs_batch, obs_hist_batch, vel_target, \
             grf_target, obs_target, pos_actions_batch, pos_target_values_batch, \
@@ -271,6 +259,7 @@ class PPODynamic:
 
                 self.actor_critic.train()
                 self.act_optimizer.zero_grad()
+                self.enc_optimizer.zero_grad()
 
                 if self.use_boot:
                     self.actor_critic.act(obs_batch, obs_hist_batch)
@@ -279,13 +268,13 @@ class PPODynamic:
 
                 current_actions = torch.cat([self.actor_critic.mean_pos, self.actor_critic.mean_tau], dim=-1)
                 
-                # # Encoder stuff
-                # # pull out some values from the actor that I want to use in the decoder...
-                # #    avoids a second separate run through the encoder + aligns RL update with enc update...
-                # mean_latent = self.actor_critic.cenet_mean
-                # logvar_latent = self.actor_critic.cenet_logvar
-                # cenet_latent = self.actor_critic.cenet_z
-                # cenet_torso_velo = self.actor_critic.cenet_torso_velo
+                # Encoder stuff
+                # pull out some values from the actor that I want to use in the decoder...
+                #    avoids a second separate run through the encoder + aligns RL update with enc update...
+                mean_latent = self.actor_critic.cenet_mean
+                logvar_latent = self.actor_critic.cenet_logvar
+                cenet_latent = self.actor_critic.cenet_z
+                cenet_torso_velo = self.actor_critic.cenet_torso_velo
 
                 # PPO stuff
                 #    - Position Control
@@ -325,9 +314,9 @@ class PPODynamic:
                 # PPO stuff
                 # PPO Surrogate loss
                 pos_ratio = torch.exp(pos_actions_log_prob_batch - torch.squeeze(pos_old_actions_log_prob_batch))
-                # surrogate = -torch.squeeze(pos_advantages_batch) * pos_ratio
-                # surrogate_clipped = -torch.squeeze(pos_advantages_batch) * torch.clamp(pos_ratio, 1.0 - self.clip_param, 1.0 + self.clip_param)
-                # surrogate_loss = torch.max(surrogate, surrogate_clipped).mean()
+                # pos_surrogate = -torch.squeeze(pos_advantages_batch) * pos_ratio
+                # pos_surrogate_clipped = -torch.squeeze(pos_advantages_batch) * torch.clamp(pos_ratio, 1.0 - self.clip_param, 1.0 + self.clip_param)
+                # pos_surrogate_loss = torch.max(pos_surrogate, pos_surrogate_clipped).mean()
 
                 # SPO Surrogate loss
                 pos_surrogate_loss = -(torch.squeeze(pos_advantages_batch) * pos_ratio - torch.abs(torch.squeeze(pos_advantages_batch)) * torch.pow(pos_ratio - 1, 2) / (2 * 0.2)).mean()
@@ -367,9 +356,9 @@ class PPODynamic:
 
                 # Surrogate loss
                 tau_ratio = torch.exp(tau_actions_log_prob_batch - torch.squeeze(tau_old_actions_log_prob_batch))
-                # surrogate = -torch.squeeze(tau_advantages_batch) * tau_ratio
-                # surrogate_clipped = -torch.squeeze(tau_advantages_batch) * torch.clamp(tau_ratio, 1.0 - self.clip_param, 1.0 + self.clip_param)
-                # tau_surrogate_loss = torch.max(surrogate, surrogate_clipped).mean()
+                # tau_surrogate = -torch.squeeze(tau_advantages_batch) * tau_ratio
+                # tau_surrogate_clipped = -torch.squeeze(tau_advantages_batch) * torch.clamp(tau_ratio, 1.0 - self.clip_param, 1.0 + self.clip_param)
+                # tau_surrogate_loss = torch.max(tau_surrogate, tau_surrogate_clipped).mean()
 
                 # SPO Surrogate loss
                 tau_surrogate_loss = -(torch.squeeze(tau_advantages_batch) * tau_ratio - torch.abs(torch.squeeze(tau_advantages_batch)) * torch.pow(tau_ratio - 1, 2) / (2 * 0.2)).mean()
@@ -497,73 +486,17 @@ class PPODynamic:
                 #   END loss calculations, start gradient updates
                 ### 
                 if self.pinn_weight > 0.0 and use_pinn:
-                    # rescale the pinn-loss to be equal in magnitude to the PPO update
-                    pinn_ratio = (pos_loss.clone().detach() + tau_loss.clone().detach()) / pinn_loss.clone().detach()
-                    # Scale the ratio so the pinn loss is only ever 1/2 the magnitude of the PPO loss
-                    pinn_ratio *= 0.5
-
-                    # print((pos_loss.clone().detach() + tau_loss.clone().detach()))
-                    # print(pinn_loss.clone().detach())
-                    # print(pinn_ratio * pinn_loss.clone().detach())
-                    # print("------------------------")
-
                     ppo_losses = [pos_loss+tau_loss,
                                   self.pinn_weight * pinn_loss,
                                   self.pinn_weight * task_align_loss]
                                 #   self.pinn_weight * task_ratio_loss]
-                    
-                    # encoder_losses = [autoenc_loss, 
-                    #                   self.pinn_weight * pinn_loss,
-                    #                   self.pinn_weight * task_align_loss]
-                                    #   self.pinn_weight * task_ratio_loss]
-                    # total_ppo_loss = pos_loss + tau_loss + self.pinn_weight * pinn_ratio * pinn_loss
-                    # total_enc_loss = autoenc_loss + self.pinn_weight * pinn_ratio * pinn_loss
                 else:
                     ppo_losses = [pos_loss+tau_loss]
-                    # encoder_losses = [autoenc_loss]
-                    # total_ppo_loss = pos_loss + tau_loss
-                    # total_enc_loss = autoenc_loss
-
-                # ppo_losses = [pos_loss + tau_loss]
-                # encoder_losses = [autoenc_loss]
-
-                # total_ppo_loss = pos_loss + tau_loss + self.pinn_weight * pinn_loss
-                # total_enc_loss = autoenc_loss + self.pinn_weight * pinn_loss
-
-                # total_ppo_loss = pos_loss + tau_loss
-                # total_enc_loss = autoenc_loss
-
-
-                # # If we used the encoder to bootstrap the actor policy, then added the PPO losses
-                # #    to the losses used to update the encoder
-                # if self.use_boot:
-                #     encoder_losses.append(pos_loss)
-                #     encoder_losses.append(tau_loss)
-
-                #     total_enc_loss += pos_loss + tau_loss
-
-
-                # Gradient step
-                # loss.backward()
-                # nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
-                # self.optimizer.step()
-                
-                # PCGrad - back-propigate the loss
-                if use_pinn and self.pinn_weight > 0:
-                    self.act_optimizer.pc_backward_pinn(ppo_losses)
-                else:
-                    self.act_optimizer.pc_backward(ppo_losses)
-                # total_ppo_loss.backward(retain_graph=True)
-                nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
-                # self.act_zclip.step(self.actor_critic)
-                self.act_optimizer.step()
 
 
                 ###
                 #   Perform encoder update step...
                 ###
-                self.enc_optimizer.zero_grad()
-                mean_latent, logvar_latent, cenet_latent, cenet_torso_velo = self.actor_critic.cenet_enc_forward(obs_hist_batch)
                 self.decoder.eval()
                 dec_input = torch.cat((cenet_latent, cenet_torso_velo), dim=-1)
                 enc_update_obs_decode = self.decoder(dec_input)
@@ -580,19 +513,31 @@ class PPODynamic:
                     all_enc_recons.extend(enc_update_obs_decode.clone().detach().cpu().numpy())
 
                 # autoenc_loss = (nn.MSELoss()(cenet_torso_velo,vel_target) + nn.MSELoss()(enc_update_obs_decode,decode_target) + beta*(-0.5 * torch.sum(1 + logvar_latent - mean_latent.pow(2) - logvar_latent.exp())))/self.num_mini_batches
-                autoenc_loss = F.mse_loss(cenet_torso_velo,vel_target) + F.mse_loss(enc_update_obs_decode,decode_target) + beta*(-0.5 * torch.sum(1 + logvar_latent - mean_latent.pow(2) - logvar_latent.exp()))
-
+                vel_pred_error = F.mse_loss(cenet_torso_velo,vel_target)
+                recon_error    = F.mse_loss(enc_update_obs_decode,decode_target)
+                kl_div         = (-0.5 * torch.sum(1 + logvar_latent - mean_latent.pow(2) - logvar_latent.exp()))
+                autoenc_loss = vel_pred_error + recon_error + beta*kl_div
+                
+                ###
+                #  Propigate gradients and update
+                ### 
+                
+                # PCGrad - back-propigate the loss
+                if use_pinn and self.pinn_weight > 0:
+                    self.act_optimizer.pc_backward_pinn(ppo_losses)
+                else:
+                    self.act_optimizer.pc_backward(ppo_losses)
+                nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)                
+                
                 autoenc_loss.backward()
-                # if use_pinn and self.pinn_weight > 0:
-                #     self.enc_optimizer.pc_backward_pinn(encoder_losses)
-                # else:
-                #     self.enc_optimizer.pc_backward(encoder_losses)
-                # total_enc_loss.backward()
-                nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
-                # self.enc_zclip.step(self.actor_critic)
+                nn.utils.clip_grad_norm_(self.actor_critic.context_encoder.parameters(), self.max_grad_norm)
+
+                self.act_optimizer.step()
                 self.enc_optimizer.step()
 
-                # Perfrom a separate update on the decoder....
+                ###
+                #  Perfrom a separate update on the decoder....
+                ###
                 self.decoder.train()
                 self.actor_critic.eval()
                 self.decoder_optimizer.zero_grad()
@@ -612,6 +557,9 @@ class PPODynamic:
                 mean_tau_value_loss += tau_value_loss.item()
                 mean_tau_surrogate_loss += tau_surrogate_loss.item()
                 mean_autoenc_loss += autoenc_loss.item()
+                mean_vel_loss += vel_pred_error.item()
+                mean_recon_loss += recon_error.item()
+                mean_kld_loss += kl_div.item()
                 mean_decoder_loss += dec_loss.item()
                 if self.pinn_weight > 0.0:
                     mean_pinn_loss += pinn_loss.item() + task_align_loss.item() # + task_ratio_loss.item()
@@ -628,6 +576,9 @@ class PPODynamic:
         mean_tau_surrogate_loss /= num_updates
         mean_autoenc_loss /= num_updates
         mean_decoder_loss /= num_updates
+        mean_kld_loss /= num_updates
+        mean_vel_loss /= num_updates
+        mean_recon_loss /= num_updates
         mean_pinn_loss /= num_updates
 
         # Calculate the total bootstrapping probability over the performance of the autoencoder on all of the above
@@ -640,9 +591,10 @@ class PPODynamic:
         # Use the (scaled) ratio of mean-prediction performance to actual prediction performance
         #     to determine if encoder bootstrapping is performed.
         self.use_boot = random.random() < pboot
-
         print(self.use_boot)
 
         self.storage.clear()
 
-        return mean_pos_value_loss, mean_pos_surrogate_loss, mean_tau_value_loss, mean_tau_surrogate_loss, mean_autoenc_loss, mean_decoder_loss, mean_pinn_loss
+        return mean_pos_value_loss, mean_pos_surrogate_loss, mean_tau_value_loss, \
+               mean_tau_surrogate_loss, mean_autoenc_loss, mean_decoder_loss, \
+               mean_vel_loss, mean_recon_loss, mean_kld_loss, mean_pinn_loss

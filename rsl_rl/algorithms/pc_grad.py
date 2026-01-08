@@ -58,46 +58,16 @@ class PCGrad():
         self._set_grad(pc_grad)
         return
 
-    # # Prioritized modification assuming the first gradient is from the "prime" task and the second is "auxilliary"
-    # def _project_conflicting(self, grads, has_grads, shapes=None):
-    #     shared = torch.stack(has_grads).prod(0).bool()
-    #     pc_grad, num_task = copy.deepcopy(grads), len(grads)
-    #     # First, de-conflict all of the 
-    #     for g_i in pc_grad:
-    #         random.shuffle(grads)
-    #         for g_j in grads:
-    #             g_i_g_j = torch.dot(g_i, g_j)
-    #             if g_i_g_j < 0:
-    #                 g_i -= (g_i_g_j) * g_j / (g_j.norm()**2)
-
-    #     merged_grad = torch.zeros_like(grads[0]).to(grads[0].device)
-
-    #     if self._reduction:
-    #         merged_grad[shared] = torch.stack([g[shared]
-    #                                        for g in pc_grad]).mean(dim=0)
-    #     elif self._reduction == 'sum':
-    #         merged_grad[shared] = torch.stack([g[shared]
-    #                                        for g in pc_grad]).sum(dim=0)
-    #     else: exit('invalid reduction method')
-
-    #     merged_grad[~shared] = torch.stack([g[~shared]
-    #                                         for g in pc_grad]).sum(dim=0)
-    #     return merged_grad
-
-
-    # Prioritized modification assuming the first gradient is from the "prime" task and the second is "auxilliary"
     def _project_conflicting(self, grads, has_grads, shapes=None):
         shared = torch.stack(has_grads).prod(0).bool()
         pc_grad, num_task = copy.deepcopy(grads), len(grads)
-        if len(pc_grad) > 1:
-            g_prime = pc_grad[0]
-            g_sub   = pc_grad[1]
-            # We want to check if the sub-objective conflicts with the primairy, and needs to be projected
-            g_s_g_p = torch.dot(g_sub, g_prime)
-
-            if g_s_g_p < 0:
-                g_sub -= (g_s_g_p) * g_prime / (g_prime.norm()**2)
-                g_sub *= 0.5
+        # First, de-conflict all of the 
+        for g_i in pc_grad:
+            random.shuffle(grads)
+            for g_j in grads:
+                g_i_g_j = torch.dot(g_i, g_j)
+                if g_i_g_j < 0:
+                    g_i -= (g_i_g_j) * g_j / (g_j.norm()**2)
 
         merged_grad = torch.zeros_like(grads[0]).to(grads[0].device)
 
@@ -112,6 +82,35 @@ class PCGrad():
         merged_grad[~shared] = torch.stack([g[~shared]
                                             for g in pc_grad]).sum(dim=0)
         return merged_grad
+
+
+    # # Prioritized modification assuming the first gradient is from the "prime" task and the second is "auxilliary"
+    # def _project_conflicting(self, grads, has_grads, shapes=None):
+    #     shared = torch.stack(has_grads).prod(0).bool()
+    #     pc_grad, num_task = copy.deepcopy(grads), len(grads)
+    #     if len(pc_grad) > 1:
+    #         g_prime = pc_grad[0]
+    #         g_sub   = pc_grad[1]
+    #         # We want to check if the sub-objective conflicts with the primairy, and needs to be projected
+    #         g_s_g_p = torch.dot(g_sub, g_prime)
+
+    #         if g_s_g_p < 0:
+    #             g_sub -= (g_s_g_p) * g_prime / (g_prime.norm()**2)
+    #             g_sub *= 0.5
+
+    #     merged_grad = torch.zeros_like(grads[0]).to(grads[0].device)
+
+    #     if self._reduction:
+    #         merged_grad[shared] = torch.stack([g[shared]
+    #                                        for g in pc_grad]).mean(dim=0)
+    #     elif self._reduction == 'sum':
+    #         merged_grad[shared] = torch.stack([g[shared]
+    #                                        for g in pc_grad]).sum(dim=0)
+    #     else: exit('invalid reduction method')
+
+    #     merged_grad[~shared] = torch.stack([g[~shared]
+    #                                         for g in pc_grad]).sum(dim=0)
+    #     return merged_grad
     
 
     # Prioritized modification assuming the first gradient is from the "prime" task and the second is "auxilliary"

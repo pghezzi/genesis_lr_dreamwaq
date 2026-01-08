@@ -111,7 +111,7 @@ class OnPolicyRunnerDynamic:
         self.tot_time = 0
         self.current_learning_iteration = 0
 
-        self.env.create_async_pino_workers()
+        self.env.create_async_pino_workers(exp_id=self.cfg["exp_id"])
 
         _, _ = self.env.reset()
 
@@ -124,7 +124,7 @@ class OnPolicyRunnerDynamic:
         # Load the pretrained action-network and encoder
         self.alg.actor_critic.load_state_dict(loaded_dict['model_state_dict'])
         # re-initalize the critic network weights which where not pretrained (to be safe)
-        # self.alg.actor_critic._init_critic_weights()
+        self.alg.actor_critic._init_critic_weights()
         # Load the pretrained decoder network
         self.alg.decoder.load_state_dict(loaded_dict['decoder_state_dict'])
     
@@ -211,9 +211,13 @@ class OnPolicyRunnerDynamic:
                 start = stop
                 self.alg.compute_returns(critic_obs)
             
-            mean_pos_value_loss, mean_pos_surrogate_loss, mean_tau_value_loss, mean_tau_surrogate_loss, mean_autoenc_loss, mean_decoder_loss, mean_pinn_loss = self.alg.update(self.env._get_pinn_actions,self.env._get_pinn_feedback, self.env.dt,self.env.num_iters)
+            mean_pos_value_loss, mean_pos_surrogate_loss, mean_tau_value_loss, \
+                mean_tau_surrogate_loss, mean_autoenc_loss, mean_decoder_loss, mean_vel_loss, \
+                    mean_recon_loss, mean_kld_loss, mean_pinn_loss \
+                    = self.alg.update(self.env._get_pinn_actions, self.env._get_pinn_feedback, self.env.dt, self.env.num_iters, beta=2.0)
 
             # self.env.step_tradeoff_curriculum()
+            print("Avg - Curriculum Step: ", torch.mean(self.env.tradeoff_step_ctr).item())
             print("Max - self.feedforward_tau_weight: ", torch.max(self.env.feedforward_tau_weight).item())
             print("Min - self.feedforward_tau_weight: ", torch.min(self.env.feedforward_tau_weight).item())
             print("Avg - self.feedforward_tau_weight: ", torch.mean(self.env.feedforward_tau_weight).item())
@@ -266,12 +270,14 @@ class OnPolicyRunnerDynamic:
                 self.writer.add_scalar('Episode/' + key, value, locs['it'])
                 ep_string += f"""{f'Mean episode {key}:':>{pad}} {value:.4f}\n"""
         
-        # TODO - update this as well
         mean_pos_std = self.alg.actor_critic.std_pos.mean()
         mean_tau_std = self.alg.actor_critic.std_tau.mean()
         
         fps = int(self.num_steps_per_env * self.env.num_envs / (locs['collection_time'] + locs['learn_time']))
         self.writer.add_scalar('Loss/autoenc_function', locs['mean_autoenc_loss'], locs['it'])
+        self.writer.add_scalar('Loss/velo_pred', locs['mean_vel_loss'], locs['it'])
+        self.writer.add_scalar('Loss/recon', locs['mean_recon_loss'], locs['it'])
+        self.writer.add_scalar('Loss/kl_div', locs['mean_kld_loss'], locs['it'])
         self.writer.add_scalar('Loss/decoder_function', locs['mean_decoder_loss'], locs['it'])
         self.writer.add_scalar('Loss/pos_value_function', locs['mean_pos_value_loss'], locs['it'])
         self.writer.add_scalar('Loss/pos_surrogate', locs['mean_pos_surrogate_loss'], locs['it'])
@@ -303,6 +309,9 @@ class OnPolicyRunnerDynamic:
                             'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n"""
                           f"""{'PINN loss:':>{pad}} {locs['mean_pinn_loss']:.4f}\n"""
                           f"""{'Autoenc function loss:':>{pad}} {locs['mean_autoenc_loss']:.4f}\n"""
+                          f"""{'Torso Velo. Pred loss:':>{pad}} {locs['mean_vel_loss']:.4f}\n"""
+                          f"""{'Reconstruction   loss:':>{pad}} {locs['mean_recon_loss']:.4f}\n"""
+                          f"""{'KL Divergence    loss:':>{pad}} {locs['mean_kld_loss']:.4f}\n"""
                           f"""{'Decoder function loss:':>{pad}} {locs['mean_decoder_loss']:.4f}\n"""
                           f"""{'Pos Value function loss:':>{pad}} {locs['mean_pos_value_loss']:.4f}\n"""
                           f"""{'Pos Surrogate loss:':>{pad}} {locs['mean_pos_surrogate_loss']:.4f}\n"""
@@ -322,6 +331,9 @@ class OnPolicyRunnerDynamic:
                             'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n"""
                           f"""{'PINN loss:':>{pad}} {locs['mean_pinn_loss']:.4f}\n"""
                           f"""{'Autoenc function loss:':>{pad}} {locs['mean_autoenc_loss']:.4f}\n"""
+                          f"""{'Torso Velo. Pred loss:':>{pad}} {locs['mean_vel_loss']:.4f}\n"""
+                          f"""{'Reconstruction   loss:':>{pad}} {locs['mean_recon_loss']:.4f}\n"""
+                          f"""{'KL Divergence    loss:':>{pad}} {locs['mean_kld_loss']:.4f}\n"""
                           f"""{'Decoder function loss:':>{pad}} {locs['mean_decoder_loss']:.4f}\n"""
                           f"""{'Pos Value function loss:':>{pad}} {locs['mean_pos_value_loss']:.4f}\n"""
                           f"""{'Pos Surrogate loss:':>{pad}} {locs['mean_pos_surrogate_loss']:.4f}\n"""
