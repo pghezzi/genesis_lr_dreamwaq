@@ -80,11 +80,11 @@ class PPODynamic:
         self.storage = None # initialized later
         self.act_optimizer, self.enc_optimizer = actor_critic.configure_optimizers(learning_rate)
         self.transition = RolloutStorageDynamics.Transition()
-        self.act_optimizer = PCGrad(self.act_optimizer, reduction='sum')
+        # self.act_optimizer = PCGrad(self.act_optimizer, reduction='sum')
         # self.enc_optimizer = PCGrad(self.enc_optimizer, reduction='sum')
 
         # # We want to reduce the LR of the critic
-        for param_group in self.act_optimizer.optimizer.param_groups:
+        for param_group in self.act_optimizer.param_groups:
         # for param_group in self.act_optimizer.param_groups:
             # specifically modifies the learning rate of the position-control specific parameters
             if "name" in param_group.keys():
@@ -304,8 +304,8 @@ class PPODynamic:
                         elif pos_kl_mean < self.desired_kl / 2.0 and pos_kl_mean > 0.0:
                             self.pos_learning_rate = min(1e-2, self.pos_learning_rate * 1.5)
                         
-                        for param_group in self.act_optimizer.optimizer.param_groups:
-                        # for param_group in self.act_optimizer.param_groups:
+                        # for param_group in self.act_optimizer.optimizer.param_groups:
+                        for param_group in self.act_optimizer.param_groups:
                             # specifically modifies the learning rate of the position-control specific parameters
                             if "name" in param_group.keys():
                                 if "pos_branch" in param_group["name"]:
@@ -346,8 +346,8 @@ class PPODynamic:
                         elif tau_kl_mean < self.desired_kl / 2.0 and tau_kl_mean > 0.0:
                             self.tau_learning_rate = min(1e-2, self.tau_learning_rate * 1.5)
                         
-                        for param_group in self.act_optimizer.optimizer.param_groups:
-                        # for param_group in self.act_optimizer.param_groups:
+                        # for param_group in self.act_optimizer.optimizer.param_groups:
+                        for param_group in self.act_optimizer.param_groups:
                             # Specifically modifies the parameters specific to the torque-control actions
                             if "name" in param_group.keys():
                                 if "tau_branch" in param_group["name"]:
@@ -382,90 +382,91 @@ class PPODynamic:
                 task_align_loss = 0.0
                 task_ratio_loss = 0.0
                 if self.pinn_weight > 0.0:
-                    if self.use_boot:
-                        self.actor_critic.act(prev_obs_batch, prev_obs_hist_batch)
-                    else:
-                        self.actor_critic.act_bootmask(prev_obs_batch, prev_obs_hist_batch)
-                    prev_actions = torch.cat([self.actor_critic.mean_pos, self.actor_critic.mean_tau], dim=-1)
+                    with torch.no_grad():
+                        if self.use_boot:
+                            self.actor_critic.act(prev_obs_batch, prev_obs_hist_batch)
+                        else:
+                            self.actor_critic.act_bootmask(prev_obs_batch, prev_obs_hist_batch)
+                        prev_actions = torch.cat([self.actor_critic.mean_pos, self.actor_critic.mean_tau], dim=-1)
 
 
-                    pprev_actions = None
-                    if self.use_boot:
-                        self.actor_critic.act(pprev_obs_batch, pprev_obs_hist_batch)
-                    else:
-                        self.actor_critic.act_bootmask(pprev_obs_batch, pprev_obs_hist_batch)
-                    pprev_actions = torch.cat([self.actor_critic.mean_pos, self.actor_critic.mean_tau], dim=-1)
+                        pprev_actions = None
+                        if self.use_boot:
+                            self.actor_critic.act(pprev_obs_batch, pprev_obs_hist_batch)
+                        else:
+                            self.actor_critic.act_bootmask(pprev_obs_batch, pprev_obs_hist_batch)
+                        pprev_actions = torch.cat([self.actor_critic.mean_pos, self.actor_critic.mean_tau], dim=-1)
 
-                    # Process current and previous actions into the action-space
-                    q_des_curr, tau_des_curr   = action_func(current_actions)
-                    q_des_prev, tau_des_prev   = action_func(prev_actions)
-                    q_des_pprev, tau_des_pprev = action_func(pprev_actions)
+                        # Process current and previous actions into the action-space
+                        q_des_curr, tau_des_curr   = action_func(current_actions)
+                        q_des_prev, tau_des_prev   = action_func(prev_actions)
+                        q_des_pprev, tau_des_pprev = action_func(pprev_actions)
 
-                    # Extract joint pose and velocity data
-                    # Obs - cmd (3), proj_grav (3), ang_vel (3)
-                    q_pos_curr,  q_velo_curr  = obs_batch[:,8:20].detach().clone(),       obs_batch[:,20:32].detach().clone()
-                    q_pos_prev,  q_velo_prev  = prev_obs_batch[:,8:20].detach().clone(),  prev_obs_batch[:,20:32].detach().clone()
-                    q_pos_pprev, q_velo_pprev = pprev_obs_batch[:,8:20].detach().clone(), pprev_obs_batch[:,20:32].detach().clone()
+                        # Extract joint pose and velocity data
+                        # Obs - cmd (3), proj_grav (3), ang_vel (3)
+                        q_pos_curr,  q_velo_curr  = obs_batch[:,8:20].detach().clone(),       obs_batch[:,20:32].detach().clone()
+                        q_pos_prev,  q_velo_prev  = prev_obs_batch[:,8:20].detach().clone(),  prev_obs_batch[:,20:32].detach().clone()
+                        q_pos_pprev, q_velo_pprev = pprev_obs_batch[:,8:20].detach().clone(), pprev_obs_batch[:,20:32].detach().clone()
 
-                    # Calculate feedback torques
-                    # fb_func
-                    pd_tau_curr  = fb_func(q_des_curr,  q_pos_curr,  q_velo_curr)
-                    pd_tau_prev  = fb_func(q_des_prev,  q_pos_prev,  q_velo_prev)
-                    pd_tau_pprev = fb_func(q_des_pprev, q_pos_pprev, q_velo_pprev)
+                        # Calculate feedback torques
+                        # fb_func
+                        pd_tau_curr  = fb_func(q_des_curr,  q_pos_curr,  q_velo_curr)
+                        pd_tau_prev  = fb_func(q_des_prev,  q_pos_prev,  q_velo_prev)
+                        pd_tau_pprev = fb_func(q_des_pprev, q_pos_pprev, q_velo_pprev)
 
-                    ###
-                    #   WB-dynamics
-                    ###
-                    # Use 1st order backwards finite differences to approximate models command acceleration
-                    dof_acc = (q_des_curr - 2.0*q_des_prev + q_des_pprev) / np.power(dt,2)
-                    # Create the whole-body acceleration vector
-                    wb_acc = torch.cat([torso_accs_batch, dof_acc], dim=1).float()
-                    # Create the whole-boyd tau vector 
-                    wb_tau = torch.cat([torch.zeros(torso_accs_batch.shape[0], 6).float().to(self.device), tau_des_curr.float()], dim=1).float()
+                        ###
+                        #   WB-dynamics
+                        ###
+                        # Use 1st order backwards finite differences to approximate models command acceleration
+                        dof_acc = (q_des_curr - 2.0*q_des_prev + q_des_pprev) / np.power(dt,2)
+                        # Create the whole-body acceleration vector
+                        wb_acc = torch.cat([torso_accs_batch, dof_acc], dim=1).float()
+                        # Create the whole-boyd tau vector 
+                        wb_tau = torch.cat([torch.zeros(torso_accs_batch.shape[0], 6).float().to(self.device), tau_des_curr.float()], dim=1).float()
 
-                    # Calculate the models wb-dynamics
-                    model_wb_dynamics = torch.bmm(mass_mat_batch.float(), wb_acc.unsqueeze(-1)).squeeze(-1) + bias_vec_batch.float()
+                        # Calculate the models wb-dynamics
+                        model_wb_dynamics = torch.bmm(mass_mat_batch.float(), wb_acc.unsqueeze(-1)).squeeze(-1) + bias_vec_batch.float()
 
-                    error = model_wb_dynamics[:,6:] - gt_forces_batch[:,6:] - wb_tau[:,6:]
+                        error = model_wb_dynamics[:,6:] - gt_forces_batch[:,6:] - wb_tau[:,6:]
 
-                    # softly weight by contact
-                    # Apply soft (to make this a continuous reward signal) contact weighting to avoid over-penalizing for leg movement
-                    contact_magnitude = torch.clamp(gt_forces_batch[:,6:], min=0.0)
-                    contact_max = torch.max(contact_magnitude, dim=1, keepdim=True)[0]
-                    contact_weight = contact_magnitude / (contact_max + 1e-8)
-                    error *= contact_weight
+                        # softly weight by contact
+                        # Apply soft (to make this a continuous reward signal) contact weighting to avoid over-penalizing for leg movement
+                        contact_magnitude = torch.clamp(gt_forces_batch[:,6:], min=0.0)
+                        contact_max = torch.max(contact_magnitude, dim=1, keepdim=True)[0]
+                        contact_weight = contact_magnitude / (contact_max + 1e-8)
+                        error *= contact_weight
 
-                    # Make the error relative, so that it is less senesitive to scale
-                    rel_error = torch.norm(error, dim=1) / (1e-8 + torch.norm(wb_tau[:,6:].detach().clone(), dim=1) + torch.norm(gt_forces_batch[:,6:], dim=1))
+                        # Make the error relative, so that it is less senesitive to scale
+                        rel_error = torch.norm(error, dim=1) / (1e-8 + torch.norm(wb_tau[:,6:].detach().clone(), dim=1) + torch.norm(gt_forces_batch[:,6:], dim=1))
 
-                    # Calculate the whole-body PINN loss
-                    pinn_loss = torch.mean(rel_error)
+                        # Calculate the whole-body PINN loss
+                        pinn_loss = torch.mean(rel_error)
 
-                    # Calcualte values used by the next two losses
-                    ff_power_curr, pd_power_curr   = tau_des_curr*q_velo_curr,   pd_tau_curr*q_velo_curr
-                    ff_power_prev, pd_power_prev   = tau_des_prev*q_velo_prev,   pd_tau_prev*q_velo_prev
-                    ff_power_pprev, pd_power_pprev = tau_des_pprev*q_velo_pprev, pd_tau_pprev*q_velo_pprev
+                        # Calcualte values used by the next two losses
+                        ff_power_curr, pd_power_curr   = tau_des_curr*q_velo_curr,   pd_tau_curr*q_velo_curr
+                        ff_power_prev, pd_power_prev   = tau_des_prev*q_velo_prev,   pd_tau_prev*q_velo_prev
+                        ff_power_pprev, pd_power_pprev = tau_des_pprev*q_velo_pprev, pd_tau_pprev*q_velo_pprev
 
-                    ff_power_val_curr, pd_power_val_curr   = torch.abs(torch.sum(ff_power_curr)), torch.abs(torch.sum(pd_power_curr))
-                    ff_power_val_prev, pd_power_val_prev   = torch.abs(torch.sum(ff_power_prev)), torch.abs(torch.sum(pd_power_prev))
-                    ff_power_val_pprev, pd_power_val_pprev = torch.abs(torch.sum(ff_power_pprev)), torch.abs(torch.sum(pd_power_pprev))
+                        ff_power_val_curr, pd_power_val_curr   = torch.abs(torch.sum(ff_power_curr)), torch.abs(torch.sum(pd_power_curr))
+                        ff_power_val_prev, pd_power_val_prev   = torch.abs(torch.sum(ff_power_prev)), torch.abs(torch.sum(pd_power_prev))
+                        ff_power_val_pprev, pd_power_val_pprev = torch.abs(torch.sum(ff_power_pprev)), torch.abs(torch.sum(pd_power_pprev))
 
-                    # Calculate a minimum effort gate
-                    #    detach the gate values from the comp-graph, do not need gradients flowing through this
-                    curr_effort_gate  = F.tanh(ff_power_val_curr.detach().clone() + pd_power_val_curr.detach().clone())
-                    prev_effort_gate  = F.tanh(ff_power_val_prev.detach().clone() + pd_power_val_prev.detach().clone())
-                    pprev_effort_gate = F.tanh(ff_power_val_pprev.detach().clone() + pd_power_val_pprev.detach().clone())
+                        # Calculate a minimum effort gate
+                        #    detach the gate values from the comp-graph, do not need gradients flowing through this
+                        curr_effort_gate  = F.tanh(ff_power_val_curr.detach().clone() + pd_power_val_curr.detach().clone())
+                        prev_effort_gate  = F.tanh(ff_power_val_prev.detach().clone() + pd_power_val_prev.detach().clone())
+                        pprev_effort_gate = F.tanh(ff_power_val_pprev.detach().clone() + pd_power_val_pprev.detach().clone())
 
-                    # Now create losses that seek to align power generation
-                    #    using cosine similarity to enforce power expenditures that don't conflict 
-                    task_alignment_curr  = torch.clamp(-F.cosine_similarity(ff_power_curr,  pd_power_curr),  min=0.0)
-                    task_alignment_prev  = torch.clamp(-F.cosine_similarity(ff_power_prev,  pd_power_prev),  min=0.0)
-                    task_alignment_pprev = torch.clamp(-F.cosine_similarity(ff_power_pprev, pd_power_pprev), min=0.0)
+                        # Now create losses that seek to align power generation
+                        #    using cosine similarity to enforce power expenditures that don't conflict 
+                        task_alignment_curr  = torch.clamp(-F.cosine_similarity(ff_power_curr,  pd_power_curr),  min=0.0)
+                        task_alignment_prev  = torch.clamp(-F.cosine_similarity(ff_power_prev,  pd_power_prev),  min=0.0)
+                        task_alignment_pprev = torch.clamp(-F.cosine_similarity(ff_power_pprev, pd_power_pprev), min=0.0)
 
-                    task_align_loss = torch.mean(torch.square(curr_effort_gate*task_alignment_curr + \
-                                                              prev_effort_gate*task_alignment_prev + \
-                                                              pprev_effort_gate*task_alignment_pprev))
-                    
+                        task_align_loss = torch.mean(torch.square(curr_effort_gate*task_alignment_curr + \
+                                                                prev_effort_gate*task_alignment_prev + \
+                                                                pprev_effort_gate*task_alignment_pprev))
+                        
                     # # Finally, create a loss based on achiving a desired ratio of mechanical power.
                     # tagret_ratio = 1.8
                     # ratio_curr  =  ff_power_val_curr  / (pd_power_val_curr + 1e-6)
@@ -485,14 +486,15 @@ class PPODynamic:
                 ###
                 #   END loss calculations, start gradient updates
                 ### 
-                if self.pinn_weight > 0.0 and use_pinn:
-                    ppo_losses = [pos_loss+tau_loss,
-                                  self.pinn_weight * pinn_loss,
-                                  self.pinn_weight * task_align_loss]
-                                #   self.pinn_weight * task_ratio_loss]
-                else:
-                    ppo_losses = [pos_loss+tau_loss]
+                # if self.pinn_weight > 0.0 and use_pinn:
+                #     ppo_losses = [pos_loss+tau_loss,
+                #                   self.pinn_weight * pinn_loss,
+                #                   self.pinn_weight * task_align_loss]
+                #                 #   self.pinn_weight * task_ratio_loss]
+                # else:
+                #     ppo_losses = [pos_loss+tau_loss]
 
+                ppo_loss_total = pos_loss+tau_loss
 
                 ###
                 #   Perform encoder update step...
@@ -522,11 +524,15 @@ class PPODynamic:
                 #  Propigate gradients and update
                 ### 
                 
-                # PCGrad - back-propigate the loss
-                if use_pinn and self.pinn_weight > 0:
-                    self.act_optimizer.pc_backward_pinn(ppo_losses)
-                else:
-                    self.act_optimizer.pc_backward(ppo_losses)
+                # # PCGrad - back-propigate the loss
+                # if use_pinn and self.pinn_weight > 0:
+                #     self.act_optimizer.pc_backward_pinn(ppo_losses)
+                # else:
+                #     self.act_optimizer.pc_backward(ppo_losses)
+
+
+
+                ppo_loss_total.backward(retain_graph=True)
                 nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)                
                 
                 autoenc_loss.backward()

@@ -354,9 +354,9 @@ class OnPolicyRunnerDynamic:
     def save(self, path, infos=None):
         torch.save({
             'model_state_dict': self.alg.actor_critic.state_dict(),
-            'act_optimizer_state_dict': self.alg.act_optimizer.optimizer.state_dict(),
+            # 'act_optimizer_state_dict': self.alg.act_optimizer.optimizer.state_dict(),
             # 'enc_optimizer_state_dict': self.alg.enc_optimizer.optimizer.state_dict(),
-            # 'act_optimizer_state_dict': self.alg.act_optimizer.state_dict(),
+            'act_optimizer_state_dict': self.alg.act_optimizer.state_dict(),
             'enc_optimizer_state_dict': self.alg.enc_optimizer.state_dict(),
             'decoder_state_dict': self.alg.decoder.state_dict(),
             'decoder_opt_state_dict': self.alg.decoder_optimizer.state_dict(),
@@ -370,9 +370,9 @@ class OnPolicyRunnerDynamic:
         self.alg.actor_critic.load_state_dict(loaded_dict['model_state_dict'])
         # Load optimizer(s)
         if load_optimizer:
-            self.alg.act_optimizer.optimizer.load_state_dict(loaded_dict['act_optimizer_state_dict'])
+            # self.alg.act_optimizer.optimizer.load_state_dict(loaded_dict['act_optimizer_state_dict'])
             # self.alg.enc_optimizer.optimizer.load_state_dict(loaded_dict['enc_optimizer_state_dict'])
-            # self.alg.act_optimizer.load_state_dict(loaded_dict['act_optimizer_state_dict'])
+            self.alg.act_optimizer.load_state_dict(loaded_dict['act_optimizer_state_dict'])
             self.alg.enc_optimizer.load_state_dict(loaded_dict['enc_optimizer_state_dict'])
             self.alg.decoder_optimizer.load_state_dict(loaded_dict['decoder_opt_state_dict'])
         # Load the VAE decoder model...
