@@ -1,11 +1,11 @@
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
 
-class GO1DynamicCfg( LeggedRobotCfg ):
+class GO1PosCfg( LeggedRobotCfg ):
     
     class env( LeggedRobotCfg.env ):
         num_envs = 4096
         num_observations = 45
-        num_privileged_obs = 79 # robot_state + other privilged info + terrain_heights (121)
+        num_privileged_obs = 67 # robot_state + other privilged info + terrain_heights (121)
         num_actions = 12
         env_spacing = 0.5
         num_obs_hist = 5
@@ -77,7 +77,6 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             ang_vel = 0.25
             dof_pos = 1.0
             dof_vel = 0.05
-            dof_tau = 0.05               # in collected data the magnitude of the DOF's velocity and torques are roughly comparable 
             grf = 0.01
             height_measurements = 5.0
         clip_observations = 100.
@@ -173,7 +172,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         stiffness = {'joint': 30.0}   # [N*m/rad]
         damping   = {'joint': 0.75}     # [N*m*s/rad]
         
-        action_scale = [0.15, 0.25, 0.25]    # action scale: target angle = action_scale * pose_action + defaultAngle        
+        action_scale = [0.25, 0.25, 0.25]    # action scale: target angle = action_scale * pose_action + defaultAngle        
         
         dt =  0.005     # control frequency 200Hz
         decimation = 5  # decimation: Number of control action updates @ sim DT per policy DT
@@ -181,9 +180,9 @@ class GO1DynamicCfg( LeggedRobotCfg ):
 
     class termination:
         termination_terms = ["roll", "pitch", "height_min", "height_max"]
-        roll_threshold    = 0.70  # [rad] ~ 40 degrees
-        pitch_threshold   = 0.52  # [rad] ~ 30 degrees
-        height_min = 0.24       # [m]
+        roll_threshold    = 1.20  # [rad] ~ 40 degrees
+        pitch_threshold   = 0.70  # [rad] ~ 30 degrees
+        height_min = 0.20       # [m]
         height_max = 1.50        # [m]
 
     class rewards( LeggedRobotCfg.rewards ):
@@ -196,21 +195,21 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         foot_height_offset = 0.022    # height of the foot coordinate origin above ground [m]
         
         foot_clearance_tracking_sigma = 0.01
-        only_positive_rewards = False
+        only_positive_rewards = True
 
         use_reward_curriculum = False
 
         max_contact_force = 200.0
         class scales( LeggedRobotCfg.rewards.scales ):
             # General
-            termination      = -100.0
+            termination      = 0.0
             collision        = -1.0
-            dof_pos_limits        = -10.0
+            dof_pos_limits        = -5.0
             dof_close_to_default  = -0.05
             torque_limits         = -1.0
             
             no_motion_penalty     = 0.0
-            alive_bonus           = 0.0
+            alive_bonus           = 0.1
 
             stand_still_contact = -0.01
             stand_still         = -0.1
@@ -218,13 +217,12 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             # command tracking
             tracking_lin_vel  = 1.0
             tracking_ang_vel  = 0.5
-            dof_tracking      = 0.25
-            aligned_torques   = 0.1
-            sparse_contacts   = 0.00
+            dof_tracking      = 0.01
+            sparse_contacts   = 0.05
             foot_swing  = 0.00
             
             # smoothness and stability
-            lin_vel_z        = -2.0
+            lin_vel_z        = -1.0
             base_height      = -1.0
             ang_vel_xy       = -0.05
             orientation      = -1.0
@@ -234,8 +232,8 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             torques          = 0.0     # don't need to use this when we already have joint power above...
 
             # Zero out some values that are used in the individual reward classes below
-            action_rate       = -0.001
-            action_smoothness = -0.001
+            action_rate       = -0.01
+            action_smoothness = -0.01
 
             # gait
             feet_air_time    = 0.5            # tracking reward for long steps
@@ -301,12 +299,12 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             ang_vel_yaw = [-1.0, 1.0]    # min max [rad/s]
             heading = [-3.14, 3.14]
 
-class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
+class GO1PosCfgPPO( LeggedRobotCfgPPO ):
     seed = 1
-    runner_class_name = "OnPolicyRunnerDynamic" # Teacher-Student Runner
+    runner_class_name = "OnPolicyRunnerPos" # Teacher-Student Runner
     
     class policy( LeggedRobotCfgPPO.policy ):
-        activation = 'tanh' # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid, swish (SiLU)
+        activation = 'elu' # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid, swish (SiLU)
         init_noise_std = 1.00
         
         # Context encoder
@@ -317,7 +315,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         # Context Decoder
         cenet_dec_input_dim = 19
         cenet_dec_layers = [64,128]
-        cenet_dec_out_dim = 57        # next obs (57) + grf_dim (12)
+        cenet_dec_out_dim = 45        # next obs (57) + grf_dim (12)
 
         # Actor/critic
         actor_shared_dim = 512
@@ -327,14 +325,10 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         # Shared
         dropout = 0.1
 
-        pinn_loss_weight = 1.0e-3
-        pinn_warmup = 100
-        pinn_init_steps = 0
-
     class algorithm( LeggedRobotCfgPPO.algorithm ):
         entropy_coef = 0.01
-        # learning_rate = 1.0e-3 #
-        learning_rate = 3.0e-4 #
+        learning_rate = 1.0e-3 #
+        # learning_rate = 3.0e-4 #
         value_loss_coef = 1.0
         use_clipped_value_loss = True
         clip_param = 0.2
@@ -347,15 +341,15 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         max_grad_norm = 1.0
 
     class runner( LeggedRobotCfgPPO.runner ):
-        policy_class_name = 'ActorCritic_Dynamic'
-        algorithm_class_name = 'PPODynamic'
-        num_steps_per_env = 100 # per iteration
+        policy_class_name = 'ActorCritic_Pos'
+        algorithm_class_name = 'PPOPos'
+        num_steps_per_env = 144 # per iteration
         max_iterations = 4000 # number of policy updates
         grf_dim = 12
         
         # debug_warmpinn_wb
         run_name = 'full_approach_boot_01'
-        experiment_name = 'rss_go1_dynamic'
+        experiment_name = 'rss_go1_pos'
         save_interval = 100
         
         

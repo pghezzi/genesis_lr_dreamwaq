@@ -417,10 +417,10 @@ class ActorCritic_Dynamic(nn.Module):
         
         # print(f"Parameters with extra strong weight decay{special_decay}")
 
-        params_act = [{"params": [param_dict[pn] for pn in sorted(pos_decay)],     "weight_decay": weight_decay, "name":"pos_branch"},
-                      {"params": [param_dict[pn] for pn in sorted(tau_decay)],     "weight_decay": weight_decay, "name":"tau_branch"},
-                      {"params": [param_dict[pn] for pn in sorted(shared_decay)],  "weight_decay": weight_decay, "name":"shared"},
-                      {"params": [param_dict[pn] for pn in sorted(critic_set)],    "weight_decay": weight_decay, "name":"critic"},
+        params_act = [{"params": [param_dict[pn] for pn in sorted(pos_decay)],     "weight_decay": 0.0, "name":"pos_branch"},
+                      {"params": [param_dict[pn] for pn in sorted(tau_decay)],     "weight_decay": 0.0, "name":"tau_branch"},
+                      {"params": [param_dict[pn] for pn in sorted(shared_decay)],  "weight_decay": 0.0, "name":"shared"},
+                      {"params": [param_dict[pn] for pn in sorted(critic_set)],    "weight_decay": 0.0, "name":"critic"},
                       {"params": [param_dict[pn] for pn in sorted(no_decay)],      "weight_decay": 0.0},
                       {"params": [param_dict[pn] for pn in sorted(special_decay)], "weight_decay": strong_decay}]
         

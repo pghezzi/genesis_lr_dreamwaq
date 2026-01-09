@@ -53,7 +53,7 @@ class LeggedRobotGo1Pos(BaseTask):
     def reset(self):
         """ Reset all robots"""
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
-        obs, privileged_obs, _, _, _, _, _ = self.step(torch.zeros(self.num_envs, 2*self.num_actions, device=self.device, requires_grad=False))
+        obs, privileged_obs, _, _, _, _, _ = self.step(torch.zeros(self.num_envs, self.num_actions, device=self.device, requires_grad=False))
         return obs, privileged_obs
 
     def step(self, actions):
@@ -393,7 +393,7 @@ class LeggedRobotGo1Pos(BaseTask):
 
             self.privileged_obs_buf = torch.cat(
                 (   
-                    self.obs_buf,                 # 57 DOF
+                    self.obs_buf,                 # 45 DOF
                     self.base_lin_vel * self.obs_scales.lin_vel,  # 3 DOF
                     self.grfs_buf * self.obs_scales.grf,          # 12 DOF
                     self._friction_values,        # 1
@@ -1274,10 +1274,6 @@ class LeggedRobotGo1Pos(BaseTask):
             for key in self.reward_curr_keys:
                 if key in self.reward_scales.keys():
                     self.reward_scales[key] = self.reward_curr_bounds[key][0] * self.dt
-                if key in self.pos_reward_scales.keys():
-                    self.pos_reward_scales[key] = self.reward_curr_bounds[key][0] * self.dt
-                if key in self.tau_reward_scales:
-                    self.tau_reward_scales[key] = self.reward_curr_bounds[key][0] * self.dt
         # Gradually increase the regularization strength
         elif self.num_iters > self.reward_warmup_steps and (self.num_iters - self.reward_warmup_steps) < self.reward_curr_steps:
             print("Stepping Reward Curriculum")
@@ -1285,20 +1281,12 @@ class LeggedRobotGo1Pos(BaseTask):
             for key in self.reward_curr_keys:
                 if key in self.reward_scales.keys():
                     self.reward_scales[key] = ((float(adjusted_iter)/float(self.reward_curr_steps))*self.reward_bound_diffs[key] + self.reward_curr_bounds[key][0])*self.dt
-                if key in self.pos_reward_scales.keys():
-                    self.pos_reward_scales[key] = ((float(adjusted_iter)/float(self.reward_curr_steps))*self.reward_bound_diffs[key] + self.reward_curr_bounds[key][0])*self.dt
-                if key in self.tau_reward_scales:
-                    self.tau_reward_scales[key] = ((float(adjusted_iter)/float(self.reward_curr_steps))*self.reward_bound_diffs[key] + self.reward_curr_bounds[key][0])*self.dt
         # Fix the regularization strength to the upper-bound
         else:
             # by default set the reward to the upper bound
             for key in self.reward_curr_keys:
                 if key in self.reward_scales.keys():
                     self.reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
-                if key in self.pos_reward_scales.keys():
-                    self.pos_reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
-                if key in self.tau_reward_scales:
-                    self.tau_reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
 
     def _parse_cfg(self, cfg, sim_device):
         self.dt = self.cfg.control.dt
@@ -1307,10 +1295,6 @@ class LeggedRobotGo1Pos(BaseTask):
         self.sim_substeps = 1
         self.obs_scales = self.cfg.normalization.obs_scales
         self.reward_scales = class_to_dict(self.cfg.rewards.scales)
-        
-        self.pos_reward_scales = class_to_dict(self.cfg.rewards.pos_scales)
-        self.tau_reward_scales = class_to_dict(self.cfg.rewards.tau_scales)
-
         self.use_reward_curriculum = self.cfg.rewards.use_reward_curriculum
 
         self.reward_curr_keys = self.cfg.rewards.reward_curriculum.curr_reward_keys
