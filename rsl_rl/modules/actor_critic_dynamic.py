@@ -30,16 +30,17 @@ class _ShiftScaleMod(nn.Module):
         self.shift = nn.Linear(dim, 1)
         self.reset_parameters()
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
         """Applies adaptive scaling and shifting.
 
         Args:
             x: Input tensor of shape [batch_size, dim]
-
+            c: Conditioning tensor of shape [batch_size, dim]
         Returns:
             Modulated tensor of same shape as input
         """
-        return x * self.scale(x) + self.shift(x)
+        c = self.act(c)
+        return x * self.scale(c) + self.shift(c)
 
     def reset_parameters(self) -> None:
         """Initializes weights with Xavier uniform and zeros biases."""
@@ -255,11 +256,11 @@ class ActorCritic_Dynamic(nn.Module):
 
         # Now create FiLM layers for sharing info. between branches
         #     Applied after h1
-        self.act_pos_2_tau_h1 = _ShiftScaleMod(dim=actor_branch_layers[0], activation=activation)
-        self.act_tau_2_pos_h1 = _ShiftScaleMod(dim=actor_branch_layers[0], activation=activation)
+        self.act_pos_2_tau_h1 = _ShiftScaleMod(dim=actor_branch_layers[0]*2, activation=activation)
+        self.act_tau_2_pos_h1 = _ShiftScaleMod(dim=actor_branch_layers[0]*2, activation=activation)
         #     Applied after h2
-        self.act_pos_2_tau_h2 = _ShiftScaleMod(dim=actor_branch_layers[1], activation=activation)
-        self.act_tau_2_pos_h2 = _ShiftScaleMod(dim=actor_branch_layers[1], activation=activation)
+        self.act_pos_2_tau_h2 = _ShiftScaleMod(dim=actor_branch_layers[1]*2, activation=activation)
+        self.act_tau_2_pos_h2 = _ShiftScaleMod(dim=actor_branch_layers[1]*2, activation=activation)
 
         self.act_pos_layernorm_1 = nn.LayerNorm(actor_branch_layers[0])
         self.act_tau_layernorm_1 = nn.LayerNorm(actor_branch_layers[0])
@@ -469,8 +470,9 @@ class ActorCritic_Dynamic(nn.Module):
         tau_latent = self.act_tau_h1(x)
         #     now perform the cross-conditioning
         #     FiLM layer has a built-in axtivation function
-        pos_latent = pos_latent + self.act_tau_2_pos_h1(tau_latent)  # perform FiLM on pos_latent using tau_latent
-        tau_latent = tau_latent + self.act_pos_2_tau_h1(pos_latent)  # perform FiLM on tau_latent using pos_latent
+        condition = torch.cat([pos_latent, tau_latent], dim=-1)
+        pos_latent = pos_latent + self.act_tau_2_pos_h1(tau_latent, condition)  # perform FiLM on pos_latent using tau_latent
+        tau_latent = tau_latent + self.act_pos_2_tau_h1(pos_latent, condition)  # perform FiLM on tau_latent using pos_latent
         # Perform activation
         pos_latent = self.activation(pos_latent)
         tau_latent = self.activation(tau_latent)
@@ -485,8 +487,9 @@ class ActorCritic_Dynamic(nn.Module):
         #     torque
         tau_latent = self.act_tau_h2(tau_latent)
         #     now perform the cross-conditioning
-        pos_latent = pos_latent + self.act_tau_2_pos_h2(tau_latent)  # perform FiLM on pos_latent using tau_latent
-        tau_latent = tau_latent + self.act_pos_2_tau_h2(pos_latent)  # perform FiLM on tau_latent using pos_latent
+        condition = torch.cat([pos_latent, tau_latent], dim=-1)
+        pos_latent = pos_latent + self.act_tau_2_pos_h2(tau_latent, condition)  # perform FiLM on pos_latent using tau_latent
+        tau_latent = tau_latent + self.act_pos_2_tau_h2(pos_latent, condition)  # perform FiLM on tau_latent using pos_latent
         # perform activation
         pos_latent = self.activation(pos_latent)
         tau_latent = self.activation(tau_latent)
