@@ -88,11 +88,11 @@ class OnPolicyRunnerDynamic:
 
         alg_class = eval(self.cfg["algorithm_class_name"]) # PPO
         
-        self.alg: PPODynamic = alg_class(actor_critic, decoder, 
-                                         pinn_lambda=self.policy_cfg["pinn_loss_weight"], 
-                                         pinn_warmup=self.policy_cfg["pinn_warmup"], 
-                                         pinn_init_steps=self.policy_cfg["pinn_init_steps"],
-                                         device=self.device, **self.alg_cfg)
+        self.alg: PPOPos = alg_class(actor_critic, decoder,
+                                     pinn_lambda=self.policy_cfg["pinn_loss_weight"], 
+                                     pinn_warmup=self.policy_cfg["pinn_warmup"], 
+                                     pinn_init_steps=self.policy_cfg["pinn_init_steps"],
+                                     device=self.device, **self.alg_cfg)
         
         self.num_steps_per_env = self.cfg["num_steps_per_env"]
         self.save_interval = self.cfg["save_interval"]
