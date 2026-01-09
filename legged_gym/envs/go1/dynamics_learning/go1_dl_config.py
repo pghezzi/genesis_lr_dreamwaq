@@ -250,14 +250,14 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         max_contact_force = 200.0
         class scales( LeggedRobotCfg.rewards.scales ):
             # General
-            termination      = 0.0
+            termination      = -100.0
             collision        = -1.0
             dof_pos_limits        = -10.0
             dof_close_to_default  = -0.05
             torque_limits         = -1.0
             
             no_motion_penalty     = 0.0
-            alive_bonus           = 0.0
+            alive_bonus           = 1.0
 
             stand_still_contact = -0.01
             stand_still         = -0.1
@@ -400,8 +400,8 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         pinn_warmup = 100
         pinn_init_steps = 0
 
-        pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/rsl_rl/" \
-                            "modules/pretrained_models/dynamic/12_27_202508_21_32_no_pinn/no_pinn_epoch_499.pth"
+        # pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/rsl_rl/" \
+        #                     "modules/pretrained_models/dynamic/12_27_202508_21_32_no_pinn/no_pinn_epoch_499.pth"
 
     class algorithm( LeggedRobotCfgPPO.algorithm ):
         entropy_coef = 0.01
@@ -426,7 +426,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         grf_dim = 12
         
         # debug_warmpinn_wb
-        run_name = 'full_approach_boot_01'
+        run_name = 'full_approach_boot_newfilm_01'
         experiment_name = 'rss_go1_dynamic'
         save_interval = 100
         

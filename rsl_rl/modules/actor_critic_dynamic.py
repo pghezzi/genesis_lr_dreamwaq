@@ -26,22 +26,20 @@ class _ShiftScaleMod(nn.Module):
     def __init__(self, dim: int, activation) -> None:
         super().__init__()
         self.act = get_activation(activation)
-        self.scale = nn.Linear(dim, dim)
-        self.shift = nn.Linear(dim, dim)
+        self.scale = nn.Linear(dim, 1)
+        self.shift = nn.Linear(dim, 1)
         self.reset_parameters()
 
-    def forward(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Applies adaptive scaling and shifting.
 
         Args:
             x: Input tensor of shape [batch_size, dim]
-            c: Conditioning tensor of shape [batch_size, dim]
 
         Returns:
             Modulated tensor of same shape as input
         """
-        c = self.act(c)
-        return x * self.scale(c) + self.shift(c)
+        return x * self.scale(x) + self.shift(x)
 
     def reset_parameters(self) -> None:
         """Initializes weights with Xavier uniform and zeros biases."""
@@ -471,8 +469,8 @@ class ActorCritic_Dynamic(nn.Module):
         tau_latent = self.act_tau_h1(x)
         #     now perform the cross-conditioning
         #     FiLM layer has a built-in axtivation function
-        pos_latent = self.act_tau_2_pos_h1(pos_latent, tau_latent)  # perform FiLM on pos_latent using tau_latent
-        tau_latent = self.act_pos_2_tau_h1(tau_latent, pos_latent)  # perform FiLM on tau_latent using pos_latent
+        pos_latent = pos_latent + self.act_tau_2_pos_h1(tau_latent)  # perform FiLM on pos_latent using tau_latent
+        tau_latent = tau_latent + self.act_pos_2_tau_h1(pos_latent)  # perform FiLM on tau_latent using pos_latent
         # Perform activation
         pos_latent = self.activation(pos_latent)
         tau_latent = self.activation(tau_latent)
@@ -487,8 +485,8 @@ class ActorCritic_Dynamic(nn.Module):
         #     torque
         tau_latent = self.act_tau_h2(tau_latent)
         #     now perform the cross-conditioning
-        pos_latent = self.act_tau_2_pos_h2(pos_latent, tau_latent)  # perform FiLM on pos_latent using tau_latent
-        tau_latent = self.act_pos_2_tau_h2(tau_latent, pos_latent)  # perform FiLM on tau_latent using pos_latent
+        pos_latent = pos_latent + self.act_tau_2_pos_h2(tau_latent)  # perform FiLM on pos_latent using tau_latent
+        tau_latent = tau_latent + self.act_pos_2_tau_h2(pos_latent)  # perform FiLM on tau_latent using pos_latent
         # perform activation
         pos_latent = self.activation(pos_latent)
         tau_latent = self.activation(tau_latent)
