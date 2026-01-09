@@ -214,14 +214,14 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         torque_scale = [10.0, 10.0, 10.0] # action scale:  target torque = torque_scale * tau_action + defaultTorque
         
         
-        dt =  0.005     # control frequency 200Hz
-        decimation = 5  # decimation: Number of control action updates @ sim DT per policy DT
+        dt =  0.02     # control frequency 200Hz
+        decimation = 4  # decimation: Number of control action updates @ sim DT per policy DT
 
         # Assumed order - tau_ff, tau_fb
-        tradeoff_init_weights  = [0.10, 10.0]
+        tradeoff_init_weights  = [0.40, 7.0]
         tradeoff_final_weights = [1.00, 1.0]
-        tradeoff_steps = 20
-        tradeoff_threshold = 0.60
+        tradeoff_steps = 10
+        tradeoff_threshold = 0.40
         use_tradeoff_curriculum = True
 
 
@@ -250,14 +250,14 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         max_contact_force = 200.0
         class scales( LeggedRobotCfg.rewards.scales ):
             # General
-            termination      = 0.0
+            termination      = -100.0
             collision        = -1.0
             dof_pos_limits        = -10.0
             dof_close_to_default  = -0.05
             torque_limits         = -1.0
             
             no_motion_penalty     = 0.0
-            alive_bonus           = 0.0
+            alive_bonus           = 1.0
 
             stand_still_contact = -0.01
             stand_still         = -0.1
@@ -398,10 +398,12 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
 
         pinn_loss_weight = 1.0e-3
         pinn_warmup = 100
-        pinn_init_steps = 0
+        pinn_init_steps = 1000
 
-        pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/rsl_rl/" \
-                            "modules/pretrained_models/dynamic/12_27_202508_21_32_no_pinn/no_pinn_epoch_499.pth"
+        # pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/rsl_rl/" \
+        #                     "modules/pretrained_models/dynamic/12_30_202514_37_12_no_pinn_nofilm/no_pinn_no_film_epoch_499.pth"
+
+        pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/logs/rss_go1_dynamic/Jan08_18-05-48_branch_pinn_no_film_boot_01/model_300.pt"
 
     class algorithm( LeggedRobotCfgPPO.algorithm ):
         entropy_coef = 0.01
@@ -419,14 +421,14 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         max_grad_norm = 1.0
 
     class runner( LeggedRobotCfgPPO.runner ):
-        policy_class_name = 'ActorCritic_Dynamic'
+        policy_class_name = 'ActorCritic_Dynamic_NoFiLM'
         algorithm_class_name = 'PPODynamic'
-        num_steps_per_env = 100 # per iteration
+        num_steps_per_env = 36 # per iteration
         max_iterations = 4000 # number of policy updates
         grf_dim = 12
         
         # debug_warmpinn_wb
-        run_name = 'full_approach_boot_01'
+        run_name = 'branch_pinn_no_film_boot_01'
         experiment_name = 'rss_go1_dynamic'
         save_interval = 100
         

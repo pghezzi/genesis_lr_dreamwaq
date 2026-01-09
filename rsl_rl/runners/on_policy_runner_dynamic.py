@@ -38,7 +38,7 @@ from torch.utils.tensorboard import SummaryWriter
 import torch
 
 from rsl_rl.algorithms import PPODynamic
-from rsl_rl.modules import ActorCritic_Dynamic, ContextDecoder
+from rsl_rl.modules import ActorCritic_Dynamic_NoFiLM, ContextDecoder
 from rsl_rl.env import VecEnv
 
 
@@ -65,7 +65,7 @@ class OnPolicyRunnerDynamic:
         
         cenet_input_dim = self.env.num_obs * self.env.num_obs_hist
 
-        actor_critic: ActorCritic_Dynamic = actor_critic_class(self.env.num_obs,
+        actor_critic: ActorCritic_Dynamic_NoFiLM = actor_critic_class(self.env.num_obs,
                                                                num_critic_obs,
                                                                self.env.num_actions,
                                                                self.policy_cfg["actor_shared_dim"],
@@ -122,11 +122,11 @@ class OnPolicyRunnerDynamic:
         print(pretrained_path)
         loaded_dict = torch.load(pretrained_path)
         # Load the pretrained action-network and encoder
-        self.alg.actor_critic.load_state_dict(loaded_dict['action'])
+        self.alg.actor_critic.load_state_dict(loaded_dict['model_state_dict'])
         # re-initalize the critic network weights which where not pretrained (to be safe)
-        self.alg.actor_critic._init_critic_weights()
+        # self.alg.actor_critic._init_critic_weights()
         # Load the pretrained decoder network
-        self.alg.decoder.load_state_dict(loaded_dict['decoder'])
+        self.alg.decoder.load_state_dict(loaded_dict['decoder_state_dict'])
     
     def learn(self, num_learning_iterations, init_at_random_ep_len=False):
         # initialize writer
