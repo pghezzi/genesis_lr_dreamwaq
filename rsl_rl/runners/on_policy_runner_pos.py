@@ -84,7 +84,12 @@ class OnPolicyRunnerPos:
                                  self.policy_cfg["cenet_dec_out_dim"],
                                  self.policy_cfg["dropout"]).to(self.device)
         
-        print("Created Parallel Actor-Critic Model. Parameter Count: ", np.sum(p.numel() for p in actor_critic.parameters() if p.requires_grad))
+        param_count = 0
+        for name, parameter in actor_critic.named_parameters():
+            if "act" in name or "ce" in name or "shared" in name:
+                param_count += parameter.numel()
+        
+        print("Created Parallel Actor-Critic Model. Parameter Count: ", param_count)
 
         alg_class = eval(self.cfg["algorithm_class_name"]) # PPO
         

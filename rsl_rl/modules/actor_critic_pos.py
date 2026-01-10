@@ -324,7 +324,7 @@ class ActorCritic_Pos(nn.Module):
         """
         opt_groups_act, opt_groups_enc = self.get_optim_groups(weight_decay=weight_decay, strong_decay=strong_decay)
         act_opt = torch.optim.AdamW(opt_groups_act, lr=learning_rate)
-        enc_opt = torch.optim.AdamW(opt_groups_enc, lr=learning_rate)
+        enc_opt = torch.optim.AdamW(opt_groups_enc, lr=2.0e-4)
         return act_opt, enc_opt
 
     def reset(self, dones=None):

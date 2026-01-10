@@ -354,7 +354,8 @@ class LeggedRobotGo1Pos(BaseTask):
                                   (self.dof_pos - self.default_dof_pos) * self.obs_scales.dof_pos,  # 12 DOF
                                   self.dof_vel * self.obs_scales.dof_vel,      # 12 DOF       
                                 #   (self.dof_tau - self.default_dof_tau)*self.obs_scales.dof_tau,    # 12 DOF
-                                  self.actions), dim=-1)              # 12 DOF  total of - 45
+                                  self.actions,                       # 12 DOF
+                                  (self.torques.float()*0.10)), dim=-1)              # 12 DOF  total of - 57 DOF
         # # add perceptive inputs if not blind
         # if self.cfg.terrain.measure_heights:
         #     heights = torch.clip(self.base_pos[:, 2].unsqueeze(

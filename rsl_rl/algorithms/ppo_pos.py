@@ -212,7 +212,7 @@ class PPOPos:
 
                 self.actor_critic.train()
                 self.act_optimizer.zero_grad()
-                # self.enc_optimizer.zero_grad()
+                self.enc_optimizer.zero_grad()
 
                 if self.use_boot:
                     self.actor_critic.act(obs_batch, obs_hist_batch)
@@ -258,12 +258,12 @@ class PPOPos:
                 # PPO stuff
                 # PPO Surrogate loss
                 pos_ratio = torch.exp(pos_actions_log_prob_batch - torch.squeeze(pos_old_actions_log_prob_batch))
-                # pos_surrogate = -torch.squeeze(pos_advantages_batch) * pos_ratio
-                # pos_surrogate_clipped = -torch.squeeze(pos_advantages_batch) * torch.clamp(pos_ratio, 1.0 - self.clip_param, 1.0 + self.clip_param)
-                # pos_surrogate_loss = torch.max(pos_surrogate, pos_surrogate_clipped).mean()
+                pos_surrogate = -torch.squeeze(pos_advantages_batch) * pos_ratio
+                pos_surrogate_clipped = -torch.squeeze(pos_advantages_batch) * torch.clamp(pos_ratio, 1.0 - self.clip_param, 1.0 + self.clip_param)
+                pos_surrogate_loss = torch.max(pos_surrogate, pos_surrogate_clipped).mean()
 
                 # SPO Surrogate loss
-                pos_surrogate_loss = -(torch.squeeze(pos_advantages_batch) * pos_ratio - torch.abs(torch.squeeze(pos_advantages_batch)) * torch.pow(pos_ratio - 1, 2) / (2 * 0.2)).mean()
+                # pos_surrogate_loss = -(torch.squeeze(pos_advantages_batch) * pos_ratio - torch.abs(torch.squeeze(pos_advantages_batch)) * torch.pow(pos_ratio - 1, 2) / (2 * 0.2)).mean()
 
                 # PPO stuff
                 # Value function loss
@@ -277,17 +277,17 @@ class PPOPos:
 
                 ppo_pos_loss = pos_surrogate_loss + self.value_loss_coef * pos_value_loss - self.entropy_coef * pos_entropy_batch.mean()
                 
-                ppo_pos_loss.backward()
-                nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)                
-                self.act_optimizer.step()
+                # ppo_pos_loss.backward()
+                # nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)                
+                # self.act_optimizer.step()
 
 
                 ###
                 #   Perform encoder update step...
                 ###
                 self.decoder.eval()
-                self.enc_optimizer.zero_grad()
-                mean_latent, logvar_latent, cenet_latent, cenet_torso_velo = self.actor_critic.context_encoder(obs_hist_batch)
+                # self.enc_optimizer.zero_grad()
+                # mean_latent, logvar_latent, cenet_latent, cenet_torso_velo = self.actor_critic.context_encoder(obs_hist_batch)
                 
                 dec_input = torch.cat((cenet_latent, cenet_torso_velo), dim=-1)
                 enc_update_obs_decode = self.decoder(dec_input)
@@ -314,9 +314,9 @@ class PPOPos:
                 ### 
                 
                 # PCGrad - back-propigate the loss
-                # ppo_pos_loss.backward(retain_graph=True)
-                # nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)                
-                # self.act_optimizer.step()
+                ppo_pos_loss.backward(retain_graph=True)
+                nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)                
+                self.act_optimizer.step()
 
                 autoenc_loss.backward()
                 nn.utils.clip_grad_norm_(self.actor_critic.context_encoder.parameters(), self.max_grad_norm)

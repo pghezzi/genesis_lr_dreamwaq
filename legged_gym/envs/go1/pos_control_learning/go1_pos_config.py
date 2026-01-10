@@ -4,8 +4,8 @@ class GO1PosCfg( LeggedRobotCfg ):
     
     class env( LeggedRobotCfg.env ):
         num_envs = 4096
-        num_observations = 45
-        num_privileged_obs = 67 # robot_state + other privilged info + terrain_heights (121)
+        num_observations = 57
+        num_privileged_obs = 79 # robot_state + other privilged info + terrain_heights (121)
         num_actions = 12
         env_spacing = 0.5
         num_obs_hist = 5
@@ -174,7 +174,7 @@ class GO1PosCfg( LeggedRobotCfg ):
         
         action_scale = [0.25, 0.25, 0.25]    # action scale: target angle = action_scale * pose_action + defaultAngle        
         
-        dt =  0.005     # control frequency 200Hz
+        dt =  0.01     # control frequency 100Hz
         decimation = 5  # decimation: Number of control action updates @ sim DT per policy DT
 
 
@@ -217,7 +217,7 @@ class GO1PosCfg( LeggedRobotCfg ):
             # command tracking
             tracking_lin_vel  = 1.0
             tracking_ang_vel  = 0.5
-            dof_tracking      = 0.01
+            dof_tracking      = 0.25
             sparse_contacts   = 0.05
             foot_swing  = 0.00
             
@@ -304,7 +304,7 @@ class GO1PosCfgPPO( LeggedRobotCfgPPO ):
     runner_class_name = "OnPolicyRunnerPos" # Teacher-Student Runner
     
     class policy( LeggedRobotCfgPPO.policy ):
-        activation = 'elu' # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid, swish (SiLU)
+        activation = 'tanh' # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid, swish (SiLU)
         init_noise_std = 1.00
         
         # Context encoder
@@ -315,7 +315,7 @@ class GO1PosCfgPPO( LeggedRobotCfgPPO ):
         # Context Decoder
         cenet_dec_input_dim = 19
         cenet_dec_layers = [64,128]
-        cenet_dec_out_dim = 45        # next obs (57) + grf_dim (12)
+        cenet_dec_out_dim = 57        # next obs (57) + grf_dim (12)
 
         # Actor/critic
         actor_shared_dim = 512
@@ -344,11 +344,11 @@ class GO1PosCfgPPO( LeggedRobotCfgPPO ):
         policy_class_name = 'ActorCritic_Pos'
         algorithm_class_name = 'PPOPos'
         num_steps_per_env = 144 # per iteration
-        max_iterations = 4000 # number of policy updates
+        max_iterations = 2000 # number of policy updates
         grf_dim = 12
         
         # debug_warmpinn_wb
-        run_name = 'full_approach_boot_01'
+        run_name = 'full_approach_boot_01_100hz_tanh'
         experiment_name = 'rss_go1_pos'
         save_interval = 100
         
