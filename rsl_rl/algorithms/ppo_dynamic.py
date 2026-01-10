@@ -259,7 +259,7 @@ class PPODynamic:
 
                 self.actor_critic.train()
                 self.act_optimizer.zero_grad()
-                self.enc_optimizer.zero_grad()
+                # self.enc_optimizer.zero_grad()
 
                 if self.use_boot:
                     self.actor_critic.act(obs_batch, obs_hist_batch)
@@ -271,10 +271,10 @@ class PPODynamic:
                 # Encoder stuff
                 # pull out some values from the actor that I want to use in the decoder...
                 #    avoids a second separate run through the encoder + aligns RL update with enc update...
-                mean_latent = self.actor_critic.cenet_mean
-                logvar_latent = self.actor_critic.cenet_logvar
-                cenet_latent = self.actor_critic.cenet_z
-                cenet_torso_velo = self.actor_critic.cenet_torso_velo
+                # mean_latent = self.actor_critic.cenet_mean
+                # logvar_latent = self.actor_critic.cenet_logvar
+                # cenet_latent = self.actor_critic.cenet_z
+                # cenet_torso_velo = self.actor_critic.cenet_torso_velo
 
                 # PPO stuff
                 #    - Position Control
@@ -493,11 +493,22 @@ class PPODynamic:
                 else:
                     ppo_losses = [pos_loss+tau_loss]
 
+                # PCGrad - back-propigate the loss
+                if use_pinn and self.pinn_weight > 0:
+                    self.act_optimizer.pc_backward_pinn(ppo_losses)
+                else:
+                    self.act_optimizer.pc_backward(ppo_losses)
+                nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
+                self.act_optimizer.step()
+                torch.cuda.empty_cache()
 
                 ###
                 #   Perform encoder update step...
                 ###
                 self.decoder.eval()
+                self.enc_optimizer.zero_grad()
+                mean_latent, logvar_latent, cenet_latent, cenet_torso_velo = self.actor_critic.context_encoder(obs_hist_batch)
+
                 dec_input = torch.cat((cenet_latent, cenet_torso_velo), dim=-1)
                 enc_update_obs_decode = self.decoder(dec_input)
                 
@@ -521,19 +532,10 @@ class PPODynamic:
                 ###
                 #  Propigate gradients and update
                 ### 
-                
-                # PCGrad - back-propigate the loss
-                if use_pinn and self.pinn_weight > 0:
-                    self.act_optimizer.pc_backward_pinn(ppo_losses)
-                else:
-                    self.act_optimizer.pc_backward(ppo_losses)
-                nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)                
-                
                 autoenc_loss.backward()
                 nn.utils.clip_grad_norm_(self.actor_critic.context_encoder.parameters(), self.max_grad_norm)
-
-                self.act_optimizer.step()
                 self.enc_optimizer.step()
+                torch.cuda.empty_cache()
 
                 ###
                 #  Perfrom a separate update on the decoder....
@@ -547,6 +549,7 @@ class PPODynamic:
                 dec_loss.backward()
                 nn.utils.clip_grad_norm_(self.decoder.parameters(), self.max_grad_norm)
                 self.decoder_optimizer.step()
+                torch.cuda.empty_cache()
 
                 # self.spectral_normalization(self.actor_critic)
                 # self.spectral_normalization(self.decoder)

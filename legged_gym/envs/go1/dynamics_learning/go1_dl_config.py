@@ -252,12 +252,12 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             # General
             termination      = -100.0
             collision        = -1.0
-            dof_pos_limits        = -10.0
+            dof_pos_limits        = -5.0
             dof_close_to_default  = -0.05
             torque_limits         = -1.0
             
             no_motion_penalty     = 0.0
-            alive_bonus           = 1.0
+            alive_bonus           = 0.1
 
             stand_still_contact = -0.01
             stand_still         = -0.1
@@ -405,8 +405,8 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
 
     class algorithm( LeggedRobotCfgPPO.algorithm ):
         entropy_coef = 0.01
-        # learning_rate = 1.0e-3 #
-        learning_rate = 3.0e-4 #
+        learning_rate = 1.0e-3 #
+        # learning_rate = 3.0e-4 #
         value_loss_coef = 1.0
         use_clipped_value_loss = True
         clip_param = 0.2
