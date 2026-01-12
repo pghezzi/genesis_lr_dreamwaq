@@ -218,7 +218,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         decimation = 5  # decimation: Number of control action updates @ sim DT per policy DT
 
         # Assumed order - tau_ff, tau_fb
-        tradeoff_init_weights  = [0.00, 10.0]
+        tradeoff_init_weights  = [1.00, 1.00]
         tradeoff_final_weights = [1.00, 1.00]
         tradeoff_steps = 2
         tradeoff_threshold = 0.60
@@ -236,7 +236,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
     class rewards( LeggedRobotCfg.rewards ):
         soft_dof_pos_limit = 0.90
         soft_torque_limit = 0.90
-        base_height_target = 0.30
+        base_height_target = 0.26
         tracking_sigma = 0.25 # tracking reward = exp(-error^2/sigma)
         
         foot_clearance_target = 0.060 # desired foot clearance above ground [m]
@@ -250,7 +250,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         max_contact_force = 200.0
         class scales( LeggedRobotCfg.rewards.scales ):
             # General
-            termination      = 0.0
+            termination      = -1.0
             collision        = -1.0
             dof_pos_limits        = -5.0
             dof_close_to_default  = -0.5
@@ -286,7 +286,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
 
             feedforward_torques   = -2.0e-4
             # feedback_torques      = -2.0e-4
-            act_close_to_default    = -0.1
+            act_close_to_default    = -0.01
 
             # promot stable WB locomotion
             # wb_dynamics = 0.1
@@ -433,8 +433,8 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         save_interval = 100
         
         
-        load_run = "Jan11_19-49-03_full_approach_boot_newfilm_01_100hz_posboot"
-        checkpoint = 2200
+        load_run = "Jan12_11-35-12_full_approach_boot_newfilm_01_100hz_posboot"
+        checkpoint = 500
 
         # Load parameters for first function policy
         # run_name = 'test_01'

@@ -331,7 +331,7 @@ class PPODynamic:
                 else:
                     pos_value_loss = (pos_returns_batch - pos_value_batch).pow(2).mean()
 
-                pos_loss = pos_surrogate_loss + self.value_loss_coef * pos_value_loss - 0.0001 * pos_entropy_batch.mean()
+                pos_loss = pos_surrogate_loss + self.value_loss_coef * pos_value_loss - 0.001 * pos_entropy_batch.mean()
 
                 #   - Torque Control
                 # KL
