@@ -180,7 +180,7 @@ class GO1PosCfg( LeggedRobotCfg ):
 
     class termination:
         termination_terms = ["roll", "pitch", "height_min", "height_max"]
-        roll_threshold    = 1.20  # [rad] ~ 40 degrees
+        roll_threshold    = 1.00  # [rad] ~ 40 degrees
         pitch_threshold   = 0.70  # [rad] ~ 30 degrees
         height_min = 0.20       # [m]
         height_max = 1.50        # [m]
@@ -188,7 +188,7 @@ class GO1PosCfg( LeggedRobotCfg ):
     class rewards( LeggedRobotCfg.rewards ):
         soft_dof_pos_limit = 0.90
         soft_torque_limit = 0.90
-        base_height_target = 0.30
+        base_height_target = 0.26
         tracking_sigma = 0.25 # tracking reward = exp(-error^2/sigma)
         
         foot_clearance_target = 0.060 # desired foot clearance above ground [m]
@@ -344,7 +344,7 @@ class GO1PosCfgPPO( LeggedRobotCfgPPO ):
         policy_class_name = 'ActorCritic_Pos'
         algorithm_class_name = 'PPOPos'
         num_steps_per_env = 144 # per iteration
-        max_iterations = 2000 # number of policy updates
+        max_iterations = 1000 # number of policy updates
         grf_dim = 12
         
         # debug_warmpinn_wb

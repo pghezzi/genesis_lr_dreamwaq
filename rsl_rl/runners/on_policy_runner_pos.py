@@ -177,7 +177,8 @@ class OnPolicyRunnerPos:
                 start = stop
                 self.alg.compute_returns(critic_obs)
 
-            mean_pos_value_loss, mean_pos_surrogate_loss, mean_autoenc_loss, mean_decoder_loss, mean_vel_loss, mean_recon_loss, mean_kld_loss = self.alg.update(beta=2.0)
+            mean_pos_value_loss, mean_pos_surrogate_loss, mean_autoenc_loss, mean_decoder_loss, \
+                mean_vel_loss, mean_recon_loss, mean_kld_loss, mean_tau_loss = self.alg.update(self.env._get_pd_torques, self.env.default_dof_pos, beta=2.0)
             
             # if self.env.use_reward_curriculum:
             #     self.env.step_reward_curriculum()
@@ -227,8 +228,9 @@ class OnPolicyRunnerPos:
         self.writer.add_scalar('Loss/decoder_function', locs['mean_decoder_loss'], locs['it'])
         self.writer.add_scalar('Loss/pos_value_function', locs['mean_pos_value_loss'], locs['it'])
         self.writer.add_scalar('Loss/pos_surrogate', locs['mean_pos_surrogate_loss'], locs['it'])
+        self.writer.add_scalar('Loss/tau_pred', locs['mean_tau_loss'], locs['it'])
         self.writer.add_scalar('Loss/pos_learning_rate', self.alg.pos_learning_rate, locs['it'])
-        self.writer.add_scalar('Policy/mean_pos_noise_std', mean_pos_std.item(), locs['it'])        
+        self.writer.add_scalar('Policy/mean_pos_noise_std', mean_pos_std.item(), locs['it'])
         self.writer.add_scalar('Perf/total_fps', fps, locs['it'])
         self.writer.add_scalar('Perf/collection time', locs['collection_time'], locs['it'])
         self.writer.add_scalar('Perf/learning_time', locs['learn_time'], locs['it'])
@@ -253,6 +255,7 @@ class OnPolicyRunnerPos:
                           f"""{'Decoder function loss:':>{pad}} {locs['mean_decoder_loss']:.4f}\n"""
                           f"""{'Pos Value function loss:':>{pad}} {locs['mean_pos_value_loss']:.4f}\n"""
                           f"""{'Pos Surrogate loss:':>{pad}} {locs['mean_pos_surrogate_loss']:.4f}\n"""
+                          f"""{'Tau Pred loss:':>{pad}} {locs['mean_tau_loss']:.4f}\n"""
                           f"""{'Mean pos action noise std:':>{pad}} {mean_pos_std.item():.2f}\n"""
                           f"""{'Mean Pos reward:':>{pad}} {statistics.mean(locs['pos_rewbuffer']):.2f}\n"""
                           f"""{'Mean episode length:':>{pad}} {statistics.mean(locs['lenbuffer']):.2f}\n""")
@@ -270,6 +273,7 @@ class OnPolicyRunnerPos:
                           f"""{'Decoder function loss:':>{pad}} {locs['mean_decoder_loss']:.4f}\n"""
                           f"""{'Pos Value function loss:':>{pad}} {locs['mean_pos_value_loss']:.4f}\n"""
                           f"""{'Pos Surrogate loss:':>{pad}} {locs['mean_pos_surrogate_loss']:.4f}\n"""
+                          f"""{'Tau Pred loss:':>{pad}} {locs['mean_tau_loss']:.4f}\n"""
                           f"""{'Mean pos action noise std:':>{pad}} {mean_pos_std.item():.2f}\n""")
 
         log_string += ep_string

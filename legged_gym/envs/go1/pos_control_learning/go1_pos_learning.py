@@ -580,6 +580,22 @@ class LeggedRobotGo1Pos(BaseTask):
         
         # return self.feedback_torques
 
+    def _get_pd_torques(self, actions, q_pos_curr, q_velo_curr):
+        # control_type = 'P'
+        repeat_pos_scales = torch.from_numpy(np.array(self.cfg.control.action_scale)).repeat(1,4).to(self.device)
+        # actions_scaled = pos_actions * self.cfg.control.action_scale
+        actions_scaled = actions * repeat_pos_scales + self.default_dof_pos
+
+        # actions_scaled = torch.clamp(actions_scaled, 1.5*self.dof_pos_limits_hard[0,0], 1.5*self.dof_pos_limits_hard[0,1])
+
+        # Calculate the feedback-control torques
+        #     include PD scaling values
+        pd_torques = (
+            (self._cahed_pgain) * (actions_scaled - q_pos_curr) - (self._cahed_dgain) * q_velo_curr
+        )
+
+        return pd_torques
+
     def _compute_target_dof_pos(self, actions):
         # control_type = 'P'
         actions_scaled = actions * self.cfg.control.action_scale
@@ -1735,11 +1751,18 @@ class LeggedRobotGo1Pos(BaseTask):
             # This is the result of eq. 13
             basic_foot_pose = self.base_pos + \
                 transform_by_quat(corrected_probot_frame, inv_base_quat)  # (num_env, 3)
-
+            
+            bonus_x = 0.175
+            if i > 1:
+                bonus_x = 0.10
+            bonus_y = 0.40
+            
             # now calculate the more complicated Raibert hueristic
             #     symmetry hueristic
-            raibert_xy = self.base_lin_vel[:,:2] * (0.5 * stance_time) + \
-                raibert_gain * (self.base_lin_vel[:,:2] - self.commands[:,:2])  # (num_env, 2)
+            raibert_xy = raibert_gain * (self.base_lin_vel[:,:2] - self.commands[:,:2])  # (num_env, 2)
+            raibert_xy[:,0] += self.base_lin_vel[:,0] * ((0.5 + bonus_x) * stance_time)
+            raibert_xy[:,1] += self.base_lin_vel[:,1] * ((0.5 + bonus_y) * stance_time)
+            
             #     centrifugal hueristic
             raibert_xy[:,0] += 0.5 * (self.base_pos[:,2]/9.81) *  \
                 self.base_lin_vel[:,1] * self.commands[:,2]   # x-axis

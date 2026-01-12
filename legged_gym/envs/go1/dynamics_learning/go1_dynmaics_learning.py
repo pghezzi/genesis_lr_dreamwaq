@@ -745,6 +745,13 @@ class LeggedRobotGo1Dynamic(BaseTask):
         target_dof_pos = actions_scaled + self.default_dof_pos
 
         return target_dof_pos
+    
+    def _compute_target_dof_pos(self, actions):
+        # control_type = 'P'
+        actions_scaled = actions * self.cfg.control.action_scale
+        target_dof_pos = actions_scaled + self.default_dof_pos
+
+        return target_dof_pos
 
     def _reset_dofs(self, envs_idx):
         """ Resets DOF position and velocities of selected environmments
@@ -2250,10 +2257,16 @@ class LeggedRobotGo1Dynamic(BaseTask):
             basic_foot_pose = self.base_pos + \
                 transform_by_quat(corrected_probot_frame, inv_base_quat)  # (num_env, 3)
 
+            bonus_x = 0.175
+            if i > 1:
+                bonus_x = 0.10
+            bonus_y = 0.40
+            
             # now calculate the more complicated Raibert hueristic
             #     symmetry hueristic
-            raibert_xy = self.base_lin_vel[:,:2] * (0.5 * stance_time) + \
-                raibert_gain * (self.base_lin_vel[:,:2] - self.commands[:,:2])  # (num_env, 2)
+            raibert_xy = raibert_gain * (self.base_lin_vel[:,:2] - self.commands[:,:2])  # (num_env, 2)
+            raibert_xy[:,0] += self.base_lin_vel[:,0] * ((0.5 + bonus_x) * stance_time)
+            raibert_xy[:,1] += self.base_lin_vel[:,1] * ((0.5 + bonus_y) * stance_time)
             #     centrifugal hueristic
             raibert_xy[:,0] += 0.5 * (self.base_pos[:,2]/9.81) *  \
                 self.base_lin_vel[:,1] * self.commands[:,2]   # x-axis

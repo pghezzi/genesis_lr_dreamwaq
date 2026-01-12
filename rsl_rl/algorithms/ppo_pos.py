@@ -191,7 +191,7 @@ class PPOPos:
         last_values_pos = self.actor_critic.evaluate_pos(last_critic_obs).detach()
         self.storage.compute_returns_pos(last_values_pos, self.gamma, self.lam)
 
-    def update(self, beta=1.0):
+    def update(self, pd_torques_func, default_pose, beta=1.0):
         mean_pos_value_loss = 0
         mean_pos_surrogate_loss = 0
         mean_autoenc_loss = 0
@@ -199,6 +199,7 @@ class PPOPos:
         mean_recon_loss = 0
         mean_kld_loss = 0
         mean_decoder_loss = 0
+        mean_tau_loss = 0
 
         all_enc_obs_targets = []
         all_enc_recons     = []
@@ -218,6 +219,10 @@ class PPOPos:
                     self.actor_critic.act(obs_batch, obs_hist_batch)
                 else:
                     self.actor_critic.act_bootmask(obs_batch, obs_hist_batch)
+                    
+                pos_pred = self.actor_critic.mean_pos.float()
+                tau_pred = self.actor_critic.mean_tau * 10.0
+                tau_pred = tau_pred.float()
                 
                 # Encoder stuff
                 # pull out some values from the actor that I want to use in the decoder...
@@ -277,6 +282,22 @@ class PPOPos:
 
                 ppo_pos_loss = pos_surrogate_loss + self.value_loss_coef * pos_value_loss - self.entropy_coef * pos_entropy_batch.mean()
                 
+                # pull out the PD torques
+                q_pos_curr,  q_velo_curr  = obs_batch[:,8:20].detach().clone().float(), obs_batch[:,20:32].detach().clone().float()
+                
+                # Unshift the position (this obs is scaled by 1.0)
+                q_pos_curr += default_pose
+                
+                # Rescale velocity (this obs is not shifted, just scaled)
+                q_velo_curr /= 0.05
+                
+                q_pos_curr = q_pos_curr.float()
+                q_velo_curr = q_velo_curr.float()
+                
+                pd_torques = pd_torques_func(pos_pred.detach().clone(), q_pos_curr, q_velo_curr).float()
+                tau_pred_loss = F.mse_loss(tau_pred, pd_torques) * 0.01
+                ppo_pos_loss += tau_pred_loss.float()
+                                
                 # ppo_pos_loss.backward()
                 # nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)                
                 # self.act_optimizer.step()
@@ -346,6 +367,7 @@ class PPOPos:
                 mean_recon_loss += recon_error.item()
                 mean_kld_loss += kl_div.item()
                 mean_decoder_loss += dec_loss.item()
+                mean_tau_loss += tau_pred_loss.item()
 
         num_updates = self.num_learning_epochs * self.num_mini_batches
         mean_pos_value_loss /= num_updates
@@ -355,6 +377,7 @@ class PPOPos:
         mean_kld_loss /= num_updates
         mean_vel_loss /= num_updates
         mean_recon_loss /= num_updates
+        mean_tau_loss /= num_updates
 
         # Calculate the total bootstrapping probability over the performance of the autoencoder on all of the above
         mean_pred = np.mean(all_enc_obs_targets, axis=0)
@@ -371,4 +394,4 @@ class PPOPos:
         self.storage.clear()
 
         return mean_pos_value_loss, mean_pos_surrogate_loss, mean_autoenc_loss, mean_decoder_loss, \
-               mean_vel_loss, mean_recon_loss, mean_kld_loss
+               mean_vel_loss, mean_recon_loss, mean_kld_loss, mean_tau_loss
