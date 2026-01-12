@@ -335,8 +335,8 @@ class ActorCritic_Dynamic(nn.Module):
         #     if critic_layer.bias is not None:
         #         nn.init.zeros_(critic_layer.bias)
                 
-        self.std_pos.data.fill_(0.75)
-        self.std_tau.data.fill_(1.0)
+        self.std_pos.data.fill_(1.00)
+        self.std_tau.data.fill_(1.00)
         
         # self.act_pos_2_tau_h1.reset_parameters()
         # self.act_tau_2_pos_h1.reset_parameters()

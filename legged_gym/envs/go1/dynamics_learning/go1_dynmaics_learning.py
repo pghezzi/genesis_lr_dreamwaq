@@ -1565,10 +1565,10 @@ class LeggedRobotGo1Dynamic(BaseTask):
 
         random_smaple = random.random()
         
-        if random_smaple <= 0.05:  # half of the time, reset to lower bound
+        if random_smaple <= 0.10:  # 10% of the time reduce to lower bound
             self.feedforward_tau_weight[env_ids] = self.tradeoff_lowerbounds[0]
             self.feedback_tau_weight[env_ids]    = self.tradeoff_lowerbounds[1]
-        elif random_smaple > 0.05 and random_smaple <= 0.30: # ~25% of the time, sample a random value between the lower and current upper bound
+        elif random_smaple > 0.10 and random_smaple <= 0.35: # ~25% of the time, sample a random value between the lower and current upper bound
             # step_ctr * (1.0/num_steps) -> is the per-env upper bound. Multipled by a random float between [0,1)
             random_step_size = self.tradeoff_step_ctr*float(1.0/self.tradeoff_num_steps) * torch.rand((self.num_envs, 1))
 

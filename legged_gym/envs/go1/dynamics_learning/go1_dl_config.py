@@ -218,9 +218,9 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         decimation = 5  # decimation: Number of control action updates @ sim DT per policy DT
 
         # Assumed order - tau_ff, tau_fb
-        tradeoff_init_weights  = [0.10, 10.0]
+        tradeoff_init_weights  = [0.00, 10.0]
         tradeoff_final_weights = [1.00, 1.00]
-        tradeoff_steps = 20
+        tradeoff_steps = 2
         tradeoff_threshold = 0.60
         use_tradeoff_curriculum = True
 
@@ -403,7 +403,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
 
         # pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/rsl_rl/" \
         #                     "modules/pretrained_models/rl_pos/Jan09_23-51-24_full_approach_boot_01_100hz_tanh/model_2000.pt"
-        pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/logs/rss_go1_dynamic/Jan10_21-52-40_full_approach_boot_newfilm_01_100hz_posboot/model_2300.pt"
+        pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/logs/rss_go1_dynamic/Jan11_19-49-03_full_approach_boot_newfilm_01_100hz_posboot/model_2200.pt"
 
     class algorithm( LeggedRobotCfgPPO.algorithm ):
         entropy_coef = 0.01
@@ -424,7 +424,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         policy_class_name = 'ActorCritic_Dynamic'
         algorithm_class_name = 'PPODynamic'
         num_steps_per_env = 100 # per iteration
-        max_iterations = 3000 # number of policy updates
+        max_iterations = 5000 # number of policy updates
         grf_dim = 12
         
         # debug_warmpinn_wb

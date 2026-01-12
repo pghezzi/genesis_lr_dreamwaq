@@ -331,7 +331,7 @@ class PPODynamic:
                 else:
                     pos_value_loss = (pos_returns_batch - pos_value_batch).pow(2).mean()
 
-                pos_loss = pos_surrogate_loss + self.value_loss_coef * pos_value_loss - self.entropy_coef * pos_entropy_batch.mean()
+                pos_loss = pos_surrogate_loss + self.value_loss_coef * pos_value_loss - 0.0001 * pos_entropy_batch.mean()
 
                 #   - Torque Control
                 # KL
@@ -421,7 +421,7 @@ class PPODynamic:
                     # Create the whole-body acceleration vector
                     wb_acc = torch.cat([torso_accs_batch, dof_acc], dim=1).float()
                     # Create the whole-boyd tau vector 
-                    wb_tau = torch.cat([torch.zeros(torso_accs_batch.shape[0], 6).float().to(self.device), tau_des_curr.float()], dim=1).float()
+                    wb_tau = torch.cat([torch.zeros(torso_accs_batch.shape[0], 6).float().to(self.device), (tau_des_curr.float() + pd_tau_curr.float())], dim=1).float()
 
                     # Calculate the models wb-dynamics
                     model_wb_dynamics = torch.bmm(mass_mat_batch.float(), wb_acc.unsqueeze(-1)).squeeze(-1) + bias_vec_batch.float()
