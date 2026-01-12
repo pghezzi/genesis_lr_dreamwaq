@@ -26,8 +26,8 @@ class _ShiftScaleMod(nn.Module):
     def __init__(self, dim: int, activation) -> None:
         super().__init__()
         self.act = get_activation(activation)
-        self.scale = nn.Linear(dim, dim)
-        self.shift = nn.Linear(dim, dim)
+        self.scale = nn.Linear(dim, 1)
+        self.shift = nn.Linear(dim, 1)
         self.reset_parameters()
 
     def forward(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
@@ -36,7 +36,6 @@ class _ShiftScaleMod(nn.Module):
         Args:
             x: Input tensor of shape [batch_size, dim]
             c: Conditioning tensor of shape [batch_size, dim]
-
         Returns:
             Modulated tensor of same shape as input
         """
@@ -45,8 +44,10 @@ class _ShiftScaleMod(nn.Module):
 
     def reset_parameters(self) -> None:
         """Initializes weights with Xavier uniform and zeros biases."""
-        nn.init.xavier_uniform_(self.scale.weight)
-        nn.init.xavier_uniform_(self.shift.weight)
+        # nn.init.zeros_(self.scale.weight)
+        # nn.init.zeros_(self.shift.weight)
+        nn.init.uniform_(self.scale.weight, -1e-10, 1e-10)
+        nn.init.uniform_(self.shift.weight, -1e-10, 1e-10)
         nn.init.zeros_(self.scale.bias)
         nn.init.zeros_(self.shift.bias)
 
@@ -257,11 +258,11 @@ class ActorCritic_Dynamic(nn.Module):
 
         # Now create FiLM layers for sharing info. between branches
         #     Applied after h1
-        self.act_pos_2_tau_h1 = _ShiftScaleMod(dim=actor_branch_layers[0], activation=activation)
-        self.act_tau_2_pos_h1 = _ShiftScaleMod(dim=actor_branch_layers[0], activation=activation)
+        self.act_pos_2_tau_h1 = _ShiftScaleMod(dim=actor_branch_layers[0]*2, activation=activation)
+        self.act_tau_2_pos_h1 = _ShiftScaleMod(dim=actor_branch_layers[0]*2, activation=activation)
         #     Applied after h2
-        self.act_pos_2_tau_h2 = _ShiftScaleMod(dim=actor_branch_layers[1], activation=activation)
-        self.act_tau_2_pos_h2 = _ShiftScaleMod(dim=actor_branch_layers[1], activation=activation)
+        self.act_pos_2_tau_h2 = _ShiftScaleMod(dim=actor_branch_layers[1]*2, activation=activation)
+        self.act_tau_2_pos_h2 = _ShiftScaleMod(dim=actor_branch_layers[1]*2, activation=activation)
 
         self.act_pos_layernorm_1 = nn.LayerNorm(actor_branch_layers[0])
         self.act_tau_layernorm_1 = nn.LayerNorm(actor_branch_layers[0])
@@ -325,7 +326,7 @@ class ActorCritic_Dynamic(nn.Module):
         nn.init.zeros_(self.act_tau_out.bias)
 
     def _init_critic_weights(self):
-        # # Xavier for linears, zeros for biases
+        # Xavier for linears, zeros for biases
         # critic_layers = [self.pos_critic_in, self.pos_critic_h1, self.pos_critic_h2,
         #                  self.pos_critic_out, self.tau_critic_in, self.tau_critic_h1, self.tau_critic_h2, self.tau_critic_out]
         # for critic_layer in critic_layers:
@@ -334,8 +335,16 @@ class ActorCritic_Dynamic(nn.Module):
         #     if critic_layer.bias is not None:
         #         nn.init.zeros_(critic_layer.bias)
                 
-        self.std_pos.data.fill_(0.75)
-        self.std_tau.data.fill_(0.5)
+        self.std_pos.data.fill_(1.00)
+        self.std_tau.data.fill_(1.00)
+        
+        # self.act_pos_2_tau_h1.reset_parameters()
+        # self.act_tau_2_pos_h1.reset_parameters()
+        #     Applied after h2
+        # self.act_pos_2_tau_h2.reset_parameters()
+        # self.act_tau_2_pos_h2.reset_parameters()
+
+        # nn.init.uniform_(self.act_tau_h1.weight, -1e-8, 1e-8)
 
         # self.std_pos = nn.Parameter(1.0 * torch.ones(self.num_actions))
         # self.std_tau = nn.Parameter(1.0 * torch.ones(self.num_actions))
@@ -417,10 +426,10 @@ class ActorCritic_Dynamic(nn.Module):
         
         # print(f"Parameters with extra strong weight decay{special_decay}")
 
-        params_act = [{"params": [param_dict[pn] for pn in sorted(pos_decay)],     "weight_decay": weight_decay, "name":"pos_branch"},
-                      {"params": [param_dict[pn] for pn in sorted(tau_decay)],     "weight_decay": weight_decay, "name":"tau_branch"},
-                      {"params": [param_dict[pn] for pn in sorted(shared_decay)],  "weight_decay": weight_decay, "name":"shared"},
-                      {"params": [param_dict[pn] for pn in sorted(critic_set)],    "weight_decay": weight_decay, "name":"critic"},
+        params_act = [{"params": [param_dict[pn] for pn in sorted(pos_decay)],     "weight_decay": 0.0, "name":"pos_branch"},
+                      {"params": [param_dict[pn] for pn in sorted(tau_decay)],     "weight_decay": 0.0, "name":"tau_branch"},
+                      {"params": [param_dict[pn] for pn in sorted(shared_decay)],  "weight_decay": 0.0, "name":"shared"},
+                      {"params": [param_dict[pn] for pn in sorted(critic_set)],    "weight_decay": 0.0, "name":"critic"},
                       {"params": [param_dict[pn] for pn in sorted(no_decay)],      "weight_decay": 0.0},
                       {"params": [param_dict[pn] for pn in sorted(special_decay)], "weight_decay": strong_decay}]
         
@@ -443,8 +452,8 @@ class ActorCritic_Dynamic(nn.Module):
             Configured AdamW optimizer.
         """
         opt_groups_act, opt_groups_enc = self.get_optim_groups(weight_decay=weight_decay, strong_decay=strong_decay)
-        act_opt = torch.optim.AdamW(opt_groups_act, lr=learning_rate, betas=betas)
-        enc_opt = torch.optim.AdamW(opt_groups_enc, lr=learning_rate, betas=betas)
+        act_opt = torch.optim.AdamW(opt_groups_act, lr=learning_rate)
+        enc_opt = torch.optim.AdamW(opt_groups_enc, lr=2.0e-4)
         return act_opt, enc_opt
 
     def reset(self, dones=None):
@@ -471,31 +480,30 @@ class ActorCritic_Dynamic(nn.Module):
         tau_latent = self.act_tau_h1(x)
         #     now perform the cross-conditioning
         #     FiLM layer has a built-in axtivation function
-        pos_latent = self.act_tau_2_pos_h1(pos_latent, tau_latent)  # perform FiLM on pos_latent using tau_latent
-        tau_latent = self.act_pos_2_tau_h1(tau_latent, pos_latent)  # perform FiLM on tau_latent using pos_latent
+        condition = torch.cat([pos_latent, tau_latent], dim=-1)
+        pos_latent = pos_latent + self.act_tau_2_pos_h1(tau_latent, condition)  # perform FiLM on pos_latent using tau_latent
+        tau_latent = tau_latent + self.act_pos_2_tau_h1(pos_latent, condition)  # perform FiLM on tau_latent using pos_latent
+        # # Perform layer normalization
+        # pos_latent = self.act_pos_layernorm_1(pos_latent)
+        # tau_latent = self.act_tau_layernorm_1(tau_latent)
         # Perform activation
         pos_latent = self.activation(pos_latent)
         tau_latent = self.activation(tau_latent)
-
-        # Perform layer normalization
-        pos_latent = self.act_pos_layernorm_1(pos_latent)
-        tau_latent = self.act_tau_layernorm_1(tau_latent)
-
         # REPEAT
         #     position
         pos_latent = self.act_pos_h2(pos_latent)
         #     torque
         tau_latent = self.act_tau_h2(tau_latent)
         #     now perform the cross-conditioning
-        pos_latent = self.act_tau_2_pos_h2(pos_latent, tau_latent)  # perform FiLM on pos_latent using tau_latent
-        tau_latent = self.act_pos_2_tau_h2(tau_latent, pos_latent)  # perform FiLM on tau_latent using pos_latent
+        condition = torch.cat([pos_latent, tau_latent], dim=-1)
+        pos_latent = pos_latent + self.act_tau_2_pos_h2(tau_latent, condition)  # perform FiLM on pos_latent using tau_latent
+        tau_latent = tau_latent + self.act_pos_2_tau_h2(pos_latent, condition)  # perform FiLM on tau_latent using pos_latent
+        # # Perform layer normalization
+        # pos_latent = self.act_pos_layernorm_2(pos_latent)
+        # tau_latent = self.act_tau_layernorm_2(tau_latent)
         # perform activation
         pos_latent = self.activation(pos_latent)
         tau_latent = self.activation(tau_latent)
-
-        # Perform layer normalization
-        pos_latent = self.act_pos_layernorm_2(pos_latent)
-        tau_latent = self.act_tau_layernorm_2(tau_latent)
 
 
         # Now run the final output layers to get both action modalities

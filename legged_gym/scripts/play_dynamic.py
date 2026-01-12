@@ -103,6 +103,7 @@ def play(args):
         env.floating_camera.start_recording()
 
     for i in range(5*int(env.max_episode_length)):
+    # for i in range(1000):
         actions = policy(obs.detach(), obs_hist.detach())
         obs, _, obs_hist, pos_rews, tau_rews, dones, infos, grfs = env.step(actions.detach())
 

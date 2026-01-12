@@ -103,6 +103,7 @@ class OnPolicyRunnerDynamic:
 
         if "pretrained_path" in self.policy_cfg.keys():
             self._load_pretrained_model()
+            # self.load()
 
         # Log
         self.log_dir = log_dir
