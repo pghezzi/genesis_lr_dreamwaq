@@ -103,6 +103,7 @@ class OnPolicyRunnerDynamic:
 
         if "pretrained_path" in self.policy_cfg.keys():
             self._load_pretrained_model()
+            # self.load()
 
         # Log
         self.log_dir = log_dir
@@ -122,11 +123,11 @@ class OnPolicyRunnerDynamic:
         print(pretrained_path)
         loaded_dict = torch.load(pretrained_path)
         # Load the pretrained action-network and encoder
-        self.alg.actor_critic.load_state_dict(loaded_dict['action'])
+        self.alg.actor_critic.load_state_dict(loaded_dict['model_state_dict'])
         # re-initalize the critic network weights which where not pretrained (to be safe)
         self.alg.actor_critic._init_critic_weights()
         # Load the pretrained decoder network
-        self.alg.decoder.load_state_dict(loaded_dict['decoder'])
+        self.alg.decoder.load_state_dict(loaded_dict['decoder_state_dict'])
     
     def learn(self, num_learning_iterations, init_at_random_ep_len=False):
         # initialize writer

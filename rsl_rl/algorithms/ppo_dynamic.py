@@ -259,7 +259,7 @@ class PPODynamic:
 
                 self.actor_critic.train()
                 self.act_optimizer.zero_grad()
-                # self.enc_optimizer.zero_grad()
+                self.enc_optimizer.zero_grad()
 
                 if self.use_boot:
                     self.actor_critic.act(obs_batch, obs_hist_batch)
@@ -271,10 +271,10 @@ class PPODynamic:
                 # Encoder stuff
                 # pull out some values from the actor that I want to use in the decoder...
                 #    avoids a second separate run through the encoder + aligns RL update with enc update...
-                # mean_latent = self.actor_critic.cenet_mean
-                # logvar_latent = self.actor_critic.cenet_logvar
-                # cenet_latent = self.actor_critic.cenet_z
-                # cenet_torso_velo = self.actor_critic.cenet_torso_velo
+                mean_latent = self.actor_critic.cenet_mean
+                logvar_latent = self.actor_critic.cenet_logvar
+                cenet_latent = self.actor_critic.cenet_z
+                cenet_torso_velo = self.actor_critic.cenet_torso_velo
 
                 # PPO stuff
                 #    - Position Control
@@ -314,12 +314,12 @@ class PPODynamic:
                 # PPO stuff
                 # PPO Surrogate loss
                 pos_ratio = torch.exp(pos_actions_log_prob_batch - torch.squeeze(pos_old_actions_log_prob_batch))
-                # pos_surrogate = -torch.squeeze(pos_advantages_batch) * pos_ratio
-                # pos_surrogate_clipped = -torch.squeeze(pos_advantages_batch) * torch.clamp(pos_ratio, 1.0 - self.clip_param, 1.0 + self.clip_param)
-                # pos_surrogate_loss = torch.max(pos_surrogate, pos_surrogate_clipped).mean()
+                pos_surrogate = -torch.squeeze(pos_advantages_batch) * pos_ratio
+                pos_surrogate_clipped = -torch.squeeze(pos_advantages_batch) * torch.clamp(pos_ratio, 1.0 - self.clip_param, 1.0 + self.clip_param)
+                pos_surrogate_loss = torch.max(pos_surrogate, pos_surrogate_clipped).mean()
 
                 # SPO Surrogate loss
-                pos_surrogate_loss = -(torch.squeeze(pos_advantages_batch) * pos_ratio - torch.abs(torch.squeeze(pos_advantages_batch)) * torch.pow(pos_ratio - 1, 2) / (2 * 0.2)).mean()
+                # pos_surrogate_loss = -(torch.squeeze(pos_advantages_batch) * pos_ratio - torch.abs(torch.squeeze(pos_advantages_batch)) * torch.pow(pos_ratio - 1, 2) / (2 * 0.2)).mean()
 
                 # PPO stuff
                 # Value function loss
@@ -356,12 +356,12 @@ class PPODynamic:
 
                 # Surrogate loss
                 tau_ratio = torch.exp(tau_actions_log_prob_batch - torch.squeeze(tau_old_actions_log_prob_batch))
-                # tau_surrogate = -torch.squeeze(tau_advantages_batch) * tau_ratio
-                # tau_surrogate_clipped = -torch.squeeze(tau_advantages_batch) * torch.clamp(tau_ratio, 1.0 - self.clip_param, 1.0 + self.clip_param)
-                # tau_surrogate_loss = torch.max(tau_surrogate, tau_surrogate_clipped).mean()
+                tau_surrogate = -torch.squeeze(tau_advantages_batch) * tau_ratio
+                tau_surrogate_clipped = -torch.squeeze(tau_advantages_batch) * torch.clamp(tau_ratio, 1.0 - self.clip_param, 1.0 + self.clip_param)
+                tau_surrogate_loss = torch.max(tau_surrogate, tau_surrogate_clipped).mean()
 
                 # SPO Surrogate loss
-                tau_surrogate_loss = -(torch.squeeze(tau_advantages_batch) * tau_ratio - torch.abs(torch.squeeze(tau_advantages_batch)) * torch.pow(tau_ratio - 1, 2) / (2 * 0.2)).mean()
+                # tau_surrogate_loss = -(torch.squeeze(tau_advantages_batch) * tau_ratio - torch.abs(torch.squeeze(tau_advantages_batch)) * torch.pow(tau_ratio - 1, 2) / (2 * 0.2)).mean()
 
                 # Value function loss
                 if self.use_clipped_value_loss:
@@ -493,21 +493,12 @@ class PPODynamic:
                 else:
                     ppo_losses = [pos_loss+tau_loss]
 
-                # PCGrad - back-propigate the loss
-                if use_pinn and self.pinn_weight > 0:
-                    self.act_optimizer.pc_backward_pinn(ppo_losses)
-                else:
-                    self.act_optimizer.pc_backward(ppo_losses)
-                nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
-                self.act_optimizer.step()
-                torch.cuda.empty_cache()
-
                 ###
                 #   Perform encoder update step...
                 ###
                 self.decoder.eval()
-                self.enc_optimizer.zero_grad()
-                mean_latent, logvar_latent, cenet_latent, cenet_torso_velo = self.actor_critic.context_encoder(obs_hist_batch)
+                # self.enc_optimizer.zero_grad()
+                # mean_latent, logvar_latent, cenet_latent, cenet_torso_velo = self.actor_critic.context_encoder(obs_hist_batch)
 
                 dec_input = torch.cat((cenet_latent, cenet_torso_velo), dim=-1)
                 enc_update_obs_decode = self.decoder(dec_input)
@@ -532,10 +523,20 @@ class PPODynamic:
                 ###
                 #  Propigate gradients and update
                 ### 
+                
+                # PCGrad - back-propigate the loss
+                if use_pinn and self.pinn_weight > 0:
+                    self.act_optimizer.pc_backward_pinn(ppo_losses)
+                else:
+                    self.act_optimizer.pc_backward(ppo_losses)
+                nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
+                self.act_optimizer.step()
+                # torch.cuda.empty_cache()
+                
                 autoenc_loss.backward()
                 nn.utils.clip_grad_norm_(self.actor_critic.context_encoder.parameters(), self.max_grad_norm)
                 self.enc_optimizer.step()
-                torch.cuda.empty_cache()
+                # torch.cuda.empty_cache()
 
                 ###
                 #  Perfrom a separate update on the decoder....
@@ -595,6 +596,12 @@ class PPODynamic:
         #     to determine if encoder bootstrapping is performed.
         self.use_boot = random.random() < pboot
         print(self.use_boot)
+        
+        with torch.no_grad():
+            print(self.actor_critic.act_pos_2_tau_h1.scale.weight.norm())
+            print(self.actor_critic.act_tau_2_pos_h1.scale.weight.norm())
+            print(self.actor_critic.act_pos_2_tau_h2.scale.weight.norm())
+            print(self.actor_critic.act_tau_2_pos_h2.scale.weight.norm())
 
         self.storage.clear()
 

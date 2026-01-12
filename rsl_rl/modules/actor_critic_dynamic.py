@@ -44,8 +44,10 @@ class _ShiftScaleMod(nn.Module):
 
     def reset_parameters(self) -> None:
         """Initializes weights with Xavier uniform and zeros biases."""
-        nn.init.zeros_(self.scale.weight)
-        nn.init.zeros_(self.shift.weight)
+        # nn.init.zeros_(self.scale.weight)
+        # nn.init.zeros_(self.shift.weight)
+        nn.init.uniform_(self.scale.weight, -1e-10, 1e-10)
+        nn.init.uniform_(self.shift.weight, -1e-10, 1e-10)
         nn.init.zeros_(self.scale.bias)
         nn.init.zeros_(self.shift.bias)
 
@@ -324,7 +326,7 @@ class ActorCritic_Dynamic(nn.Module):
         nn.init.zeros_(self.act_tau_out.bias)
 
     def _init_critic_weights(self):
-        # # Xavier for linears, zeros for biases
+        # Xavier for linears, zeros for biases
         # critic_layers = [self.pos_critic_in, self.pos_critic_h1, self.pos_critic_h2,
         #                  self.pos_critic_out, self.tau_critic_in, self.tau_critic_h1, self.tau_critic_h2, self.tau_critic_out]
         # for critic_layer in critic_layers:
@@ -334,7 +336,15 @@ class ActorCritic_Dynamic(nn.Module):
         #         nn.init.zeros_(critic_layer.bias)
                 
         self.std_pos.data.fill_(0.75)
-        self.std_tau.data.fill_(0.5)
+        self.std_tau.data.fill_(1.0)
+        
+        # self.act_pos_2_tau_h1.reset_parameters()
+        # self.act_tau_2_pos_h1.reset_parameters()
+        #     Applied after h2
+        # self.act_pos_2_tau_h2.reset_parameters()
+        # self.act_tau_2_pos_h2.reset_parameters()
+
+        # nn.init.uniform_(self.act_tau_h1.weight, -1e-8, 1e-8)
 
         # self.std_pos = nn.Parameter(1.0 * torch.ones(self.num_actions))
         # self.std_tau = nn.Parameter(1.0 * torch.ones(self.num_actions))
@@ -442,8 +452,8 @@ class ActorCritic_Dynamic(nn.Module):
             Configured AdamW optimizer.
         """
         opt_groups_act, opt_groups_enc = self.get_optim_groups(weight_decay=weight_decay, strong_decay=strong_decay)
-        act_opt = torch.optim.AdamW(opt_groups_act, lr=learning_rate, betas=betas)
-        enc_opt = torch.optim.AdamW(opt_groups_enc, lr=learning_rate, betas=betas)
+        act_opt = torch.optim.AdamW(opt_groups_act, lr=learning_rate)
+        enc_opt = torch.optim.AdamW(opt_groups_enc, lr=2.0e-4)
         return act_opt, enc_opt
 
     def reset(self, dones=None):
@@ -473,9 +483,9 @@ class ActorCritic_Dynamic(nn.Module):
         condition = torch.cat([pos_latent, tau_latent], dim=-1)
         pos_latent = pos_latent + self.act_tau_2_pos_h1(tau_latent, condition)  # perform FiLM on pos_latent using tau_latent
         tau_latent = tau_latent + self.act_pos_2_tau_h1(pos_latent, condition)  # perform FiLM on tau_latent using pos_latent
-        # Perform layer normalization
-        pos_latent = self.act_pos_layernorm_1(pos_latent)
-        tau_latent = self.act_tau_layernorm_1(tau_latent)
+        # # Perform layer normalization
+        # pos_latent = self.act_pos_layernorm_1(pos_latent)
+        # tau_latent = self.act_tau_layernorm_1(tau_latent)
         # Perform activation
         pos_latent = self.activation(pos_latent)
         tau_latent = self.activation(tau_latent)
@@ -488,9 +498,9 @@ class ActorCritic_Dynamic(nn.Module):
         condition = torch.cat([pos_latent, tau_latent], dim=-1)
         pos_latent = pos_latent + self.act_tau_2_pos_h2(tau_latent, condition)  # perform FiLM on pos_latent using tau_latent
         tau_latent = tau_latent + self.act_pos_2_tau_h2(pos_latent, condition)  # perform FiLM on tau_latent using pos_latent
-        # Perform layer normalization
-        pos_latent = self.act_pos_layernorm_2(pos_latent)
-        tau_latent = self.act_tau_layernorm_2(tau_latent)
+        # # Perform layer normalization
+        # pos_latent = self.act_pos_layernorm_2(pos_latent)
+        # tau_latent = self.act_tau_layernorm_2(tau_latent)
         # perform activation
         pos_latent = self.activation(pos_latent)
         tau_latent = self.activation(tau_latent)

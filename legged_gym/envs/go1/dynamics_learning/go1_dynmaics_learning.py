@@ -1563,7 +1563,12 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.feedforward_tau_weight[env_ids]  = self.tradeoff_step_ctr[env_ids] *float(1.0/self.tradeoff_num_steps)*self.bound_diff[0] + self.tradeoff_lowerbounds[0]
         self.feedback_tau_weight[env_ids]     = self.tradeoff_step_ctr[env_ids] *float(1.0/self.tradeoff_num_steps)*self.bound_diff[1] + self.tradeoff_lowerbounds[1]
 
-        if random.random() < 0.50:
+        random_smaple = random.random()
+        
+        if random_smaple <= 0.25:  # half of the time, reset to lower bound
+            self.feedforward_tau_weight[env_ids] = self.tradeoff_lowerbounds[0]
+            self.feedback_tau_weight[env_ids]    = self.tradeoff_lowerbounds[1]
+        elif random_smaple > 0.25 and random_smaple <= 0.50: # ~15% of the time, sample a random value between the lower and current upper bound
             # step_ctr * (1.0/num_steps) -> is the per-env upper bound. Multipled by a random float between [0,1)
             random_step_size = self.tradeoff_step_ctr*float(1.0/self.tradeoff_num_steps) * torch.rand((self.num_envs, 1))
 
@@ -1892,6 +1897,15 @@ class LeggedRobotGo1Dynamic(BaseTask):
         out_of_limits += (actions_scaled - \
                           self.dof_pos_limits_hard[:, 1]).clip(min=0.)
         return torch.sum(out_of_limits, dim=1)
+    
+    def _reward_act_close_to_default(self):
+        pos_actions = self.actions[:,0:12]
+        repeat_pos_scales = torch.from_numpy(np.array(self.cfg.control.action_scale)).repeat(1,4).to(self.device)
+        # actions_scaled = pos_actions * self.cfg.control.action_scale
+        actions_scaled = pos_actions * repeat_pos_scales + self.default_dof_pos
+        
+        return torch.sum(torch.square(actions_scaled - self.default_dof_pos), dim=1)
+
 
     # def _reward_dof_vel_limits(self):
     #     # Penalize dof velocities too close to the limit
@@ -2185,6 +2199,27 @@ class LeggedRobotGo1Dynamic(BaseTask):
         contact = contact * 0.25
         return torch.sum(contact, dim=1)
     
+    def _reward_front_back_separation(self):
+        fz = self.link_contact_forces[:, self.feet_indices, 2]
+        in_contact = fz > 10.0
+        
+        # Only apply this penalty when both front or both rear feet are in contact
+        front_contact_gate = in_contact[:,0] & in_contact[:,1]
+        rear_contact_gate = in_contact[:,2] & in_contact[:,3]
+        
+        d_front = torch.norm(self.feet_pos[:, 0, :2] - self.feet_pos[:, 1, 0:2], dim=1)
+        d_rear = torch.norm(self.feet_pos[:, 2, :2] - self.feet_pos[:, 3, 0:2], dim=1)
+
+        d_min = 0.20
+
+        penalty_front = torch.clamp(d_min - d_front, min=0.0) ** 2
+        penalty_rear = torch.clamp(d_min - d_rear, min=0.0) ** 2
+        
+        penalty_front *= front_contact_gate.float()
+        penalty_rear *= rear_contact_gate.float()
+
+        return penalty_front + penalty_rear
+
     def _reward_alive_bonus(self):
         return ~self.reset_buf
     
