@@ -433,8 +433,8 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         save_interval = 100
         
         
-        load_run = "Jan10_21-52-40_full_approach_boot_newfilm_01_100hz_posboot"
-        checkpoint = 2300
+        load_run = "Jan11_19-49-03_full_approach_boot_newfilm_01_100hz_posboot"
+        checkpoint = 2200
 
         # Load parameters for first function policy
         # run_name = 'test_01'
