@@ -207,8 +207,8 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         # PD Drive parameters:
         # control_type = 'P'
         # Much smaller values than typical... only used for feedback control
-        stiffness = {'joint': 3.0}   # [N*m/rad]
-        damping   = {'joint': 0.075}     # [N*m*s/rad]
+        stiffness = {'joint': 10.0}   # [N*m/rad]
+        damping   = {'joint': 0.25}     # [N*m*s/rad]
         
         action_scale = [0.25, 0.25, 0.25]    # action scale: target angle = action_scale * pose_action + defaultAngle
         torque_scale = [10.0, 10.0, 10.0] # action scale:  target torque = torque_scale * tau_action + defaultTorque
@@ -218,9 +218,9 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         decimation = 5  # decimation: Number of control action updates @ sim DT per policy DT
 
         # Assumed order - tau_ff, tau_fb
-        tradeoff_init_weights  = [1.00, 1.00]
+        tradeoff_init_weights  = [0.00, 3.0]
         tradeoff_final_weights = [1.00, 1.00]
-        tradeoff_steps = 2
+        tradeoff_steps = 10
         tradeoff_threshold = 0.60
         use_tradeoff_curriculum = True
 
@@ -250,7 +250,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         max_contact_force = 200.0
         class scales( LeggedRobotCfg.rewards.scales ):
             # General
-            termination      = -1.0
+            termination      = 0.0
             collision        = -1.0
             dof_pos_limits        = -5.0
             dof_close_to_default  = -0.5
@@ -401,9 +401,9 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         pinn_warmup = 100
         pinn_init_steps = 0
 
-        # pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/rsl_rl/" \
-        #                     "modules/pretrained_models/rl_pos/Jan09_23-51-24_full_approach_boot_01_100hz_tanh/model_2000.pt"
-        pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/logs/rss_go1_dynamic/Jan11_19-49-03_full_approach_boot_newfilm_01_100hz_posboot/model_2200.pt"
+        pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/rsl_rl/" \
+                            "modules/pretrained_models/rl_pos/Jan09_23-51-24_full_approach_boot_01_100hz_tanh/model_2000.pt"
+        # pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/logs/rss_go1_dynamic/Jan11_19-49-03_full_approach_boot_newfilm_01_100hz_posboot/model_2200.pt"
 
     class algorithm( LeggedRobotCfgPPO.algorithm ):
         entropy_coef = 0.01

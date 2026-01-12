@@ -338,13 +338,13 @@ class ActorCritic_Dynamic(nn.Module):
         self.std_pos.data.fill_(1.00)
         self.std_tau.data.fill_(1.00)
         
-        # self.act_pos_2_tau_h1.reset_parameters()
-        # self.act_tau_2_pos_h1.reset_parameters()
+        self.act_pos_2_tau_h1.reset_parameters()
+        self.act_tau_2_pos_h1.reset_parameters()
         #     Applied after h2
-        # self.act_pos_2_tau_h2.reset_parameters()
-        # self.act_tau_2_pos_h2.reset_parameters()
+        self.act_pos_2_tau_h2.reset_parameters()
+        self.act_tau_2_pos_h2.reset_parameters()
 
-        # nn.init.uniform_(self.act_tau_h1.weight, -1e-8, 1e-8)
+        nn.init.uniform_(self.act_tau_h1.weight, -1e-10, 1e-10)
 
         # self.std_pos = nn.Parameter(1.0 * torch.ones(self.num_actions))
         # self.std_tau = nn.Parameter(1.0 * torch.ones(self.num_actions))
