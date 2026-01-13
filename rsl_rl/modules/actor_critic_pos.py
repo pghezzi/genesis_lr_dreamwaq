@@ -52,50 +52,6 @@ class _ShiftScaleMod(nn.Module):
         nn.init.zeros_(self.scale.bias)
         nn.init.zeros_(self.shift.bias)
 
-
-###
-#
-# adaLN Layers
-#
-###
-class _ShiftScaleMod(nn.Module):
-    """Adaptive shift-scale modulation layer with learnable parameters.
-
-    Implements: output = x * scale(c) + shift(c)
-    where c is a conditioning vector and scale/shift are learned transformations.
-
-    Args:
-        dim (int): Feature dimension for both input and conditioning.
-    """
-
-    def __init__(self, dim: int, activation) -> None:
-        super().__init__()
-        self.act = get_activation(activation)
-        self.scale = nn.Linear(dim, 1)
-        self.shift = nn.Linear(dim, 1)
-        self.reset_parameters()
-
-    def forward(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
-        """Applies adaptive scaling and shifting.
-
-        Args:
-            x: Input tensor of shape [batch_size, dim]
-            c: Conditioning tensor of shape [batch_size, dim]
-        Returns:
-            Modulated tensor of same shape as input
-        """
-        c = self.act(c)
-        return x * self.scale(c) + self.shift(c)
-
-    def reset_parameters(self) -> None:
-        """Initializes weights with Xavier uniform and zeros biases."""
-        # nn.init.zeros_(self.scale.weight)
-        # nn.init.zeros_(self.shift.weight)
-        nn.init.uniform_(self.scale.weight, -1e-10, 1e-10)
-        nn.init.uniform_(self.shift.weight, -1e-10, 1e-10)
-        nn.init.zeros_(self.scale.bias)
-        nn.init.zeros_(self.shift.bias)
-
 ###
 #
 #   Context Encoder/Decoder models used to provide conditioning input
@@ -317,12 +273,9 @@ class ActorCritic_Pos(nn.Module):
 
         self.mean_pos = None
         self.mean_tau = None
-        self.mean_tau = None
 
         self.std_tau = nn.Parameter(init_noise_std * torch.ones(num_actions))
-        self.std_tau = nn.Parameter(init_noise_std * torch.ones(num_actions))
         self.std_pos = nn.Parameter(init_noise_std * torch.ones(num_actions))
-        
         
         self.num_actions = num_actions
         self.distribution_pos = None
@@ -363,12 +316,9 @@ class ActorCritic_Pos(nn.Module):
         """
         critic_set = set()
         tau_decay = set()
-        tau_decay = set()
         pos_decay = set()
         shared_decay = set()
-        shared_decay = set()
         no_decay  = set()
-        special_decay = set()
         special_decay = set()
         encoder = set()
         whitelist = (nn.Linear, nn.MultiheadAttention)
@@ -392,14 +342,6 @@ class ActorCritic_Pos(nn.Module):
                             # We do not want the shared layer's learning rate to be modified during multi-task PPO updates
                             shared_decay.add(fpn)
                         elif "context_encoder" in fpn:
-                        if "_2_" in fpn:
-                            # Here is the name contains a "2" then it is a cross-conditioning
-                            #    FILM layer, and we want a stronger weight reg on these values
-                            special_decay.add(fpn)
-                        elif "shared" in fpn:
-                            # We do not want the shared layer's learning rate to be modified during multi-task PPO updates
-                            shared_decay.add(fpn)
-                        elif "context_encoder" in fpn:
                             encoder.add(fpn)
                         elif "critic" in fpn:
                             critic_set.add(fpn)
@@ -411,17 +353,7 @@ class ActorCritic_Pos(nn.Module):
                             else:
                                 # A catch for anything I missed above... 
                                 shared_decay.add(fpn)
-                            if "pos" in fpn:
-                                pos_decay.add(fpn)
-                            elif "tau" in fpn:
-                                tau_decay.add(fpn)
-                            else:
-                                # A catch for anything I missed above... 
-                                shared_decay.add(fpn)
 
-        # for i in range(self.options["action_net"]["num_layers"]-1):
-        #     no_decay.update([f"noise_decoder.cross_field_scales_pos.{i}", f"noise_decoder.cross_field_scales_tau.{i}"])
-        no_decay.update([f"std_pos", f"std_tau"])
         # for i in range(self.options["action_net"]["num_layers"]-1):
         #     no_decay.update([f"noise_decoder.cross_field_scales_pos.{i}", f"noise_decoder.cross_field_scales_tau.{i}"])
         no_decay.update([f"std_pos", f"std_tau"])
@@ -430,10 +362,8 @@ class ActorCritic_Pos(nn.Module):
         # Validate parameter separation
         param_dict   = {pn: p for pn, p in self.named_parameters()}
         inter_params = pos_decay & tau_decay & shared_decay & no_decay & special_decay & encoder & critic_set
-        inter_params = pos_decay & tau_decay & shared_decay & no_decay & special_decay & encoder & critic_set
         if inter_params:
             raise ValueError(f"Parameters in all sets: {inter_params}")
-        missing_params = param_dict.keys() - (pos_decay | tau_decay | shared_decay | no_decay | special_decay | encoder | critic_set)
         missing_params = param_dict.keys() - (pos_decay | tau_decay | shared_decay | no_decay | special_decay | encoder | critic_set)
         if missing_params:
             raise ValueError(f"Parameters not categorized: {missing_params}")
@@ -443,11 +373,7 @@ class ActorCritic_Pos(nn.Module):
         params_act = [{"params": [param_dict[pn] for pn in sorted(pos_decay)],     "weight_decay": 0.0, "name":"pos_branch"},
                       {"params": [param_dict[pn] for pn in sorted(tau_decay)],     "weight_decay": 0.0, "name":"tau_branch"},
                       {"params": [param_dict[pn] for pn in sorted(shared_decay)],  "weight_decay": 0.0, "name":"shared"},
-                      {"params": [param_dict[pn] for pn in sorted(tau_decay)],     "weight_decay": 0.0, "name":"tau_branch"},
-                      {"params": [param_dict[pn] for pn in sorted(shared_decay)],  "weight_decay": 0.0, "name":"shared"},
                       {"params": [param_dict[pn] for pn in sorted(critic_set)],    "weight_decay": 0.0, "name":"critic"},
-                      {"params": [param_dict[pn] for pn in sorted(no_decay)],      "weight_decay": 0.0},
-                      {"params": [param_dict[pn] for pn in sorted(special_decay)], "weight_decay": strong_decay}]
                       {"params": [param_dict[pn] for pn in sorted(no_decay)],      "weight_decay": 0.0},
                       {"params": [param_dict[pn] for pn in sorted(special_decay)], "weight_decay": strong_decay}]
         
@@ -513,18 +439,10 @@ class ActorCritic_Pos(nn.Module):
         # Now run the final output layers to get both action modalities
         # act_pos_act = F.tanh(self.act_pos_out(pos_latent))
         # act_tau_act = F.tanh(self.act_tau_out(tau_latent))
-        # act_tau_act = F.tanh(self.act_tau_out(tau_latent))
         act_pos_act = self.act_pos_out(pos_latent)
-        act_tau_act = self.act_tau_out(tau_latent)
         act_tau_act = self.act_tau_out(tau_latent)
 
         # print(act_pos_act)
-        # print(act_tau_act)
-
-        # CLAMP LOGITS
-        #    These SHOULD be generous clamp values...
-        # act_pos_act = torch.clamp(act_pos_act, -5.0, 5.0)
-        # act_tau_act = torch.clamp(act_tau_act, -5.0, 5.0)
         # print(act_tau_act)
 
         # CLAMP LOGITS

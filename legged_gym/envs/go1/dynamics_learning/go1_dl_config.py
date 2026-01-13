@@ -248,7 +248,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         max_contact_force = 200.0
         class scales( LeggedRobotCfg.rewards.scales ):
             # General
-            termination      = -100.0
+            termination      = 0.0
             collision        = -1.0
             dof_pos_limits        = -5.0
             dof_close_to_default  = -0.5
@@ -397,7 +397,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
 
         pinn_loss_weight = 1.0e-3
         pinn_warmup = 100
-        pinn_init_steps = 1000
+        pinn_init_steps = 0
 
         # pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/rsl_rl/" \
         #                     "modules/pretrained_models/dynamic/12_30_202514_37_12_no_pinn_nofilm/no_pinn_no_film_epoch_499.pth"

@@ -411,11 +411,6 @@ class ActorCritic_Dynamic(nn.Module):
             raise ValueError(f"Parameters not categorized: {missing_params}")
         
         # print(f"Parameters with extra strong weight decay{special_decay}")
-
-        params_act = [{"params": [param_dict[pn] for pn in sorted(pos_decay)],     "weight_decay": 0.0, "name":"pos_branch"},
-                      {"params": [param_dict[pn] for pn in sorted(tau_decay)],     "weight_decay": 0.0, "name":"tau_branch"},
-                      {"params": [param_dict[pn] for pn in sorted(shared_decay)],  "weight_decay": 0.0, "name":"shared"},
-                      {"params": [param_dict[pn] for pn in sorted(critic_set)],    "weight_decay": 0.0, "name":"critic"},
         params_act = [{"params": [param_dict[pn] for pn in sorted(pos_decay)],     "weight_decay": 0.0, "name":"pos_branch"},
                       {"params": [param_dict[pn] for pn in sorted(tau_decay)],     "weight_decay": 0.0, "name":"tau_branch"},
                       {"params": [param_dict[pn] for pn in sorted(shared_decay)],  "weight_decay": 0.0, "name":"shared"},
