@@ -1572,10 +1572,10 @@ class LeggedRobotGo1Dynamic(BaseTask):
 
         random_smaple = random.random()
         
-        if random_smaple <= 0.10:  # 10% of the time reduce to lower bound
+        if random_smaple <= 0.20:  # 20% of the time reduce to lower bound
             self.feedforward_tau_weight[env_ids] = self.tradeoff_lowerbounds[0]
             self.feedback_tau_weight[env_ids]    = self.tradeoff_lowerbounds[1]
-        elif random_smaple > 0.10 and random_smaple <= 0.35: # ~25% of the time, sample a random value between the lower and current upper bound
+        elif random_smaple > 0.20 and random_smaple <= 0.45: # ~25% of the time, sample a random value between the lower and current upper bound
             # step_ctr * (1.0/num_steps) -> is the per-env upper bound. Multipled by a random float between [0,1)
             random_step_size = self.tradeoff_step_ctr*float(1.0/self.tradeoff_num_steps) * torch.rand((self.num_envs, 1))
 
@@ -2295,13 +2295,14 @@ class LeggedRobotGo1Dynamic(BaseTask):
             bonus_x = 0.175
             if i > 1:
                 bonus_x = 0.10
-            bonus_y = 0.40
             
+            bonus_y = 0.10
             # now calculate the more complicated Raibert hueristic
             #     symmetry hueristic
             raibert_xy = raibert_gain * (self.base_lin_vel[:,:2] - self.commands[:,:2])  # (num_env, 2)
             raibert_xy[:,0] += self.base_lin_vel[:,0] * ((0.5 + bonus_x) * stance_time)
             raibert_xy[:,1] += self.base_lin_vel[:,1] * ((0.5 + bonus_y) * stance_time)
+            
             #     centrifugal hueristic
             raibert_xy[:,0] += 0.5 * (self.base_pos[:,2]/9.81) *  \
                 self.base_lin_vel[:,1] * self.commands[:,2]   # x-axis
