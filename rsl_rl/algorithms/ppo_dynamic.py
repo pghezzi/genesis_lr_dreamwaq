@@ -227,7 +227,7 @@ class PPODynamic:
         last_values_tau = self.actor_critic.evaluate_tau(last_critic_obs).detach()
         self.storage.compute_returns_tau(last_values_tau, self.gamma, self.lam)
 
-    def update(self, action_func, fb_func, dt, itr, beta=1.0):
+    def update(self, action_func, fb_func, dt, itr, default_pose, beta=1.0):
         mean_pos_value_loss = 0
         mean_pos_surrogate_loss = 0
         mean_tau_value_loss = 0
@@ -406,6 +406,11 @@ class PPODynamic:
                     q_pos_curr,  q_velo_curr  = obs_batch[:,8:20].detach().clone(),       obs_batch[:,20:32].detach().clone()
                     q_pos_prev,  q_velo_prev  = prev_obs_batch[:,8:20].detach().clone(),  prev_obs_batch[:,20:32].detach().clone()
                     q_pos_pprev, q_velo_pprev = pprev_obs_batch[:,8:20].detach().clone(), pprev_obs_batch[:,20:32].detach().clone()
+
+                    q_pos_curr,  q_velo_curr  = (q_pos_curr + default_pose).float(),  (q_velo_curr / 0.05).float()
+                    q_pos_prev,  q_velo_prev  = (q_pos_prev + default_pose).float(),  (q_velo_prev / 0.05).float()
+                    q_pos_pprev, q_velo_pprev = (q_pos_pprev + default_pose).float(), (q_velo_pprev / 0.05).float()
+
 
                     # Calculate feedback torques
                     # fb_func

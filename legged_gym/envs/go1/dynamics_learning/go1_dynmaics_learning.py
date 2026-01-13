@@ -2289,7 +2289,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
             if i > 1:
                 bonus_x = 0.10
             
-            bonus_y = 0.40
+            bonus_y = 0.10
             # now calculate the more complicated Raibert hueristic
             #     symmetry hueristic
             raibert_xy = raibert_gain * (self.base_lin_vel[:,:2] - self.commands[:,:2])  # (num_env, 2)

@@ -218,13 +218,11 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         decimation = 5  # decimation: Number of control action updates @ sim DT per policy DT
 
         # Assumed order - tau_ff, tau_fb
-        tradeoff_init_weights  = [0.00, 3.0]
+        tradeoff_init_weights  = [0.10, 3.0]
         tradeoff_final_weights = [1.00, 1.00]
         tradeoff_steps = 10
         tradeoff_threshold = 0.60
         use_tradeoff_curriculum = True
-
-
 
     class termination:
         termination_terms = ["roll", "pitch", "height_min", "height_max"]
@@ -402,7 +400,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         pinn_init_steps = 0
 
         pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/rsl_rl/" \
-                            "modules/pretrained_models/rl_pos/Jan09_23-51-24_full_approach_boot_01_100hz_tanh/model_2000.pt"
+                            "modules/pretrained_models/rl_pos/Jan12_17-07-35_full_approach_boot_01_100hz_tanh/model_1000.pt"
         # pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/logs/rss_go1_dynamic/Jan11_19-49-03_full_approach_boot_newfilm_01_100hz_posboot/model_2200.pt"
 
     class algorithm( LeggedRobotCfgPPO.algorithm ):
