@@ -340,11 +340,11 @@ class ActorCritic_Dynamic(nn.Module):
         
         # self.act_pos_2_tau_h1.reset_parameters()
         # self.act_tau_2_pos_h1.reset_parameters()
-        #     Applied after h2
+        # #     Applied after h2
         # self.act_pos_2_tau_h2.reset_parameters()
         # self.act_tau_2_pos_h2.reset_parameters()
 
-        # nn.init.uniform_(self.act_tau_h1.weight, -1e-8, 1e-8)
+        # nn.init.uniform_(self.act_tau_h1.weight, -1e-10, 1e-10)
 
         # self.std_pos = nn.Parameter(1.0 * torch.ones(self.num_actions))
         # self.std_tau = nn.Parameter(1.0 * torch.ones(self.num_actions))
@@ -483,12 +483,13 @@ class ActorCritic_Dynamic(nn.Module):
         condition = torch.cat([pos_latent, tau_latent], dim=-1)
         pos_latent = pos_latent + self.act_tau_2_pos_h1(tau_latent, condition)  # perform FiLM on pos_latent using tau_latent
         tau_latent = tau_latent + self.act_pos_2_tau_h1(pos_latent, condition)  # perform FiLM on tau_latent using pos_latent
-        # # Perform layer normalization
-        # pos_latent = self.act_pos_layernorm_1(pos_latent)
-        # tau_latent = self.act_tau_layernorm_1(tau_latent)
         # Perform activation
         pos_latent = self.activation(pos_latent)
         tau_latent = self.activation(tau_latent)
+        # Perform layer normalization
+        pos_latent = self.act_pos_layernorm_1(pos_latent)
+        tau_latent = self.act_tau_layernorm_1(tau_latent)
+
         # REPEAT
         #     position
         pos_latent = self.act_pos_h2(pos_latent)
@@ -498,12 +499,12 @@ class ActorCritic_Dynamic(nn.Module):
         condition = torch.cat([pos_latent, tau_latent], dim=-1)
         pos_latent = pos_latent + self.act_tau_2_pos_h2(tau_latent, condition)  # perform FiLM on pos_latent using tau_latent
         tau_latent = tau_latent + self.act_pos_2_tau_h2(pos_latent, condition)  # perform FiLM on tau_latent using pos_latent
-        # # Perform layer normalization
-        # pos_latent = self.act_pos_layernorm_2(pos_latent)
-        # tau_latent = self.act_tau_layernorm_2(tau_latent)
         # perform activation
         pos_latent = self.activation(pos_latent)
         tau_latent = self.activation(tau_latent)
+        # Perform layer normalization
+        pos_latent = self.act_pos_layernorm_2(pos_latent)
+        tau_latent = self.act_tau_layernorm_2(tau_latent)
 
 
         # Now run the final output layers to get both action modalities

@@ -123,11 +123,11 @@ class OnPolicyRunnerDynamic:
         print(pretrained_path)
         loaded_dict = torch.load(pretrained_path)
         # Load the pretrained action-network and encoder
-        self.alg.actor_critic.load_state_dict(loaded_dict['model_state_dict'])
+        self.alg.actor_critic.load_state_dict(loaded_dict['actor'])
         # re-initalize the critic network weights which where not pretrained (to be safe)
         self.alg.actor_critic._init_critic_weights()
         # Load the pretrained decoder network
-        self.alg.decoder.load_state_dict(loaded_dict['decoder_state_dict'])
+        self.alg.decoder.load_state_dict(loaded_dict['decoder'])
     
     def learn(self, num_learning_iterations, init_at_random_ep_len=False):
         # initialize writer
@@ -215,7 +215,7 @@ class OnPolicyRunnerDynamic:
             mean_pos_value_loss, mean_pos_surrogate_loss, mean_tau_value_loss, \
                 mean_tau_surrogate_loss, mean_autoenc_loss, mean_decoder_loss, mean_vel_loss, \
                     mean_recon_loss, mean_kld_loss, mean_pinn_loss \
-                    = self.alg.update(self.env._get_pinn_actions, self.env._get_pinn_feedback, self.env.dt, self.env.num_iters, beta=2.0)
+                    = self.alg.update(self.env._get_pinn_actions, self.env._get_pinn_feedback, self.env.dt, self.env.num_iters, self.env.default_dof_pos, beta=2.0)
 
             # self.env.step_tradeoff_curriculum()
             print("Avg - Curriculum Step: ", torch.mean(self.env.tradeoff_step_ctr).item())

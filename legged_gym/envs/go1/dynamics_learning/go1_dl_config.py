@@ -207,8 +207,8 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         # PD Drive parameters:
         # control_type = 'P'
         # Much smaller values than typical... only used for feedback control
-        stiffness = {'joint': 3.0}   # [N*m/rad]
-        damping   = {'joint': 0.075}     # [N*m*s/rad]
+        stiffness = {'joint': 10.0}   # [N*m/rad]
+        damping   = {'joint': 0.25}     # [N*m*s/rad]
         
         action_scale = [0.25, 0.25, 0.25]    # action scale: target angle = action_scale * pose_action + defaultAngle
         torque_scale = [10.0, 10.0, 10.0] # action scale:  target torque = torque_scale * tau_action + defaultTorque
@@ -218,13 +218,11 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         decimation = 5  # decimation: Number of control action updates @ sim DT per policy DT
 
         # Assumed order - tau_ff, tau_fb
-        tradeoff_init_weights  = [0.00, 10.0]
+        tradeoff_init_weights  = [0.10, 3.0]
         tradeoff_final_weights = [1.00, 1.00]
-        tradeoff_steps = 2
+        tradeoff_steps = 10
         tradeoff_threshold = 0.60
         use_tradeoff_curriculum = True
-
-
 
     class termination:
         termination_terms = ["roll", "pitch", "height_min", "height_max"]
@@ -236,7 +234,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
     class rewards( LeggedRobotCfg.rewards ):
         soft_dof_pos_limit = 0.90
         soft_torque_limit = 0.90
-        base_height_target = 0.30
+        base_height_target = 0.26
         tracking_sigma = 0.25 # tracking reward = exp(-error^2/sigma)
         
         foot_clearance_target = 0.060 # desired foot clearance above ground [m]
@@ -286,7 +284,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
 
             feedforward_torques   = -2.0e-4
             # feedback_torques      = -2.0e-4
-            act_close_to_default    = -0.1
+            act_close_to_default    = -0.01
 
             # promot stable WB locomotion
             # wb_dynamics = 0.1
@@ -401,9 +399,9 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         pinn_warmup = 100
         pinn_init_steps = 0
 
-        # pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/rsl_rl/" \
-        #                     "modules/pretrained_models/rl_pos/Jan09_23-51-24_full_approach_boot_01_100hz_tanh/model_2000.pt"
-        pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/logs/rss_go1_dynamic/Jan11_19-49-03_full_approach_boot_newfilm_01_100hz_posboot/model_2200.pt"
+        pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/rsl_rl/" \
+                            "modules/pretrained_models/rl_pos/Jan12_17-07-35_full_approach_boot_01_100hz_tanh/model_1000.pt"
+        # pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/logs/rss_go1_dynamic/Jan11_19-49-03_full_approach_boot_newfilm_01_100hz_posboot/model_2200.pt"
 
     class algorithm( LeggedRobotCfgPPO.algorithm ):
         entropy_coef = 0.01
@@ -433,8 +431,8 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         save_interval = 100
         
         
-        load_run = "Jan11_19-49-03_full_approach_boot_newfilm_01_100hz_posboot"
-        checkpoint = 2200
+        load_run = "Jan12_11-35-12_full_approach_boot_newfilm_01_100hz_posboot"
+        checkpoint = 500
 
         # Load parameters for first function policy
         # run_name = 'test_01'
