@@ -264,20 +264,6 @@ class ActorCritic_Pos(nn.Module):
         self.act_tau_h2  = nn.Linear(actor_branch_layers[0], actor_branch_layers[1])
         self.act_tau_out = nn.Linear(actor_branch_layers[1], num_actions)
 
-        # Now create FiLM layers for sharing info. between branches
-        #     Applied after h1
-        self.act_pos_2_tau_h1 = _ShiftScaleMod(dim=actor_branch_layers[0]*2, activation=activation)
-        self.act_tau_2_pos_h1 = _ShiftScaleMod(dim=actor_branch_layers[0]*2, activation=activation)
-        #     Applied after h2
-        self.act_pos_2_tau_h2 = _ShiftScaleMod(dim=actor_branch_layers[1]*2, activation=activation)
-        self.act_tau_2_pos_h2 = _ShiftScaleMod(dim=actor_branch_layers[1]*2, activation=activation)
-
-        self.act_pos_layernorm_1 = nn.LayerNorm(actor_branch_layers[0])
-        self.act_tau_layernorm_1 = nn.LayerNorm(actor_branch_layers[0])
-
-        self.act_pos_layernorm_2 = nn.LayerNorm(actor_branch_layers[1])
-        self.act_tau_layernorm_2 = nn.LayerNorm(actor_branch_layers[1])
-
         # Used to track these values during training....
         #     These values will not be used during inference (sim or real)
         self.cenet_mean = None 
@@ -436,33 +422,18 @@ class ActorCritic_Pos(nn.Module):
         pos_latent = self.act_pos_h1(x)
         #     torque
         tau_latent = self.act_tau_h1(x)
-        #     now perform the cross-conditioning
-        #     FiLM layer has a built-in axtivation function
-        condition = torch.cat([pos_latent, tau_latent], dim=-1)
-        pos_latent = pos_latent + self.act_tau_2_pos_h1(tau_latent, condition)  # perform FiLM on pos_latent using tau_latent
-        tau_latent = tau_latent + self.act_pos_2_tau_h1(pos_latent, condition)  # perform FiLM on tau_latent using pos_latent
         # Perform activation
         pos_latent = self.activation(pos_latent)
         tau_latent = self.activation(tau_latent)
-        # Perform layer normalization
-        pos_latent = self.act_pos_layernorm_1(pos_latent)
-        tau_latent = self.act_tau_layernorm_1(tau_latent)
         
         # REPEAT
         #     position
         pos_latent = self.act_pos_h2(pos_latent)
         #     torque
         tau_latent = self.act_tau_h2(tau_latent)
-        #     now perform the cross-conditioning
-        condition = torch.cat([pos_latent, tau_latent], dim=-1)
-        pos_latent = pos_latent + self.act_tau_2_pos_h2(tau_latent, condition)  # perform FiLM on pos_latent using tau_latent
-        tau_latent = tau_latent + self.act_pos_2_tau_h2(pos_latent, condition)  # perform FiLM on tau_latent using pos_latent
         # perform activation
         pos_latent = self.activation(pos_latent)
         tau_latent = self.activation(tau_latent)
-        # Perform layer normalization
-        pos_latent = self.act_pos_layernorm_2(pos_latent)
-        tau_latent = self.act_tau_layernorm_2(tau_latent)
 
 
         # Now run the final output layers to get both action modalities
