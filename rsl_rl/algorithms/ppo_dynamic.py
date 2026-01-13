@@ -596,12 +596,6 @@ class PPODynamic:
         #     to determine if encoder bootstrapping is performed.
         self.use_boot = random.random() < pboot
         print(self.use_boot)
-        
-        with torch.no_grad():
-            print(self.actor_critic.act_pos_2_tau_h1.scale.weight.norm())
-            print(self.actor_critic.act_tau_2_pos_h1.scale.weight.norm())
-            print(self.actor_critic.act_pos_2_tau_h2.scale.weight.norm())
-            print(self.actor_critic.act_tau_2_pos_h2.scale.weight.norm())
 
         self.storage.clear()
 
