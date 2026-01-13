@@ -402,8 +402,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         # pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/rsl_rl/" \
         #                     "modules/pretrained_models/dynamic/12_30_202514_37_12_no_pinn_nofilm/no_pinn_no_film_epoch_499.pth"
 
-        pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/rsl_rl/" \
-                            "modules/pretrained_models/rl_pos/Jan12_17-07-35_full_approach_boot_01_100hz_tanh/model_1000.pt"
+        pretrained_path = "../../rsl_rl/modules/pretrained_models/position_control/Jan13_15-26-55_nofilm_boot_01_100hz_pos/model_1000.pt"
         # pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/logs/rss_go1_dynamic/Jan11_19-49-03_full_approach_boot_newfilm_01_100hz_posboot/model_2200.pt"
 
     class algorithm( LeggedRobotCfgPPO.algorithm ):
@@ -430,7 +429,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         
         # debug_warmpinn_wb
         run_name = 'branch_pinn_no_film_boot_01'
-        experiment_name = 'rss_go1_dynamic'
+        experiment_name = 'rss_go1_nofilm'
         save_interval = 100
         
         
