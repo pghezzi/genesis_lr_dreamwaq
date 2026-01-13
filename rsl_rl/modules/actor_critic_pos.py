@@ -585,7 +585,7 @@ class ActorCritic_Pos(nn.Module):
         current_obs = torch.cat((obs,z,torso_velo), dim=-1)   
         
         # call the actors forward method and return it's results
-        actions_pos = self.actor_forward(current_obs)
+        actions_pos, _ = self.actor_forward(current_obs)
 
         return actions_pos
 

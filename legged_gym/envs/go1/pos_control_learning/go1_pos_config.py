@@ -353,8 +353,8 @@ class GO1PosCfgPPO( LeggedRobotCfgPPO ):
         save_interval = 100
         
         
-        load_run = "Jan06_12-51-07_config_test_39_bootstrap_success"
-        checkpoint = 400
+        load_run = "Jan12_17-07-35_full_approach_boot_01_100hz_tanh"
+        checkpoint = 1000
 
         # Load parameters for first function policy
         # run_name = 'test_01'
