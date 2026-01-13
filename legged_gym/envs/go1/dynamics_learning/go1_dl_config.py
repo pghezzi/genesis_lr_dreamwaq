@@ -427,7 +427,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         
         # debug_warmpinn_wb
         run_name = 'branch_film_nopinn_boot_01'
-        experiment_name = 'rss_go1_dynamic'
+        experiment_name = 'rss_go1_dynamic_nopinn'
         save_interval = 100
         
         
