@@ -218,11 +218,12 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         decimation = 5  # decimation: Number of control action updates @ sim DT per policy DT
 
         # Assumed order - tau_ff, tau_fb
-        tradeoff_init_weights  = [0.10, 3.0]
+        # tradeoff_init_weights  = [0.10, 3.0]
+        tradeoff_init_weights  = [1.00, 1.00]
         tradeoff_final_weights = [1.00, 1.00]
         tradeoff_steps = 10
         tradeoff_threshold = 0.60
-        use_tradeoff_curriculum = True
+        use_tradeoff_curriculum = False
 
     class termination:
         termination_terms = ["roll", "pitch", "height_min", "height_max"]
@@ -431,8 +432,8 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         save_interval = 100
         
         
-        load_run = "Jan12_11-35-12_full_approach_boot_newfilm_01_100hz_posboot"
-        checkpoint = 500
+        load_run = "Jan12_20-55-27_full_approach_boot_newfilm_01_100hz_posboot"
+        checkpoint = 5000
 
         # Load parameters for first function policy
         # run_name = 'test_01'
