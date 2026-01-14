@@ -5,3 +5,4 @@ from .rollout_storage import RolloutStorage
 from .rollout_storage_ts import RolloutStorageTS
 from .rollout_storage_dwq import RolloutStorageDWQ
 from .rollout_storage_dynamics import RolloutStorageDynamics
+from .rollout_storage_pos import RolloutStoragePos
