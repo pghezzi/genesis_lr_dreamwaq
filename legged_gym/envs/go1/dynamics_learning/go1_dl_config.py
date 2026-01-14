@@ -302,18 +302,6 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             raibert  = 0.01                   # tracking reward foot placement in x/y-plane
             front_back_separation = -0.01     # penalty for small distance between front and back feet during contact
 
-        class pos_scales():
-            dof_act_limits        = 0.0
-            pos_action_rate       = 0.0   # new
-            pos_action_smoothness = 0.0   # new
-            feedback_torques      = 0.0  # new
-
-        class tau_scales():
-            task_alignment        = 0.0
-            tau_action_rate       = 0.0   # new
-            tau_action_smoothness = 0.0   # new
-            feedforward_torques   = 0.0  # new
-
         class reward_curriculum():
             # curr_reward_keys = ["tau_action_rate", "tau_action_smoothness", "feedforward_torques",
             #                     "pos_action_rate", "pos_action_smoothness", "feedback_torques",
@@ -400,8 +388,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         pinn_warmup = 100
         pinn_init_steps = 0
 
-        pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/rsl_rl/" \
-                            "modules/pretrained_models/rl_pos/Jan12_17-07-35_full_approach_boot_01_100hz_tanh/model_1000.pt"
+        pretrained_path = "../../rsl_rl/modules/pretrained_models/rl_pos/Jan12_17-07-35_full_approach_boot_01_100hz_tanh/model_1000.pt"
         # pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/logs/rss_go1_dynamic/Jan11_19-49-03_full_approach_boot_newfilm_01_100hz_posboot/model_2200.pt"
 
     class algorithm( LeggedRobotCfgPPO.algorithm ):
@@ -427,8 +414,8 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         grf_dim = 12
         
         # debug_warmpinn_wb
-        run_name = 'full_approach_boot_newfilm_01_100hz_posboot'
-        experiment_name = 'rss_go1_dynamic'
+        run_name = 'unimodel_boot_newfilm_01_100hz_posboot'
+        experiment_name = 'rss_go1_dynamic_unimodel'
         save_interval = 100
         
         

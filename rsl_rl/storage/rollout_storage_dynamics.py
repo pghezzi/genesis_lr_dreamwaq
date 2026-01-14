@@ -181,7 +181,7 @@ class RolloutStorageDynamics:
     def clear(self):
         self.step = 0
 
-    def compute_returns_pos(self, last_values, gamma, lam):
+    def compute_returns(self, last_values, gamma, lam):
         advantage = 0
         for step in reversed(range(self.num_transitions_per_env)):
             if step == self.num_transitions_per_env - 1:
