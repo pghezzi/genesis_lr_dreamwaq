@@ -45,19 +45,12 @@ class RolloutStorageDynamics:
             self.grf_targets = None  # next time-step from observations, used by decoder output
             self.obs_targets = None  # next time-step from observations, used by decoder output
 
-            self.pos_actions = None
-            self.pos_rewards = None
-            self.pos_values = None
-            self.pos_actions_log_prob = None
-            self.pos_action_mean = None
-            self.pos_action_sigma = None
-
-            self.tau_actions = None
-            self.tau_rewards = None
-            self.tau_values = None
-            self.tau_actions_log_prob = None
-            self.tau_action_mean = None
-            self.tau_action_sigma = None
+            self.actions = None
+            self.rewards = None
+            self.values = None
+            self.actions_log_prob = None
+            self.action_mean = None
+            self.action_sigma = None
 
             #  PINN stuff
             self.prev_obs      = None
@@ -101,23 +94,13 @@ class RolloutStorageDynamics:
         
         # For PPO
         # Need a set of these for each "task" (position control and torque control)
-        self.pos_rewards = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
-        self.pos_actions = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
-        self.pos_actions_log_prob = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
-        self.pos_values = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
-        self.pos_returns = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
-        self.pos_advantages = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
-        self.pos_mu = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
-        self.pos_sigma = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
-
-        self.tau_rewards = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
-        self.tau_actions = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
-        self.tau_actions_log_prob = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
-        self.tau_values = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
-        self.tau_returns = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
-        self.tau_advantages = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
-        self.tau_mu = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
-        self.tau_sigma = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
+        self.rewards = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
+        self.actions = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
+        self.actions_log_prob = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
+        self.values = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
+        self.returns = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
+        self.advantages = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
+        self.mu = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
 
         #  Shared
         self.num_transitions_per_env = num_transitions_per_env
@@ -155,20 +138,12 @@ class RolloutStorageDynamics:
         
         # Need a set for each "task"
         #  - Position Control
-        self.pos_actions[self.step].copy_(transition.pos_actions)
-        self.pos_rewards[self.step].copy_(transition.pos_rewards.view(-1, 1))
-        self.pos_values[self.step].copy_(transition.pos_values)
-        self.pos_actions_log_prob[self.step].copy_(transition.pos_actions_log_prob.view(-1, 1))
-        self.pos_mu[self.step].copy_(transition.pos_action_mean)
-        self.pos_sigma[self.step].copy_(transition.pos_action_sigma)
-
-        #  - Torque Control
-        self.tau_actions[self.step].copy_(transition.tau_actions)
-        self.tau_rewards[self.step].copy_(transition.tau_rewards.view(-1, 1))
-        self.tau_values[self.step].copy_(transition.tau_values)
-        self.tau_actions_log_prob[self.step].copy_(transition.tau_actions_log_prob.view(-1, 1))
-        self.tau_mu[self.step].copy_(transition.tau_action_mean)
-        self.tau_sigma[self.step].copy_(transition.tau_action_sigma)
+        self.actions[self.step].copy_(transition.actions)
+        self.rewards[self.step].copy_(transition.rewards.view(-1, 1))
+        self.values[self.step].copy_(transition.values)
+        self.actions_log_prob[self.step].copy_(transition.actions_log_prob.view(-1, 1))
+        self.mu[self.step].copy_(transition.action_mean)
+        self.sigma[self.step].copy_(transition.action_sigma)
 
         #  - PINN stuff
         self.prev_obs[self.step].copy_(transition.prev_obs)
@@ -212,60 +187,16 @@ class RolloutStorageDynamics:
             if step == self.num_transitions_per_env - 1:
                 next_values = last_values
             else:
-                next_values = self.pos_values[step + 1]
+                next_values = self.values[step + 1]
             next_is_not_terminal = 1.0 - self.dones[step].float()
-            delta = self.pos_rewards[step] + next_is_not_terminal * gamma * next_values - self.pos_values[step]
+            delta = self.rewards[step] + next_is_not_terminal * gamma * next_values - self.values[step]
             advantage = delta + next_is_not_terminal * gamma * lam * advantage
-            self.pos_returns[step] = advantage + self.pos_values[step]
+            self.returns[step] = advantage + self.values[step]
 
         # Compute and normalize the advantages
-        self.pos_advantages = self.pos_returns - self.pos_values
-        self.pos_advantages = (self.pos_advantages - self.pos_advantages.mean()) / (self.pos_advantages.std() + 1e-8)
+        self.advantages = self.returns - self.values
+        self.advantages = (self.advantages - self.advantages.mean()) / (self.advantages.std() + 1e-8)
 
-    def compute_returns_tau(self, last_values, gamma, lam):
-        advantage = 0
-        for step in reversed(range(self.num_transitions_per_env)):
-            if step == self.num_transitions_per_env - 1:
-                next_values = last_values
-            else:
-                next_values = self.tau_values[step + 1]
-            next_is_not_terminal = 1.0 - self.dones[step].float()
-            delta = self.tau_rewards[step] + next_is_not_terminal * gamma * next_values - self.tau_values[step]
-            advantage = delta + next_is_not_terminal * gamma * lam * advantage
-            self.tau_returns[step] = advantage + self.tau_values[step]
-
-        # Compute and normalize the advantages
-        self.tau_advantages = self.tau_returns - self.tau_values
-        self.tau_advantages = (self.tau_advantages - self.tau_advantages.mean()) / (self.tau_advantages.std() + 1e-8)
-
-    
-    def get_iter_reward_cv(self, itr):
-        total_rewards = self.pos_rewards + self.tau_rewards
-        prob_pinn_rew = 0.0
-        
-        if itr == 0:
-            self.last_mean = torch.mean(total_rewards).item()
-        elif itr > 0 and itr < 2:
-            self.llast_mean = self.last_mean
-            self.last_mean = torch.mean(total_rewards).item()
-        else:
-            curr_mean = torch.mean(total_rewards).item()
-            # FDM approximation of slope
-            approx_slope = (0.5) * self.llast_mean - 2.0 * self.last_mean + (3.0/2.0) * curr_mean
-
-            if approx_slope < 0:
-                # Our per-iteration reward is decreasing! Do not use PINN and allow PPO update 
-                #     to dominate
-                prob_pinn_rew = 0.0
-            else:
-                # The slope is increasing, so the policy is improving or remaining constant! Go ahead and use the PINN loss in our policy update
-                #     with a use-probabilty equal to 
-                prob_pinn_rew = 0.5 + np.tanh(approx_slope)
-
-            self.llast_mean = self.last_mean
-            self.last_mean = curr_mean
-        
-        return prob_pinn_rew
     
     def get_statistics(self):
         done = self.dones
@@ -288,21 +219,13 @@ class RolloutStorageDynamics:
         grf_labels = self.grf_targets.flatten(0,1)
         obs_targets = self.observation_targets.flatten(0,1)
 
-        pos_actions = self.pos_actions.flatten(0, 1)
-        pos_values = self.pos_values.flatten(0, 1)
-        pos_returns = self.pos_returns.flatten(0, 1)
-        pos_old_actions_log_prob = self.pos_actions_log_prob.flatten(0, 1)
-        pos_advantages = self.pos_advantages.flatten(0, 1)
-        pos_old_mu = self.pos_mu.flatten(0, 1)
-        pos_old_sigma = self.pos_sigma.flatten(0, 1)
-
-        tau_actions = self.tau_actions.flatten(0, 1)
-        tau_values = self.tau_values.flatten(0, 1)
-        tau_returns = self.tau_returns.flatten(0, 1)
-        tau_old_actions_log_prob = self.tau_actions_log_prob.flatten(0, 1)
-        tau_advantages = self.tau_advantages.flatten(0, 1)
-        tau_old_mu = self.tau_mu.flatten(0, 1)
-        tau_old_sigma = self.tau_sigma.flatten(0, 1)
+        actions = self.actions.flatten(0, 1)
+        values = self.values.flatten(0, 1)
+        returns = self.returns.flatten(0, 1)
+        old_actions_log_prob = self.actions_log_prob.flatten(0, 1)
+        advantages = self.advantages.flatten(0, 1)
+        old_mu = self.mu.flatten(0, 1)
+        old_sigma = self.sigma.flatten(0, 1)
 
         # PINN stuff
         prev_obs      = self.prev_obs.flatten(0, 1)
@@ -333,22 +256,14 @@ class RolloutStorageDynamics:
                 obs_labels_batch = obs_targets[batch_idx]
 
                 # Position Control RL Task
-                pos_actions_batch = pos_actions[batch_idx]
-                pos_target_values_batch = pos_values[batch_idx]
-                pos_returns_batch = pos_returns[batch_idx]
-                pos_old_actions_log_prob_batch = pos_old_actions_log_prob[batch_idx]
-                pos_advantages_batch = pos_advantages[batch_idx]
-                pos_old_mu_batch = pos_old_mu[batch_idx]
-                pos_old_sigma_batch = pos_old_sigma[batch_idx]
+                actions_batch = actions[batch_idx]
+                target_values_batch = values[batch_idx]
+                returns_batch = returns[batch_idx]
+                old_actions_log_prob_batch = old_actions_log_prob[batch_idx]
+                advantages_batch = advantages[batch_idx]
+                old_mu_batch = old_mu[batch_idx]
+                old_sigma_batch = old_sigma[batch_idx]
 
-                # Torque Control RL Task
-                tau_actions_batch = tau_actions[batch_idx]
-                tau_target_values_batch = tau_values[batch_idx]
-                tau_returns_batch = tau_returns[batch_idx]
-                tau_old_actions_log_prob_batch = tau_old_actions_log_prob[batch_idx]
-                tau_advantages_batch = tau_advantages[batch_idx]
-                tau_old_mu_batch = tau_old_mu[batch_idx]
-                tau_old_sigma_batch = tau_old_sigma[batch_idx]
 
                 # PINN stuff
                 prev_obs_batch      = prev_obs[batch_idx]
@@ -363,11 +278,9 @@ class RolloutStorageDynamics:
 
                 
                 yield obs_batch, critic_observations_batch, obs_hist_batch, torso_velo_labels_batch, \
-                        grf_labels_batch, obs_labels_batch, pos_actions_batch, pos_target_values_batch, \
-                        pos_advantages_batch, pos_returns_batch, pos_old_actions_log_prob_batch, pos_old_mu_batch, \
-                        pos_old_sigma_batch,  tau_actions_batch, tau_target_values_batch, \
-                        tau_advantages_batch, tau_returns_batch, tau_old_actions_log_prob_batch, tau_old_mu_batch, \
-                        tau_old_sigma_batch, prev_obs_batch, prev_obs_hist_batch, gt_forces_batch, mass_mat_batch, \
+                        grf_labels_batch, obs_labels_batch, actions_batch, target_values_batch, \
+                        advantages_batch, returns_batch, old_actions_log_prob_batch, old_mu_batch, \
+                        old_sigma_batch, prev_obs_batch, prev_obs_hist_batch, gt_forces_batch, mass_mat_batch, \
                         bias_vec_batch, torso_accs_batch, pprev_obs_batch, pprev_obs_hist_batch
 
     # for RNNs only
