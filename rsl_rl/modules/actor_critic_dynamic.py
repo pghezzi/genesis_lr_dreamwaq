@@ -438,18 +438,18 @@ class ActorCritic_Dynamic(nn.Module):
     # Functions that are specific to PPO training
     @property
     def action_mean(self):
-        return self.distribution_pos.mean
+        return self.distribution.mean
 
     @property
     def action_std(self):
-        return self.distribution_pos.stddev
+        return self.distribution.stddev
 
     @property
     def entropy(self):
-        return self.distribution_pos.entropy().sum(dim=-1)
+        return self.distribution.entropy().sum(dim=-1)
 
     def get_actions_log_prob(self, actions):
-        return self.distribution_pos.log_prob(actions).sum(dim=-1)
+        return self.distribution.log_prob(actions).sum(dim=-1)
 
     def update_distribution(self, curr_obs):
         mean_pos, mean_tau = self.actor_forward(curr_obs)
@@ -465,7 +465,7 @@ class ActorCritic_Dynamic(nn.Module):
         # self.std.data.clamp_(0.2, 1.1)
         mean = torch.cat([mean_pos, mean_tau], dim=-1)
 
-        self.distribution = Normal(mean, mean * 0.0 + self.std_pos)
+        self.distribution = Normal(mean, mean * 0.0 + self.std)
 
     # method used during simulated training
     def act(self, obs, obs_history, **kwargs):

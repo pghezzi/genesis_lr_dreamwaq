@@ -238,9 +238,7 @@ class PPODynamic:
         for obs_batch, critic_obs_batch, obs_hist_batch, vel_target, \
             grf_target, obs_target, actions_batch, target_values_batch, \
             advantages_batch, returns_batch, old_actions_log_prob_batch, old_mu_batch, \
-            old_sigma_batch,  tau_actions_batch, tau_target_values_batch, \
-            tau_advantages_batch, tau_returns_batch, tau_old_actions_log_prob_batch, tau_old_mu_batch, \
-            tau_old_sigma_batch, prev_obs_batch, prev_obs_hist_batch, gt_forces_batch, mass_mat_batch, \
+            old_sigma_batch, prev_obs_batch, prev_obs_hist_batch, gt_forces_batch, mass_mat_batch, \
             bias_vec_batch, torso_accs_batch,  pprev_obs_batch, pprev_obs_hist_batch  in generator:
 
                 self.actor_critic.train()
@@ -532,12 +530,6 @@ class PPODynamic:
         #     to determine if encoder bootstrapping is performed.
         self.use_boot = random.random() < pboot
         print(self.use_boot)
-        
-        with torch.no_grad():
-            print(self.actor_critic.act_pos_2_tau_h1.scale.weight.norm())
-            print(self.actor_critic.act_tau_2_pos_h1.scale.weight.norm())
-            print(self.actor_critic.act_pos_2_tau_h2.scale.weight.norm())
-            print(self.actor_critic.act_tau_2_pos_h2.scale.weight.norm())
 
         self.storage.clear()
 
