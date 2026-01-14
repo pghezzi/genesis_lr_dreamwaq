@@ -551,15 +551,16 @@ class LeggedRobotGo1Pos(BaseTask):
         # control_type = 'P'
         repeat_pos_scales = torch.from_numpy(np.array(self.cfg.control.action_scale)).repeat(1,4).to(self.device)
         # actions_scaled = pos_actions * self.cfg.control.action_scale
-        actions_scaled = actions * repeat_pos_scales + self.default_dof_pos
+        # actions_scaled = actions * repeat_pos_scales + self.default_dof_pos
+        actions_scaled = actions * repeat_pos_scales
 
         # actions_scaled = torch.clamp(actions_scaled, 1.5*self.dof_pos_limits_hard[0,0], 1.5*self.dof_pos_limits_hard[0,1])
 
         # Calculate the feedback-control torques
         #     include PD scaling values 
-        self.feedback_torques = (
-            (self._kp_scale * self.p_gains) * (actions_scaled - self.dof_pos) - (self._kd_scale * self.d_gains) * self.dof_vel
-        )
+        # self.feedback_torques = (
+        #     (self._kp_scale * self.p_gains) * (actions_scaled - self.dof_pos) - (self._kd_scale * self.d_gains) * self.dof_vel
+        # )
         # Combine with the scaled + offset torque actions
         # print("FeedForward Torque - ")
         # print((tau_actions * self.cfg.control.torque_scale + self.default_dof_tau)[0:4,:])
@@ -567,7 +568,9 @@ class LeggedRobotGo1Pos(BaseTask):
         # print(feedback_torques[0:4,:])
         
         # torques = (self.feedforward_tau_weight) * self.feedforward_torques + 0.0 * (self.feedback_tau_weight)*self.feedback_torques
-        torques = self.feedback_torques
+        # torques = self.feedback_torques
+
+        torques = actions_scaled
 
 
         # self.feedforward_torques *= self.feedforward_tau_weight

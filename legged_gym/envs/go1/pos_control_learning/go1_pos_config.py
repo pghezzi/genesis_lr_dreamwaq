@@ -172,8 +172,10 @@ class GO1PosCfg( LeggedRobotCfg ):
         stiffness = {'joint': 30.0}   # [N*m/rad]
         damping   = {'joint': 0.75}     # [N*m*s/rad]
         
-        action_scale = [0.25, 0.25, 0.25]    # action scale: target angle = action_scale * pose_action + defaultAngle        
-        
+        # action_scale = [0.25, 0.25, 0.25]    # action scale: target angle = action_scale * pose_action + defaultAngle        
+        action_scale = [10.0, 10.0, 10.0]    # action scale: target angle = action_scale * pose_action + defaultAngle        
+
+
         dt =  0.01     # control frequency 100Hz
         decimation = 5  # decimation: Number of control action updates @ sim DT per policy DT
 
