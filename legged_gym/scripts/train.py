@@ -4,14 +4,12 @@ import os
 from datetime import datetime
 
 import genesis as gs
+gs.init(backend=gs.gpu, logging_level='warning')
 from legged_gym.envs import *
 from legged_gym.utils import get_args, task_registry
 import torch
 
 def train(args):
-    gs.init(
-        backend=gs.cpu if args.cpu else gs.gpu,
-        logging_level='warning')
     # print info
     env, env_cfg = task_registry.make_env(name=args.task, args=args)
     print(f"Start training for task: {args.task}")

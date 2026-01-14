@@ -4,8 +4,8 @@ class GO1PosCfg( LeggedRobotCfg ):
     
     class env( LeggedRobotCfg.env ):
         num_envs = 4096
-        num_observations = 57
-        num_privileged_obs = 79 # robot_state + other privilged info + terrain_heights (121)
+        num_observations = 45
+        num_privileged_obs = 67 # robot_state + other privilged info + terrain_heights (121)
         num_actions = 12
         env_spacing = 0.5
         num_obs_hist = 5
@@ -315,7 +315,7 @@ class GO1PosCfgPPO( LeggedRobotCfgPPO ):
         # Context Decoder
         cenet_dec_input_dim = 19
         cenet_dec_layers = [64,128]
-        cenet_dec_out_dim = 57        # next obs (57) + grf_dim (12)
+        cenet_dec_out_dim = 45        # next obs (57) + grf_dim (12)
 
         # Actor/critic
         actor_shared_dim = 512
@@ -344,11 +344,11 @@ class GO1PosCfgPPO( LeggedRobotCfgPPO ):
         policy_class_name = 'ActorCritic_Pos'
         algorithm_class_name = 'PPOPos'
         num_steps_per_env = 144 # per iteration
-        max_iterations = 1000 # number of policy updates
+        max_iterations = 1500 # number of policy updates
         grf_dim = 12
         
         # debug_warmpinn_wb
-        run_name = 'full_approach_boot_01_100hz_tanh'
+        run_name = '100hz_pos_baseline_01'
         experiment_name = 'rss_go1_pos'
         save_interval = 100
         
