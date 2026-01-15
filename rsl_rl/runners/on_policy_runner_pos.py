@@ -178,7 +178,7 @@ class OnPolicyRunnerPos:
                 self.alg.compute_returns(critic_obs)
 
             mean_pos_value_loss, mean_pos_surrogate_loss, mean_autoenc_loss, mean_decoder_loss, \
-                mean_vel_loss, mean_recon_loss, mean_kld_loss, mean_tau_loss = self.alg.update(self.env._get_pd_torques, self.env.default_dof_pos, beta=2.0)
+                mean_vel_loss, mean_recon_loss, mean_kld_loss, mean_tau_loss, mean_qref_loss = self.alg.update(self.env._get_pd_torques, self.env.default_dof_pos, beta=2.0)
             
             # if self.env.use_reward_curriculum:
             #     self.env.step_reward_curriculum()
@@ -225,6 +225,7 @@ class OnPolicyRunnerPos:
         self.writer.add_scalar('Loss/velo_pred', locs['mean_vel_loss'], locs['it'])
         self.writer.add_scalar('Loss/recon', locs['mean_recon_loss'], locs['it'])
         self.writer.add_scalar('Loss/kl_div', locs['mean_kld_loss'], locs['it'])
+        self.writer.add_scalar('Loss/q_ref', locs['mean_qref_loss'], locs['it'])
         self.writer.add_scalar('Loss/decoder_function', locs['mean_decoder_loss'], locs['it'])
         self.writer.add_scalar('Loss/pos_value_function', locs['mean_pos_value_loss'], locs['it'])
         self.writer.add_scalar('Loss/pos_surrogate', locs['mean_pos_surrogate_loss'], locs['it'])
@@ -252,6 +253,7 @@ class OnPolicyRunnerPos:
                           f"""{'Torso Velo. Pred loss:':>{pad}} {locs['mean_vel_loss']:.4f}\n"""
                           f"""{'Reconstruction   loss:':>{pad}} {locs['mean_recon_loss']:.4f}\n"""
                           f"""{'KL Divergence    loss:':>{pad}} {locs['mean_kld_loss']:.4f}\n"""
+                          f"""{'Q Ref.    loss:':>{pad}} {locs['mean_qref_loss']:.4f}\n"""
                           f"""{'Decoder function loss:':>{pad}} {locs['mean_decoder_loss']:.4f}\n"""
                           f"""{'Pos Value function loss:':>{pad}} {locs['mean_pos_value_loss']:.4f}\n"""
                           f"""{'Pos Surrogate loss:':>{pad}} {locs['mean_pos_surrogate_loss']:.4f}\n"""
@@ -270,6 +272,7 @@ class OnPolicyRunnerPos:
                           f"""{'Torso Velo. Pred loss:':>{pad}} {locs['mean_vel_loss']:.4f}\n"""
                           f"""{'Reconstruction   loss:':>{pad}} {locs['mean_recon_loss']:.4f}\n"""
                           f"""{'KL Divergence    loss:':>{pad}} {locs['mean_kld_loss']:.4f}\n"""
+                          f"""{'Q Ref.    loss:':>{pad}} {locs['mean_qref_loss']:.4f}\n"""
                           f"""{'Decoder function loss:':>{pad}} {locs['mean_decoder_loss']:.4f}\n"""
                           f"""{'Pos Value function loss:':>{pad}} {locs['mean_pos_value_loss']:.4f}\n"""
                           f"""{'Pos Surrogate loss:':>{pad}} {locs['mean_pos_surrogate_loss']:.4f}\n"""

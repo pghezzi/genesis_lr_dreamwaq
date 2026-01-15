@@ -94,6 +94,8 @@ class ContextEncoder(nn.Module):
         self.ce_velo_mean = nn.Linear(context_layer_sizes[1], context_torso_velo_size)
         self.ce_velo_var  = nn.Linear(context_layer_sizes[1], context_torso_velo_size)
 
+        self.ce_qr_out = nn.Linear(context_layer_sizes[1], 12)
+
         self.activation = get_activation(activation)
 
         # self.ce_timestep = nn.Linear(context_layer_sizes[2], 1)
@@ -108,7 +110,8 @@ class ContextEncoder(nn.Module):
         """Initialize all linear layers with Xavier uniform distribution."""
         for layer in [self.ce_in, self.ce_h1,
                      self.ce_out_mean, self.ce_out_var, 
-                     self.ce_velo_mean, self.ce_velo_var]:
+                     self.ce_velo_mean, self.ce_velo_var,
+                     self.ce_qr_out]:
             
             nn.init.xavier_uniform_(layer.weight)
             
@@ -122,7 +125,7 @@ class ContextEncoder(nn.Module):
         x = self.activation(self.ce_h1(x))
         # x = self.drop_2(x)
 
-        return self.ce_out_mean(x), self.ce_out_var(x), self.ce_velo_mean(x), self.ce_velo_var(x)
+        return self.ce_out_mean(x), self.ce_out_var(x), self.ce_velo_mean(x), self.ce_velo_var(x), self.ce_qr_out(x)
 
     def reparameterization_trick(
         self,
@@ -154,10 +157,10 @@ class ContextEncoder(nn.Module):
                 - z: Sampled latent vector
                 - torso_velo: Predicted velocity
         """
-        mean, logvar, v_mean, v_logvar = self.encode(X_C)
+        mean, logvar, v_mean, v_logvar, q_ref = self.encode(X_C)
         z = self.reparameterization_trick(mean, logvar)
         torso_velo = self.reparameterization_trick(v_mean, v_logvar)
-        return mean, logvar, z, torso_velo
+        return mean, logvar, z, torso_velo, q_ref
 
 class ContextDecoder(nn.Module):
     """Decoder network for reconstructing next state from latent representation and velocity.
@@ -686,6 +689,7 @@ class ActorCritic_Pos(nn.Module):
         self.cenet_logvar = None
         self.cenet_z = None
         self.cenet_torso_velo = None
+        self.cenet_q_ref = None
 
         self.mean_pos = None
 
@@ -821,8 +825,8 @@ class ActorCritic_Pos(nn.Module):
     
     # forward methods for the histroical context VAE
     def cenet_enc_forward(self, obs_history):
-        mean, logvar, z, torso_velo = self.context_encoder(obs_history)
-        return mean, logvar, z, torso_velo
+        mean, logvar, z, torso_velo, q_ref = self.context_encoder(obs_history)
+        return mean, logvar, z, torso_velo, q_ref
 
     # Method for the forward method of the actor network, used mostly as an internal method
     def actor_forward(self, current_obs):
@@ -885,7 +889,7 @@ class ActorCritic_Pos(nn.Module):
     # method used during simulated training
     def act(self, obs, obs_history, **kwargs):
         # Call the forward method of the context encoder
-        mean, logvar, z, torso_velo = self.cenet_enc_forward(obs_history)
+        mean, logvar, z, torso_velo, q_ref = self.cenet_enc_forward(obs_history)
         
         # create the actors observation
         current_obs = torch.cat((obs,z,torso_velo), dim=-1)   
@@ -898,6 +902,7 @@ class ActorCritic_Pos(nn.Module):
         self.cenet_logvar = logvar
         self.cenet_z = z
         self.cenet_torso_velo = torso_velo
+        self.cenet_q_ref = q_ref
 
         pos_sample = self.distribution_pos.sample()
         
@@ -908,7 +913,7 @@ class ActorCritic_Pos(nn.Module):
     # method used during simulated training
     def act_bootmask(self, obs, obs_history, **kwargs):
         # Call the forward method of the context encoder
-        mean, logvar, z, torso_velo = self.cenet_enc_forward(obs_history)
+        mean, logvar, z, torso_velo, q_ref = self.cenet_enc_forward(obs_history)
         
         # Mask the latent/velo from the encoder with zeros
         boot_mask = torch.zeros((z.shape[0], (z.shape[1] + torso_velo.shape[1])), device=obs.device)
@@ -924,6 +929,7 @@ class ActorCritic_Pos(nn.Module):
         self.cenet_logvar = logvar
         self.cenet_z = z
         self.cenet_torso_velo = torso_velo
+        self.cenet_q_ref = q_ref
 
         pos_sample = self.distribution_pos.sample()
         
@@ -933,7 +939,7 @@ class ActorCritic_Pos(nn.Module):
     # Method using during simulated inference
     def act_inference(self,obs,obs_history):
         # Call the forward method of the context encoder
-        _, _, z, torso_velo = self.cenet_enc_forward(obs_history)
+        _, _, z, torso_velo, q_ref = self.cenet_enc_forward(obs_history)
         
         # create the actors observation
         current_obs = torch.cat((obs,z,torso_velo), dim=-1)   
@@ -941,7 +947,7 @@ class ActorCritic_Pos(nn.Module):
         # call the actors forward method and return it's results
         actions_pos = self.actor_forward(current_obs)
 
-        return actions_pos
+        return actions_pos, q_ref
 
     # Method to run inference on hardware WITHOUT logging the VAE's outputs
     @torch.jit.export

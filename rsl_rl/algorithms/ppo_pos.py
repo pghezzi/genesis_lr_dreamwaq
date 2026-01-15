@@ -200,6 +200,7 @@ class PPOPos:
         mean_kld_loss = 0
         mean_decoder_loss = 0
         mean_tau_loss = 0
+        mean_qref_loss = 0
 
         all_enc_obs_targets = []
         all_enc_recons     = []
@@ -227,6 +228,7 @@ class PPOPos:
                 logvar_latent = self.actor_critic.cenet_logvar
                 cenet_latent = self.actor_critic.cenet_z
                 cenet_torso_velo = self.actor_critic.cenet_torso_velo
+                cenet_qref_pred = self.actor_critic.cenet_q_ref
 
                 # PPO stuff
                 #    - Position Control
@@ -315,12 +317,19 @@ class PPOPos:
                 # decode_target = torch.cat((obs_target, grf_target), dim=-1)
                 decode_target = obs_target
                 vel_target.requires_grad = False
+
+                # pull out q-ref targest
+                q_pos_ref = obs_target[:,8:20].detach().clone().float()
+                
+                # Unshift the position (this obs is scaled by 1.0)
+                q_pos_ref += default_pose
                 
                 with torch.no_grad():
                     all_enc_obs_targets.extend(decode_target.detach().cpu().numpy())
                     all_enc_recons.extend(enc_update_obs_decode.clone().detach().cpu().numpy())
 
                 # autoenc_loss = (nn.MSELoss()(cenet_torso_velo,vel_target) + nn.MSELoss()(enc_update_obs_decode,decode_target) + beta*(-0.5 * torch.sum(1 + logvar_latent - mean_latent.pow(2) - logvar_latent.exp())))/self.num_mini_batches
+                q_ref_pred_error = F.mse_loss(cenet_qref_pred, q_pos_ref)
                 vel_pred_error = F.mse_loss(cenet_torso_velo,vel_target)
                 recon_error    = F.mse_loss(enc_update_obs_decode,decode_target)
                 kl_div         = (-0.5 * torch.sum(1 + logvar_latent - mean_latent.pow(2) - logvar_latent.exp()))
@@ -363,6 +372,7 @@ class PPOPos:
                 mean_recon_loss += recon_error.item()
                 mean_kld_loss += kl_div.item()
                 mean_decoder_loss += dec_loss.item()
+                mean_qref_loss += q_ref_pred_error.item()
                 # mean_tau_loss += tau_pred_loss.item()
 
         num_updates = self.num_learning_epochs * self.num_mini_batches
@@ -374,6 +384,7 @@ class PPOPos:
         mean_vel_loss /= num_updates
         mean_recon_loss /= num_updates
         mean_tau_loss /= num_updates
+        mean_qref_loss /= num_updates
 
         # Calculate the total bootstrapping probability over the performance of the autoencoder on all of the above
         mean_pred = np.mean(all_enc_obs_targets, axis=0)
@@ -390,4 +401,4 @@ class PPOPos:
         self.storage.clear()
 
         return mean_pos_value_loss, mean_pos_surrogate_loss, mean_autoenc_loss, mean_decoder_loss, \
-               mean_vel_loss, mean_recon_loss, mean_kld_loss, mean_tau_loss
+               mean_vel_loss, mean_recon_loss, mean_kld_loss, mean_tau_loss, mean_qref_loss
