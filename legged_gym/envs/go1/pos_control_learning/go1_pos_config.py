@@ -197,7 +197,7 @@ class GO1PosCfg( LeggedRobotCfg ):
         foot_height_offset = 0.022    # height of the foot coordinate origin above ground [m]
         
         foot_clearance_tracking_sigma = 0.01
-        only_positive_rewards = True
+        only_positive_rewards = False
 
         use_reward_curriculum = False
 
@@ -231,7 +231,7 @@ class GO1PosCfg( LeggedRobotCfg ):
             dof_acc          = -2.5e-7
             joint_power      = -2.e-5
             joint_power_dist = -1.e-5
-            torques          = 0.0     # don't need to use this when we already have joint power above...
+            torques          = -2.0e-4     # don't need to use this when we already have joint power above...
 
             # Zero out some values that are used in the individual reward classes below
             action_rate       = -0.01
@@ -346,12 +346,12 @@ class GO1PosCfgPPO( LeggedRobotCfgPPO ):
         policy_class_name = 'ActorCritic_Pos'
         algorithm_class_name = 'PPOPos'
         num_steps_per_env = 144 # per iteration
-        max_iterations = 1500 # number of policy updates
+        max_iterations = 3000 # number of policy updates
         grf_dim = 12
         
         # debug_warmpinn_wb
-        run_name = '100hz_pos_baseline_01'
-        experiment_name = 'rss_go1_pos'
+        run_name = '100hz_tau_baseline_01'
+        experiment_name = 'rss_go1_tau'
         save_interval = 100
         
         
