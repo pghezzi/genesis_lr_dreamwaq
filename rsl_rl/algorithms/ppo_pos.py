@@ -333,7 +333,7 @@ class PPOPos:
                 vel_pred_error = F.mse_loss(cenet_torso_velo,vel_target)
                 recon_error    = F.mse_loss(enc_update_obs_decode,decode_target)
                 kl_div         = (-0.5 * torch.sum(1 + logvar_latent - mean_latent.pow(2) - logvar_latent.exp()))
-                autoenc_loss = vel_pred_error + recon_error + beta*kl_div
+                autoenc_loss = q_ref_pred_error + vel_pred_error + recon_error + beta*kl_div
                 
                 ###
                 #  Propigate gradients and update

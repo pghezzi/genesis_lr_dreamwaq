@@ -348,8 +348,8 @@ class GO1PosCfgPPO( LeggedRobotCfgPPO ):
         grf_dim = 12
         
         # debug_warmpinn_wb
-        run_name = '100hz_pos_baseline_01'
-        experiment_name = 'rss_go1_pos'
+        run_name = '100hz_rl2ac_baseline_01'
+        experiment_name = 'rss_go1_rl2ac'
         save_interval = 100
         
         
