@@ -89,8 +89,7 @@ def play(args):
     # for RECORD_FRAMES
     stop_record = 2000
 
-    pos_rewards = []
-    tau_rewards = []
+    rewards = []
     total_grfs  = []
 
     print("Max - self.feedforward_tau_weight: ", torch.max(env.feedforward_tau_weight).item())
@@ -102,13 +101,12 @@ def play(args):
     if RECORD_FRAMES:
         env.floating_camera.start_recording()
 
-    # for i in range(5*int(env.max_episode_length)):
-    for i in range(500):
+    for i in range(2*int(env.max_episode_length)):
+    # for i in range(500):
         actions = policy(obs.detach(), obs_hist.detach())
-        obs, _, obs_hist, pos_rews, tau_rews, dones, infos, grfs = env.step(actions.detach())
+        obs, _, obs_hist, rews, dones, infos, grfs = env.step(actions.detach())
 
-        pos_rewards.append(pos_rews.cpu().numpy().tolist())
-        tau_rewards.append(tau_rews.cpu().numpy().tolist())
+        rewards.append(rews.cpu().numpy().tolist())
         total_grfs.append(grfs.cpu().numpy().tolist())
         
         if MOVE_CAMERA:
@@ -134,11 +132,11 @@ def play(args):
 
         repeat_pos_scales = torch.from_numpy(np.array(env.cfg.control.action_scale)).repeat(1,4).to(env.device)
         # actions_scaled = pos_actions * self.cfg.control.action_scale
-        actions_scaled = F.tanh(actions[:,0:12]) * repeat_pos_scales + env.default_dof_pos
+        actions_scaled = actions[:,0:12] * repeat_pos_scales + env.default_dof_pos
         
         repeat_tau_scales = torch.from_numpy(np.array(env.cfg.control.torque_scale)).repeat(1,4).to(env.device)
         # actions_scaled = pos_actions * self.cfg.control.action_scale
-        torques_scaled = F.tanh(actions[:,12:24]) * repeat_tau_scales
+        torques_scaled = actions[:,12:24] * repeat_tau_scales
 
         if infos["episode"]:
             num_episodes = torch.sum(env.reset_buf).item()
@@ -175,8 +173,7 @@ def play(args):
         env.floating_camera.stop_recording(save_to_filename=filename_mp4, fps=30)
         print("Saved recording to " + filename_mp4)
 
-    print("Mean Position Rewards - ", np.mean(pos_rewards))
-    print("Mean Torque Rewards - ", np.mean(tau_rewards))
+    print("Mean Position Rewards - ", np.mean(rewards))
     print("Mean GRF-forces - ", np.mean(total_grfs))
 
     env.shutdown_asynic_pino_workers()

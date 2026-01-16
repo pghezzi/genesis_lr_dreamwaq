@@ -214,7 +214,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         torque_scale = [10.0, 10.0, 10.0] # action scale:  target torque = torque_scale * tau_action + defaultTorque
         
         
-        dt =  0.01     # control frequency 200Hz
+        dt =  0.002     # control frequency 200Hz
         decimation = 5  # decimation: Number of control action updates @ sim DT per policy DT
 
         # Assumed order - tau_ff, tau_fb
@@ -223,7 +223,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         tradeoff_final_weights = [1.00, 1.00]
         tradeoff_steps = 10
         tradeoff_threshold = 0.60
-        use_tradeoff_curriculum = True
+        use_tradeoff_curriculum = False
 
     class termination:
         termination_terms = ["roll", "pitch", "height_min", "height_max"]
@@ -280,12 +280,13 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             torques          = 0.0     # don't need to use this when we already have joint power above...
 
             # Zero out some values that are used in the individual reward classes below
-            action_rate       = -0.001
-            action_smoothness = -0.001
+            action_rate       = -0.01
+            action_smoothness = -0.01
 
             feedforward_torques   = -2.0e-4
             # feedback_torques      = -2.0e-4
             act_close_to_default    = -0.01
+            dof_act_limits          = -0.1
 
             # promot stable WB locomotion
             # wb_dynamics = 0.1
@@ -383,8 +384,8 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         
         # Shared
         dropout = 0.1
-
-        pinn_loss_weight = 1.0e-3
+        
+        pinn_loss_weight = 0.01
         pinn_warmup = 100
         pinn_init_steps = 0
 
@@ -392,7 +393,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         # pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/logs/rss_go1_dynamic/Jan11_19-49-03_full_approach_boot_newfilm_01_100hz_posboot/model_2200.pt"
 
     class algorithm( LeggedRobotCfgPPO.algorithm ):
-        entropy_coef = 0.01
+        entropy_coef = 0.001
         # learning_rate = 1.0e-3 #
         learning_rate = 3.0e-4 #
         value_loss_coef = 1.0
@@ -414,13 +415,13 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         grf_dim = 12
         
         # debug_warmpinn_wb
-        run_name = 'unimodel_boot_newfilm_01_100hz_posboot'
+        run_name = 'unimodel_posboot_500hz_01'
         experiment_name = 'rss_go1_dynamic_unimodel'
         save_interval = 100
         
         
-        load_run = "Jan12_20-55-27_full_approach_boot_newfilm_01_100hz_posboot"
-        checkpoint = 5000
+        load_run = "Jan15_16-08-36_unimodel_boot_newfilm_01_100hz_posboot"
+        checkpoint = 3000
 
         # Load parameters for first function policy
         # run_name = 'test_01'
