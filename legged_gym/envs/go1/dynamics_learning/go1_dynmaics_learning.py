@@ -706,7 +706,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # actions_scaled = pos_actions * self.cfg.control.action_scale
         actions_scaled = pos_actions * repeat_pos_scales
         target_dof_pos = actions_scaled + self.default_dof_pos
-        target_dof_pos = torch.clamp(target_dof_pos, self.dof_pos_limits_hard[0,0], self.dof_pos_limits_hard[0,1])
+        # target_dof_pos = torch.clamp(target_dof_pos, self.dof_pos_limits_hard[0,0], self.dof_pos_limits_hard[0,1])
 
         # Scale and shift the torque actions
         repeat_torque_scales = torch.from_numpy(np.array(self.cfg.control.torque_scale)).repeat(1,4).to(self.device)
@@ -1360,8 +1360,6 @@ class LeggedRobotGo1Dynamic(BaseTask):
 
         self.dof_pos_limits_hard = self.dof_pos_limits.clone()
 
-        print(self.dof_pos_limits_hard.shape)
-
         for i in range(self.dof_pos_limits.shape[0]):
             # soft limits
             m = (self.dof_pos_limits[i, 0] + self.dof_pos_limits[i, 1]) / 2
@@ -1834,9 +1832,9 @@ class LeggedRobotGo1Dynamic(BaseTask):
         actions_scaled = pos_actions * repeat_pos_scales + self.default_dof_pos
         
         # Penalize dof positions too close to the limit
-        out_of_limits = -(actions_scaled - self.dof_pos_limits_hard[:, 0]).clip(max=0.)  # lower limit
+        out_of_limits = -(actions_scaled - self.dof_pos_limits[:, 0]).clip(max=0.)  # lower limit
         out_of_limits += (actions_scaled - \
-                          self.dof_pos_limits_hard[:, 1]).clip(min=0.)
+                          self.dof_pos_limits[:, 1]).clip(min=0.)
         return torch.sum(out_of_limits, dim=1)
     
     def _reward_act_close_to_default(self):

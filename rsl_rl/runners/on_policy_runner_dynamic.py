@@ -123,11 +123,17 @@ class OnPolicyRunnerDynamic:
         print(pretrained_path)
         loaded_dict = torch.load(pretrained_path)
         # Load the pretrained action-network and encoder
-        self.alg.actor_critic.load_state_dict(loaded_dict['actor'])
+        self.alg.actor_critic.load_state_dict(loaded_dict['model_state_dict'])
         # re-initalize the critic network weights which where not pretrained (to be safe)
         self.alg.actor_critic._init_critic_weights()
         # Load the pretrained decoder network
-        self.alg.decoder.load_state_dict(loaded_dict['decoder'])
+        self.alg.decoder.load_state_dict(loaded_dict['decoder_state_dict'])
+
+        self.alg.actor_critic.actor_shared_input.weight.data += torch.rand_like(self.alg.actor_critic.actor_shared_input.weight.data)*0.001
+        self.alg.actor_critic.act_h1.weight.data += torch.rand_like(self.alg.actor_critic.act_h1.weight.data)*0.01
+        self.alg.actor_critic.act_h2.weight.data += torch.rand_like(self.alg.actor_critic.act_h2.weight.data)*0.01
+        self.alg.actor_critic.act_pos_out.weight.data += torch.rand_like(self.alg.actor_critic.act_pos_out.weight.data)*0.1
+        self.alg.actor_critic.act_tau_out.weight.data += torch.rand_like(self.alg.actor_critic.act_tau_out.weight.data)*0.1
     
     def learn(self, num_learning_iterations, init_at_random_ep_len=False):
         # initialize writer
