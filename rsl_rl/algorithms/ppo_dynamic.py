@@ -379,30 +379,30 @@ class PPODynamic:
                     # Calculate the whole-body PINN loss
                     pinn_loss = torch.mean(rel_error)
 
-                    # Calcualte values used by the next two losses
-                    ff_power_curr, pd_power_curr   = tau_des_curr*q_velo_curr,   pd_tau_curr*q_velo_curr
-                    ff_power_prev, pd_power_prev   = tau_des_prev*q_velo_prev,   pd_tau_prev*q_velo_prev
-                    ff_power_pprev, pd_power_pprev = tau_des_pprev*q_velo_pprev, pd_tau_pprev*q_velo_pprev
+                    # # Calcualte values used by the next two losses
+                    # ff_power_curr, pd_power_curr   = tau_des_curr*q_velo_curr,   pd_tau_curr*q_velo_curr
+                    # ff_power_prev, pd_power_prev   = tau_des_prev*q_velo_prev,   pd_tau_prev*q_velo_prev
+                    # ff_power_pprev, pd_power_pprev = tau_des_pprev*q_velo_pprev, pd_tau_pprev*q_velo_pprev
 
-                    ff_power_val_curr, pd_power_val_curr   = torch.abs(torch.sum(ff_power_curr)), torch.abs(torch.sum(pd_power_curr))
-                    ff_power_val_prev, pd_power_val_prev   = torch.abs(torch.sum(ff_power_prev)), torch.abs(torch.sum(pd_power_prev))
-                    ff_power_val_pprev, pd_power_val_pprev = torch.abs(torch.sum(ff_power_pprev)), torch.abs(torch.sum(pd_power_pprev))
+                    # ff_power_val_curr, pd_power_val_curr   = torch.abs(torch.sum(ff_power_curr)), torch.abs(torch.sum(pd_power_curr))
+                    # ff_power_val_prev, pd_power_val_prev   = torch.abs(torch.sum(ff_power_prev)), torch.abs(torch.sum(pd_power_prev))
+                    # ff_power_val_pprev, pd_power_val_pprev = torch.abs(torch.sum(ff_power_pprev)), torch.abs(torch.sum(pd_power_pprev))
 
-                    # Calculate a minimum effort gate
-                    #    detach the gate values from the comp-graph, do not need gradients flowing through this
-                    curr_effort_gate  = F.tanh(ff_power_val_curr.detach().clone() + pd_power_val_curr.detach().clone())
-                    prev_effort_gate  = F.tanh(ff_power_val_prev.detach().clone() + pd_power_val_prev.detach().clone())
-                    pprev_effort_gate = F.tanh(ff_power_val_pprev.detach().clone() + pd_power_val_pprev.detach().clone())
+                    # # Calculate a minimum effort gate
+                    # #    detach the gate values from the comp-graph, do not need gradients flowing through this
+                    # curr_effort_gate  = F.tanh(ff_power_val_curr.detach().clone() + pd_power_val_curr.detach().clone())
+                    # prev_effort_gate  = F.tanh(ff_power_val_prev.detach().clone() + pd_power_val_prev.detach().clone())
+                    # pprev_effort_gate = F.tanh(ff_power_val_pprev.detach().clone() + pd_power_val_pprev.detach().clone())
 
-                    # Now create losses that seek to align power generation
-                    #    using cosine similarity to enforce power expenditures that don't conflict 
-                    task_alignment_curr  = torch.clamp(-F.cosine_similarity(ff_power_curr,  pd_power_curr),  min=0.0)
-                    task_alignment_prev  = torch.clamp(-F.cosine_similarity(ff_power_prev,  pd_power_prev),  min=0.0)
-                    task_alignment_pprev = torch.clamp(-F.cosine_similarity(ff_power_pprev, pd_power_pprev), min=0.0)
+                    # # Now create losses that seek to align power generation
+                    # #    using cosine similarity to enforce power expenditures that don't conflict 
+                    # task_alignment_curr  = torch.clamp(-F.cosine_similarity(ff_power_curr,  pd_power_curr),  min=0.0)
+                    # task_alignment_prev  = torch.clamp(-F.cosine_similarity(ff_power_prev,  pd_power_prev),  min=0.0)
+                    # task_alignment_pprev = torch.clamp(-F.cosine_similarity(ff_power_pprev, pd_power_pprev), min=0.0)
 
-                    task_align_loss = torch.mean(torch.square(curr_effort_gate*task_alignment_curr + \
-                                                              prev_effort_gate*task_alignment_prev + \
-                                                              pprev_effort_gate*task_alignment_pprev))
+                    # task_align_loss = torch.mean(torch.square(curr_effort_gate*task_alignment_curr + \
+                    #                                           prev_effort_gate*task_alignment_prev + \
+                    #                                           pprev_effort_gate*task_alignment_pprev))
                     
                     # # Finally, create a loss based on achiving a desired ratio of mechanical power.
                     # tagret_ratio = 1.8
@@ -425,8 +425,8 @@ class PPODynamic:
                 ### 
                 if self.pinn_weight > 0.0 and use_pinn:
                     ppo_losses = [ppo_loss,
-                                  self.pinn_weight * pinn_loss,
-                                  self.pinn_weight * task_align_loss]
+                                  self.pinn_weight * pinn_loss]
+                                #   self.pinn_weight * task_align_loss]
                                 #   self.pinn_weight * task_ratio_loss]
                 else:
                     ppo_losses = [ppo_loss]
@@ -444,8 +444,8 @@ class PPODynamic:
                 grf_target.requires_grad = False
                 obs_target.requires_grad = False
                 
-                # decode_target = torch.cat((obs_target, grf_target), dim=-1)
-                decode_target = obs_target
+                decode_target = torch.cat((obs_target, grf_target), dim=-1)
+                # decode_target = obs_target
                 vel_target.requires_grad = False
                 
                 with torch.no_grad():
@@ -502,9 +502,9 @@ class PPODynamic:
                 mean_kld_loss += kl_div.item()
                 mean_decoder_loss += dec_loss.item()
                 if self.pinn_weight > 0.0:
-                    mean_pinn_loss += pinn_loss.item() + task_align_loss.item() # + task_ratio_loss.item()
+                    mean_pinn_loss += pinn_loss.item() # + task_align_loss.item() # + task_ratio_loss.item()
                 else:
-                    mean_pinn_loss += pinn_loss + task_align_loss # + task_ratio_loss
+                    mean_pinn_loss += pinn_loss # + task_align_loss # + task_ratio_loss
                     
         if use_pinn and itr > self.pinn_init:
             self.num_pinn_updates += 1

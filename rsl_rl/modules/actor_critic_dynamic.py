@@ -460,7 +460,7 @@ class ActorCritic_Dynamic(nn.Module):
         # std_pos = torch.clamp(self.std_pos, 0.05, 1.1)
         # std_tau = torch.clamp(self.std_tau, 0.05, 1.1)
 
-        self.std.data.clamp_(0.05, 5.0)
+        self.std.data.clamp_(0.2, 5.0)
 
         # self.std.data.clamp_(0.2, 1.1)
         mean = torch.cat([mean_pos, mean_tau], dim=-1)

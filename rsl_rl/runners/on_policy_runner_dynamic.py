@@ -128,12 +128,9 @@ class OnPolicyRunnerDynamic:
         self.alg.actor_critic._init_critic_weights()
         # Load the pretrained decoder network
         self.alg.decoder.load_state_dict(loaded_dict['decoder_state_dict'])
-
-        self.alg.actor_critic.actor_shared_input.weight.data += torch.rand_like(self.alg.actor_critic.actor_shared_input.weight.data)*0.001
-        self.alg.actor_critic.act_h1.weight.data += torch.rand_like(self.alg.actor_critic.act_h1.weight.data)*0.01
-        self.alg.actor_critic.act_h2.weight.data += torch.rand_like(self.alg.actor_critic.act_h2.weight.data)*0.01
-        self.alg.actor_critic.act_pos_out.weight.data += torch.rand_like(self.alg.actor_critic.act_pos_out.weight.data)*0.1
-        self.alg.actor_critic.act_tau_out.weight.data += torch.rand_like(self.alg.actor_critic.act_tau_out.weight.data)*0.1
+        # self.alg.act_optimizer.optimizer.load_state_dict(loaded_dict['act_optimizer_state_dict'])
+        # self.alg.enc_optimizer.load_state_dict(loaded_dict['enc_optimizer_state_dict'])
+        # self.alg.decoder_optimizer.load_state_dict(loaded_dict['decoder_opt_state_dict'])
     
     def learn(self, num_learning_iterations, init_at_random_ep_len=False):
         # initialize writer
@@ -145,8 +142,8 @@ class OnPolicyRunnerDynamic:
         
         obs,obs_hist,torso_velo = self.env.get_observations()
         # self.env.step_tradeoff_curriculum()
-        # if self.env.use_reward_curriculum:
-        #     self.env.step_reward_curriculum()
+        if self.env.use_reward_curriculum:
+            self.env.step_reward_curriculum()
         
         privileged_obs = self.env.get_privileged_observations()
         critic_obs = privileged_obs if privileged_obs is not None else obs
@@ -226,8 +223,8 @@ class OnPolicyRunnerDynamic:
             print("Min - self.feedback_tau_weight: ", torch.min(self.env.feedback_tau_weight).item())
             print("Avg - self.feedback_tau_weight: ", torch.mean(self.env.feedback_tau_weight).item())
             
-            # if self.env.use_reward_curriculum:
-            #     self.env.step_reward_curriculum()
+            if self.env.use_reward_curriculum:
+                self.env.step_reward_curriculum()
             self.env.num_iters += 1
 
             # # enable additional domain randomizations
