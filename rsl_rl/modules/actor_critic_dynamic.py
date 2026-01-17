@@ -308,7 +308,21 @@ class ActorCritic_Dynamic(nn.Module):
         #     if critic_layer.bias is not None:
         #         nn.init.zeros_(critic_layer.bias)
                 
-        self.std.data.fill_(1.00)
+        self.std.data.fill_(0.50)
+
+        # # Xavier for linears, zeros for biases
+        # for m in self.modules():
+        #     if isinstance(m, nn.Linear):
+        #         nn.init.xavier_uniform_(m.weight)
+        #         # nn.init.orthogonal_(m.weight)
+        #         if m.bias is not None:
+        #             nn.init.zeros_(m.bias)
+
+        # # Optionally set small initial output weights (to reduce initial action magnitude)
+        # nn.init.uniform_(self.act_pos_out.weight, -3e-6, 3e-6)
+        # nn.init.uniform_(self.act_tau_out.weight, -3e-6, 3e-6)
+        # nn.init.zeros_(self.act_pos_out.bias)
+        # nn.init.zeros_(self.act_tau_out.bias)
         
 
     def get_optim_groups(self, weight_decay: float = 1e-4, strong_decay: float = 1e-1):

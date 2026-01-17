@@ -668,7 +668,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # Calculate the feedback-control torques
         #     include PD scaling values 
         self.feedback_torques = (
-            (self._kp_scale * self.p_gains) * (actions_scaled - self.dof_pos) - (self._kd_scale * self.d_gains) * self.dof_vel
+            (self._kp_scale * self.p_gains) * (actions_scaled - self.dof_pos) - (self._kd_scale * self.d_gains) * self.dof_vel 
         )
         # Combine with the scaled + offset torque actions
         # print("FeedForward Torque - ")
@@ -1521,10 +1521,10 @@ class LeggedRobotGo1Dynamic(BaseTask):
 
         random_smaple = random.random()
         
-        if random_smaple <= 0.20:  # 20% of the time reduce to lower bound
+        if random_smaple <= 0.01:  # 20% of the time reduce to lower bound
             self.feedforward_tau_weight[env_ids] = self.tradeoff_lowerbounds[0]
             self.feedback_tau_weight[env_ids]    = self.tradeoff_lowerbounds[1]
-        elif random_smaple > 0.20 and random_smaple <= 0.45: # ~25% of the time, sample a random value between the lower and current upper bound
+        elif random_smaple > 0.01 and random_smaple <= 0.25: # ~25% of the time, sample a random value between the lower and current upper bound
             # step_ctr * (1.0/num_steps) -> is the per-env upper bound. Multipled by a random float between [0,1)
             random_step_size = self.tradeoff_step_ctr*float(1.0/self.tradeoff_num_steps) * torch.rand((self.num_envs, 1))
 
@@ -2230,7 +2230,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
             if i > 1:
                 bonus_x = 0.10
             
-            bonus_y = 0.10
+            bonus_y = 0.15
             # now calculate the more complicated Raibert hueristic
             #     symmetry hueristic
             raibert_xy = raibert_gain * (self.base_lin_vel[:,:2] - self.commands[:,:2])  # (num_env, 2)
