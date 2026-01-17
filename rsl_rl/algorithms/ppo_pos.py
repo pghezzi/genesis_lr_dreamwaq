@@ -220,6 +220,9 @@ class PPOPos:
                 else:
                     self.actor_critic.act_bootmask(obs_batch, obs_hist_batch)
                 
+                pos_pred = self.actor_critic.mean_pos.float()
+                tau_pred = (self.actor_critic.mean_tau * 10.0).float()
+
                 # Encoder stuff
                 # pull out some values from the actor that I want to use in the decoder...
                 #    avoids a second separate run through the encoder + aligns RL update with enc update...
@@ -278,21 +281,21 @@ class PPOPos:
 
                 ppo_pos_loss = pos_surrogate_loss + self.value_loss_coef * pos_value_loss - self.entropy_coef * pos_entropy_batch.mean()
                 
-                # # pull out the PD torques
-                # q_pos_curr,  q_velo_curr  = obs_batch[:,8:20].detach().clone().float(), obs_batch[:,20:32].detach().clone().float()
+                # pull out the PD torques
+                q_pos_curr,  q_velo_curr  = obs_batch[:,8:20].detach().clone().float(), obs_batch[:,20:32].detach().clone().float()
                 
-                # # Unshift the position (this obs is scaled by 1.0)
-                # q_pos_curr += default_pose
+                # Unshift the position (this obs is scaled by 1.0)
+                q_pos_curr += default_pose
                 
-                # # Rescale velocity (this obs is not shifted, just scaled)
-                # q_velo_curr /= 0.05
+                # Rescale velocity (this obs is not shifted, just scaled)
+                q_velo_curr /= 0.05
                 
-                # q_pos_curr = q_pos_curr.float()
-                # q_velo_curr = q_velo_curr.float()
+                q_pos_curr = q_pos_curr.float()
+                q_velo_curr = q_velo_curr.float()
                 
-                # pd_torques = pd_torques_func(pos_pred.detach().clone(), q_pos_curr, q_velo_curr).float()
-                # tau_pred_loss = F.mse_loss(tau_pred, pd_torques) * 0.01
-                # ppo_pos_loss += tau_pred_loss.float()
+                pd_torques = pd_torques_func(pos_pred.detach().clone(), q_pos_curr, q_velo_curr).float()
+                tau_pred_loss = F.mse_loss(tau_pred, pd_torques) * 0.01
+                ppo_pos_loss += tau_pred_loss.float()
                                 
                 # ppo_pos_loss.backward()
                 # nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)                
@@ -363,7 +366,7 @@ class PPOPos:
                 mean_recon_loss += recon_error.item()
                 mean_kld_loss += kl_div.item()
                 mean_decoder_loss += dec_loss.item()
-                # mean_tau_loss += tau_pred_loss.item()
+                mean_tau_loss += tau_pred_loss.item()
 
         num_updates = self.num_learning_epochs * self.num_mini_batches
         mean_pos_value_loss /= num_updates
