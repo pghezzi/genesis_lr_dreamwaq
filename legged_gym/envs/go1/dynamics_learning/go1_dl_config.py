@@ -408,7 +408,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         grf_dim = 12
         
         # debug_warmpinn_wb
-        run_name = 'unimodel_grf_pinn_100hz_full_01'
+        run_name = 'unimodel_grf_pinn_100hz_full_posboot_01'
         experiment_name = 'rss_go1_dynamic_unimodel'
         save_interval = 100
         

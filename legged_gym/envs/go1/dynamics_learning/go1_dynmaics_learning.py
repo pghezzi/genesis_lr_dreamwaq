@@ -125,7 +125,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         wb_correct_pino_2_model_ordering.extend(self.pino_2_model_joint_act_map)
         
         # For safeties shake, use only 90% of available CPU's
-        num_cpus = int(mp.cpu_count() * 0.95)
+        num_cpus = int(mp.cpu_count() * 0.99)
 
         # Build the class that manages (1) shared input/output memeory and (2) invoking worker processes 
         self.async_pino_manager = PinocchioAsync(
