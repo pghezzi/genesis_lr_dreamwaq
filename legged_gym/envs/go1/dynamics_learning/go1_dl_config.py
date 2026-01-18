@@ -5,7 +5,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
     class env( LeggedRobotCfg.env ):
         num_envs = 4096
         num_observations = 57
-        num_privileged_obs = 79 # robot_state + other privilged info + terrain_heights (121)
+        num_privileged_obs = 67 # robot_state + other privilged info + terrain_heights (121)
         num_actions = 12
         env_spacing = 0.5
         num_obs_hist = 5
@@ -369,7 +369,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         # Context Decoder
         cenet_dec_input_dim = 19
         cenet_dec_layers = [64,128]
-        cenet_dec_out_dim = 57 + 12   # next obs (57) + grf_dim (12)
+        cenet_dec_out_dim = 57   # next obs (57) + grf_dim (12)
 
         # Actor/critic
         actor_shared_dim = 512
@@ -383,7 +383,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         pinn_warmup = 100
         pinn_init_steps = 0
 
-        pretrained_path = "../../rsl_rl/modules/pretrained_models/rl_pos/Jan17_17-39-51_unimodel_grf_01_100hz_tanh_pos/model_1000.pt"
+        pretrained_path = "../../rsl_rl/modules/pretrained_models/rl_pos/Jan17_16-25-46_100hz_posboot_01_no_grf/model_1000.pt"
         # pretrained_path = "../../rsl_rl/modules/pretrained_models/rl_pos/Jan13_18-35-33_unimodel_boot_01_100hz_tanh_pos/model_1000.pt"
         # pretrained_path = "../../logs/rss_go1_dynamic_unimodel/Jan15_17-42-47_unimodel_100hz_no_pinn_baseline/model_1700.pt"
 
@@ -410,7 +410,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         grf_dim = 12
         
         # debug_warmpinn_wb
-        run_name = 'ablation_unimodel_np_grfdec_grfcrit_100hz_posboot_01'
+        run_name = 'ablation_unimodel_np_nodec_nocrit_100hz_posboot_01'
         experiment_name = 'rss_go1_dynamic_unimodel'
         save_interval = 100
         

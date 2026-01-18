@@ -191,7 +191,7 @@ class RolloutStorageDynamics:
                 next_values = self.values[step + 1]
             next_is_not_terminal = 1.0 - self.dones[step].float()
             delta = self.rewards[step] + next_is_not_terminal * gamma * next_values - self.values[step]
-            advantage = delta + next_is_not_terminal * gamma * lam * advantage
+            advantage = delta + next_is_not_terminal * gamma * lam * advantage   + (0.0001 + (0.001 - 0.0001) * torch.rand_like(delta))
             self.returns[step] = advantage + self.values[step]
 
         # Compute and normalize the advantages
