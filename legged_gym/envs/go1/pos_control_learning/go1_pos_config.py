@@ -5,7 +5,7 @@ class GO1PosCfg( LeggedRobotCfg ):
     class env( LeggedRobotCfg.env ):
         num_envs = 4096
         num_observations = 45
-        num_privileged_obs = 67 # robot_state + other privilged info + terrain_heights (121)
+        num_privileged_obs = 55 # robot_state + other privilged info + terrain_heights (121)
         num_actions = 12
         env_spacing = 0.5
         num_obs_hist = 5
@@ -174,8 +174,8 @@ class GO1PosCfg( LeggedRobotCfg ):
         
         action_scale = [0.25, 0.25, 0.25]    # action scale: target angle = action_scale * pose_action + defaultAngle        
         
-        dt =  0.002     # control frequency 100Hz
-        decimation= 2  # decimation: Number of control action updates @ sim DT per policy DT
+        dt =  0.01     # control frequency 100Hz
+        decimation= 5  # decimation: Number of control action updates @ sim DT per policy DT
 
 
     class termination:
@@ -217,7 +217,7 @@ class GO1PosCfg( LeggedRobotCfg ):
             # command tracking
             tracking_lin_vel  = 1.0
             tracking_ang_vel  = 0.5
-            dof_tracking      = 0.25
+            dof_tracking      = 0.20
             sparse_contacts   = 0.05
             foot_swing  = 0.00
             
@@ -348,7 +348,7 @@ class GO1PosCfgPPO( LeggedRobotCfgPPO ):
         grf_dim = 12
         
         # debug_warmpinn_wb
-        run_name = '500hz_posboot'
+        run_name = '100hz_pos_baseline_02_no_grf'
         experiment_name = 'rss_go1_pos'
         save_interval = 100
         
