@@ -5,7 +5,7 @@ class GO1PosCfg( LeggedRobotCfg ):
     class env( LeggedRobotCfg.env ):
         num_envs = 4096
         num_observations = 45
-        num_privileged_obs = 67 # robot_state + other privilged info + terrain_heights (121)
+        num_privileged_obs = 55 # robot_state + other privilged info + terrain_heights (121)
         num_actions = 12
         env_spacing = 0.5
         num_obs_hist = 5
@@ -346,11 +346,11 @@ class GO1PosCfgPPO( LeggedRobotCfgPPO ):
         policy_class_name = 'ActorCritic_Pos'
         algorithm_class_name = 'PPOPos'
         num_steps_per_env = 144 # per iteration
-        max_iterations = 3000 # number of policy updates
+        max_iterations = 1500 # number of policy updates
         grf_dim = 12
         
         # debug_warmpinn_wb
-        run_name = '100hz_tau_baseline_01'
+        run_name = '100hz_tau_baseline_02_nogrf'
         experiment_name = 'rss_go1_tau'
         save_interval = 100
         
