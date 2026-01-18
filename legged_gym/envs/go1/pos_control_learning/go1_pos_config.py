@@ -5,7 +5,7 @@ class GO1PosCfg( LeggedRobotCfg ):
     class env( LeggedRobotCfg.env ):
         num_envs = 4096
         num_observations = 45
-        num_privileged_obs = 67 # robot_state + other privilged info + terrain_heights (121)
+        num_privileged_obs =55 # robot_state + other privilged info + terrain_heights (121)
         num_actions = 12
         env_spacing = 0.5
         num_obs_hist = 5
@@ -217,7 +217,7 @@ class GO1PosCfg( LeggedRobotCfg ):
             # command tracking
             tracking_lin_vel  = 1.0
             tracking_ang_vel  = 0.5
-            dof_tracking      = 0.25
+            dof_tracking      = 0.20
             sparse_contacts   = 0.05
             foot_swing  = 0.00
             
@@ -348,7 +348,7 @@ class GO1PosCfgPPO( LeggedRobotCfgPPO ):
         grf_dim = 12
         
         # debug_warmpinn_wb
-        run_name = '100hz_rl2ac_baseline_01'
+        run_name = '100hz_rl2ac_baseline_nogrf_01'
         experiment_name = 'rss_go1_rl2ac'
         save_interval = 100
         
