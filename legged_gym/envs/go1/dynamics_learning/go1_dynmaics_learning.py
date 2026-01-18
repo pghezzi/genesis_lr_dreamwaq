@@ -503,8 +503,8 @@ class LeggedRobotGo1Dynamic(BaseTask):
                     self._base_com_bias,          # 3
                     self._rand_push_vels[:, :2],  # 2
                     # self._rand_wrench_vels[:, :], # 2
-                    self.feedforward_tau_weight, # 1
-                    self.feedback_tau_weight,    # 1
+                    # self.feedforward_tau_weight, # 1
+                    # self.feedback_tau_weight,    # 1
                     # heights,                     # 121
                     # mass of water tank
                     # stickness of water in tank
