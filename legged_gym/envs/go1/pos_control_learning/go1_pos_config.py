@@ -217,7 +217,7 @@ class GO1PosCfg( LeggedRobotCfg ):
             # command tracking
             tracking_lin_vel  = 1.0
             tracking_ang_vel  = 0.5
-            dof_tracking      = 0.25
+            dof_tracking      = 0.20
             sparse_contacts   = 0.05
             foot_swing  = 0.00
             
@@ -315,7 +315,7 @@ class GO1PosCfgPPO( LeggedRobotCfgPPO ):
         # Context Decoder
         cenet_dec_input_dim = 19
         cenet_dec_layers = [64,128]
-        cenet_dec_out_dim = 57        # next obs (57) + grf_dim (12)
+        cenet_dec_out_dim = 57 + 12        # next obs (57) + grf_dim (12)
 
         # Actor/critic
         actor_shared_dim = 512
@@ -348,7 +348,7 @@ class GO1PosCfgPPO( LeggedRobotCfgPPO ):
         grf_dim = 12
         
         # debug_warmpinn_wb
-        run_name = 'unimodel_boot_01_100hz_tanh_pos'
+        run_name = 'unimodel_grf_01_100hz_tanh_pos'
         experiment_name = 'rss_go1_pos'
         save_interval = 100
         
