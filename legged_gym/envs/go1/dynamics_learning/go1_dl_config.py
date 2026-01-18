@@ -5,7 +5,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
     class env( LeggedRobotCfg.env ):
         num_envs = 4096
         num_observations = 57
-        num_privileged_obs = 81 # robot_state + other privilged info + terrain_heights (121)
+        num_privileged_obs = 79 # robot_state + other privilged info + terrain_heights (121)
         num_actions = 12
         env_spacing = 0.5
         num_obs_hist = 5
@@ -286,7 +286,8 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             feedforward_torques   = -2.0e-4
             feedback_torques      = -2.0e-4
             act_close_to_default    = -0.01
-            dof_act_limits          = -0.1
+            dof_act_limits          = -1.0
+
 
             # promot stable WB locomotion
             # wb_dynamics = 0.1
@@ -327,7 +328,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
             
             curr_reward_bounds = {"action_rate":[-1.0e-3, -1.0e-2],
                                   "action_smoothness":[-1.0e-3, -1.0e-2],
-                                  "feedback_torques":[-2.0e-4, -5.0e-4],
+                                  "feedback_torques":[-2.0e-6, -6.0e-4],
                                   "feet_contact_forces":[-1.0e-1,-5.0e-1],
                                   "ang_vel_xy":[-0.05, -0.1],
                                   "base_height":[-1.0,-1.5],
@@ -337,8 +338,8 @@ class GO1DynamicCfg( LeggedRobotCfg ):
                                   "front_back_separation":[-1.0e-2, -1.0e-1]
                                  }
 
-            curr_steps = 1100
-            warmup_steps = 100
+            curr_steps = 2000
+            warmup_steps = 3000
 
     class commands( LeggedRobotCfg.commands ):
         curriculum = True
@@ -368,7 +369,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         # Context Decoder
         cenet_dec_input_dim = 19
         cenet_dec_layers = [64,128]
-        cenet_dec_out_dim = 57        # next obs (57) + grf_dim (12)
+        cenet_dec_out_dim = 57 + 12   # next obs (57) + grf_dim (12)
 
         # Actor/critic
         actor_shared_dim = 512
@@ -382,13 +383,14 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         pinn_warmup = 100
         pinn_init_steps = 0
 
+        pretrained_path = "../../rsl_rl/modules/pretrained_models/rl_pos/Jan17_17-39-51_unimodel_grf_01_100hz_tanh_pos/model_1000.pt"
         # pretrained_path = "../../rsl_rl/modules/pretrained_models/rl_pos/Jan13_18-35-33_unimodel_boot_01_100hz_tanh_pos/model_1000.pt"
         # pretrained_path = "../../logs/rss_go1_dynamic_unimodel/Jan15_17-42-47_unimodel_100hz_no_pinn_baseline/model_1700.pt"
 
     class algorithm( LeggedRobotCfgPPO.algorithm ):
-        entropy_coef = 0.01
+        entropy_coef = 0.001
         # learning_rate = 1.0e-3 #
-        learning_rate = 1.0e-4 #
+        learning_rate = 3.0e-4 #
         value_loss_coef = 1.0
         use_clipped_value_loss = True
         clip_param = 0.2
@@ -404,12 +406,12 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         policy_class_name = 'ActorCritic_Dynamic'
         algorithm_class_name = 'PPODynamic'
         num_steps_per_env = 100 # per iteration
-        max_iterations = 2000 # number of policy updates
+        max_iterations = 5000 # number of policy updates
         grf_dim = 12
         
         # debug_warmpinn_wb
-        run_name = 'unimodel_100hz_baseline'
-        experiment_name = 'rss_go1_dynamic_unimodel_refinement'
+        run_name = 'ablation_unimodel_np_grfdec_grfcrit_100hz_posboot_01'
+        experiment_name = 'rss_go1_dynamic_unimodel'
         save_interval = 100
         
         

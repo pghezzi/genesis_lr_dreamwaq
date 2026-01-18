@@ -308,7 +308,7 @@ class ActorCritic_Dynamic(nn.Module):
         #     if critic_layer.bias is not None:
         #         nn.init.zeros_(critic_layer.bias)
                 
-        self.std.data.fill_(0.50)
+        self.std.data.fill_(1.00)
 
         # # Xavier for linears, zeros for biases
         # for m in self.modules():
