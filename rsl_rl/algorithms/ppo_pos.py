@@ -316,8 +316,8 @@ class PPOPos:
                 grf_target.requires_grad = False
                 obs_target.requires_grad = False
                 
-                decode_target = torch.cat((obs_target, grf_target), dim=-1)
-                # decode_target = obs_target
+                # decode_target = torch.cat((obs_target, grf_target), dim=-1)
+                decode_target = obs_target
                 vel_target.requires_grad = False
                 
                 with torch.no_grad():

@@ -396,7 +396,7 @@ class LeggedRobotGo1Pos(BaseTask):
                 (   
                     self.obs_buf,                 # 45 DOF
                     self.base_lin_vel * self.obs_scales.lin_vel,  # 3 DOF
-                    self.grfs_buf * self.obs_scales.grf,          # 12 DOF
+                    # self.grfs_buf * self.obs_scales.grf,          # 12 DOF
                     self._friction_values,        # 1
                     self._added_base_mass,        # 1
                     self._base_com_bias,          # 3
