@@ -66,6 +66,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         Args:
             actions (torch.Tensor): Tensor of shape (num_envs, num_actions_per_env)
         """
+        self.first_loop = True
         # clip the predicted actions
         clip_actions = self.cfg.normalization.clip_actions
         self.actions = torch.clip(
@@ -85,7 +86,8 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # run simulation steps with current action and PD feedback control
         for _ in range(self.cfg.control.decimation):  # use self-implemented pd controller
             self.torques = self._compute_torques(self.actions)
-        
+            
+
             if self.num_build_envs == 0:
                 torques = self.torques.squeeze()
                 self.robot.control_dofs_force(torques, self.motors_dof_idx)
@@ -118,7 +120,21 @@ class LeggedRobotGo1Dynamic(BaseTask):
         #         
         # Retunring some extra stuff and two separate reward functions
         return self.obs_buf, self.privileged_obs_buf, self.obs_history, self.rew_buf, self.reset_buf, self.extras, (self.grfs_buf * self.obs_scales.grf)
+    
+    def get_failure_idx(self):
+        return self.reset_buf * ~self.time_out_buf
+    
+    def get_scaled_pos_actions(self):
+                # control_type = 'P'
+        # Pull out the position control actions
+        pos_actions = self.actions[:,0:12]
+        
+        # Scale the position actions
+        repeat_pos_scales = torch.from_numpy(np.array(self.cfg.control.action_scale)).repeat(1,4).to(self.device)
+        
+        actions_scaled = pos_actions * repeat_pos_scales + self.default_dof_pos
 
+        return actions_scaled
     
     def create_async_pino_workers(self):
         wb_correct_pino_2_model_ordering = [0,1,2,3,4,5]
@@ -675,6 +691,9 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # print((tau_actions * self.cfg.control.torque_scale + self.default_dof_tau)[0:4,:])
         # print("Feedback Torques - ")
         # print(feedback_torques[0:4,:])
+        if self.first_loop:
+            self.first_loop = False
+            self.feedback_torques_init = self.feedback_torques
         
         repeat_torque_scales = torch.from_numpy(np.array(self.cfg.control.torque_scale)).repeat(1,4).to(self.device)
         

@@ -13,7 +13,6 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         whole_body_dim = 18
         debug = False # if debugging, visualize contacts, 
         debug_viz = False # draw debug visualizations
-
     
     class terrain( LeggedRobotCfg.terrain ):
         mesh_type = "plane" # none, plane, heightfield
@@ -416,6 +415,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         
         load_run = "Jan17_23-35-09_unimodel_grf_pinn_100hz_full_posboot_01_p2"
         checkpoint = 5000
+        exp_data_path = "exp_data/Jan17_23-35-09_unimodel_grf_pinn_100hz_full_posboot_01_p2/data_collection_debugging.csv"
 
         # Load parameters for first function policy
         # run_name = 'test_01'

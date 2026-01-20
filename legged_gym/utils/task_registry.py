@@ -48,6 +48,7 @@ class TaskRegistry():
             isaacgym.VecTaskPython: The created environment
             Dict: the corresponding config file
         """
+        print("Building Env!")
         # if no args passed get command line arguments
         if args is None:
             args = get_args()
