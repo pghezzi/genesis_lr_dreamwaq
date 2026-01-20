@@ -244,7 +244,8 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         foot_clearance_tracking_sigma = 0.01
         only_positive_rewards = False
 
-        use_reward_curriculum = True
+        # use_reward_curriculum = True
+        use_reward_curriculum = False
 
         max_contact_force = 200.0
         class scales( LeggedRobotCfg.rewards.scales ):
@@ -413,8 +414,8 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         save_interval = 100
         
         
-        load_run = "Jan16_03-34-16_unimodel_100hz_posboot_pinn01_01"
-        checkpoint = 2800
+        load_run = "Jan17_23-35-09_unimodel_grf_pinn_100hz_full_posboot_01_p2"
+        checkpoint = 5000
 
         # Load parameters for first function policy
         # run_name = 'test_01'
