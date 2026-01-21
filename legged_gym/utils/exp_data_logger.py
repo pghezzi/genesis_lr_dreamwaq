@@ -5,13 +5,12 @@ import matplotlib.pyplot as plt
 import matplotlib
 import pandas as pd
 import os
-
+import itertools
 
 
 class ExpLogger:
     def __init__(self, log_path, ref_key="base_lin_vel", length_limit=10000):
-        self.state_log = defaultdict(list)
-        self.rew_log = defaultdict(list)
+        self.state_log = {}
         self.output_path = log_path
         self.length_key = ref_key
         self.max_len = length_limit
@@ -39,7 +38,7 @@ class ExpLogger:
         if key in self.state_log.keys():
             self.state_log[key].extend(value)
         else:
-            self.state_log[key].append(value)
+            self.state_log[key] = value
 
     def log_states(self, dict):
         for key, value in dict.items():
@@ -66,4 +65,3 @@ class ExpLogger:
 
     def reset(self):
         self.state_log.clear()
-        self.rew_log.clear()

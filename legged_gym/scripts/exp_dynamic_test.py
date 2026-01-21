@@ -1,6 +1,7 @@
 import genesis as gs
 from legged_gym import LEGGED_GYM_ROOT_DIR
 import os
+import time
 
 from legged_gym.envs import *
 from legged_gym.utils import  get_args, export_policy_as_jit, task_registry, Logger
@@ -75,8 +76,9 @@ def play(args):
     print("Min - self.feedforward_tau_weight: ", torch.min(env.feedforward_tau_weight).item())
     print("Max - self.feedback_tau_weight: ", torch.max(env.feedback_tau_weight).item())
     print("Min - self.feedback_tau_weight: ", torch.min(env.feedback_tau_weight).item())
+    start_time = time.perf_counter() # Record the start time
 
-    for i in range(5*int(env.max_episode_length)):
+    for i in range(10*int(env.max_episode_length)):
     # for i in range(1000):
         actions = policy(obs.detach(), obs_hist.detach())
         obs, _, obs_hist, rews, dones, infos, grfs = env.step(actions.detach())
@@ -119,7 +121,12 @@ def play(args):
             }
         )
 
+
     logger.save_log()
+
+    end_time = time.perf_counter()   # Record the end time
+    execution_time = end_time - start_time
+    print(f"Execution time: {execution_time:.4f} seconds")
 
     print("Mean Position Rewards - ", np.mean(rewards))
     print("Mean GRF-forces - ", np.mean(total_grfs))
