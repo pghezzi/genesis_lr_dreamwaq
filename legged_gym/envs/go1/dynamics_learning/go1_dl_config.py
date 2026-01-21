@@ -383,7 +383,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         pinn_warmup = 100
         pinn_init_steps = 0
 
-        pretrained_path = "../../rsl_rl/modules/pretrained_models/rl_pos/Jan17_16-25-46_100hz_posboot_01_no_grf/model_1000.pt"
+        # pretrained_path = "../../rsl_rl/modules/pretrained_models/rl_pos/Jan17_16-25-46_100hz_posboot_01_no_grf/model_1000.pt"
         # pretrained_path = "../../rsl_rl/modules/pretrained_models/rl_pos/Jan13_18-35-33_unimodel_boot_01_100hz_tanh_pos/model_1000.pt"
         # pretrained_path = "../../logs/rss_go1_dynamic_unimodel/Jan15_17-42-47_unimodel_100hz_no_pinn_baseline/model_1700.pt"
 
@@ -415,9 +415,9 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         save_interval = 100
         
         
-        load_run = "Jan17_00-40-04_unimodel_100hz_baseline"
-        checkpoint = 2000
-
+        load_run = "Jan18_17-44-20_ablation_unimodel_np_nodec_nocrit_100hz_posboot_01"
+        checkpoint = 5000
+        exp_data_path = "exp_data/Jan18_17-44-20_ablation_unimodel_np_nodec_nocrit_100hz_posboot_01/initial_results.csv"
         # Load parameters for first function policy
         # run_name = 'test_01'
         # experiment_name = 'go1_dynamic'
