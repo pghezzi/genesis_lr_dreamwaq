@@ -27,7 +27,7 @@ dist/
 .idea/
 
 build/
-
+**/exp_data/*
 # Unit test reports
 TEST*.xml
 
