@@ -5,7 +5,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
     class env( LeggedRobotCfg.env ):
         num_envs = 4096
         num_observations = 57
-        num_privileged_obs = 79 # robot_state + other privilged info + terrain_heights (121)
+        num_privileged_obs = 81 # robot_state + other privilged info + terrain_heights (121)
         num_actions = 12
         env_spacing = 0.5
         num_obs_hist = 5
@@ -369,7 +369,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         # Context Decoder
         cenet_dec_input_dim = 19
         cenet_dec_layers = [64,128]
-        cenet_dec_out_dim = 57 + 12  # next obs (57) + grf_dim (12)
+        cenet_dec_out_dim = 57  # next obs (57) + grf_dim (12)
 
         # Actor/critic
         actor_shared_dim = 512
@@ -415,9 +415,9 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         save_interval = 100
         
         
-        load_run = "Jan17_23-04-11_ablation_unimodel_np_grfdec_grfcrit_100hz_posboot_01"
+        load_run = "Jan17_23-06-26_ablation_unimodel_np_nodec_grfcrit_100hz_posboot_01"
         checkpoint = 5000
-        exp_data_path = "exp_data/Jan17_23-04-11_ablation_unimodel_np_grfdec_grfcrit_100hz_posboot_01/inital_results.csv"
+        exp_data_path = "exp_data/Jan17_23-06-26_ablation_unimodel_np_nodec_grfcrit_100hz_posboot_01/inital_results.csv"
 
         # Load parameters for first function policy
         # run_name = 'test_01'
