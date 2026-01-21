@@ -1610,7 +1610,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # self.feedback_tau_weight = 1.0
 
         self.feedforward_tau_weight = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float)
-        self.feedback_tau_weight = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float)
+        self.feedback_tau_weight = torch.zeros((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float)
         self.tradeoff_step_ctr = torch.zeros((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float)
 
         self.num_iters = 0

@@ -244,7 +244,7 @@ class GO1DynamicCfg( LeggedRobotCfg ):
         foot_clearance_tracking_sigma = 0.01
         only_positive_rewards = False
 
-        use_reward_curriculum = True
+        use_reward_curriculum = False
 
         max_contact_force = 200.0
         class scales( LeggedRobotCfg.rewards.scales ):
@@ -369,7 +369,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         # Context Decoder
         cenet_dec_input_dim = 19
         cenet_dec_layers = [64,128]
-        cenet_dec_out_dim = 57   # next obs (57) + grf_dim (12)
+        cenet_dec_out_dim = 57 + 12  # next obs (57) + grf_dim (12)
 
         # Actor/critic
         actor_shared_dim = 512
@@ -415,8 +415,8 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         save_interval = 100
         
         
-        load_run = "Jan17_00-40-04_unimodel_100hz_baseline"
-        checkpoint = 2000
+        load_run = "Jan17_23-04-11_ablation_unimodel_np_grfdec_grfcrit_100hz_posboot_01"
+        checkpoint = 5000
 
         # Load parameters for first function policy
         # run_name = 'test_01'

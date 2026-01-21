@@ -127,7 +127,7 @@ class OnPolicyRunnerDynamic:
         # re-initalize the critic network weights which where not pretrained (to be safe)
         self.alg.actor_critic._init_critic_weights()
         # Load the pretrained decoder network
-        self.alg.decoder.load_state_dict(loaded_dict['decoder'])
+        # self.alg.decoder.load_state_dict(loaded_dict['decoder'])
         # self.alg.act_optimizer.optimizer.load_state_dict(loaded_dict['act_optimizer_state_dict'])
         # self.alg.enc_optimizer.load_state_dict(loaded_dict['enc_optimizer_state_dict'])
         # self.alg.decoder_optimizer.load_state_dict(loaded_dict['decoder_opt_state_dict'])
