@@ -150,7 +150,7 @@ class GO1DynamicFinetuneCfg( LeggedRobotCfg ):
         
         randomize_com_displacement = True
         com_displacement_range_xy = [-0.25, 0.25]
-        com_displacement_range_z = [0.10, 0.25]
+        com_displacement_range_z = [0.10, 0.30]
         
         randomize_ctrl_delay = False
         ctrl_delay_step_range = [0, 1]
@@ -326,48 +326,24 @@ class GO1DynamicFinetuneCfg( LeggedRobotCfg ):
             front_back_separation = -0.1     # penalty for small distance between front and back feet during contact
 
         class reward_curriculum():
-            # curr_reward_keys = ["tau_action_rate", "tau_action_smoothness", "feedforward_torques",
-            #                     "pos_action_rate", "pos_action_smoothness", "feedback_torques",
-            #                     "dof_close_to_default", "dof_acc", "joint_power", "joint_power_dist",
-            #                     "stable_grf_dynamics", "floating_base_stability", "raibert", 
-            #                     "feet_contact_forces"]
-            #                     # "wb_dynamics"]
-
-            # curr_reward_keys = ["tau_action_rate", "tau_action_smoothness",
-            #                     "pos_action_rate", "pos_action_smoothness",
-            #                     "dof_close_to_default", "dof_acc", "joint_power", "joint_power_dist",
-            #                     "raibert", "feet_contact_forces", "feedback_torques", "feedforward_torques"]
-
-            # curr_reward_keys = ["tau_action_rate", "tau_action_smoothness", "feedforward_torques",
-            #                     "pos_action_rate", "pos_action_smoothness", "feedback_torques",
-            #                     "dof_close_to_default", "dof_acc", "joint_power", "joint_power_dist"]
-            #                     # "wb_dynamics"]
-
-            curr_reward_keys = ["tau_action_rate", "tau_action_smoothness",
-                                "pos_action_rate", "pos_action_smoothness",
-                                "dof_acc", "joint_power", "joint_power_dist",
-                                "feet_contact_forces", 
-                                "feedback_torques", "feedforward_torques"]
+            curr_reward_keys = ["action_rate", "action_smoothness", "feedback_torques", "feet_contact_forces",
+                                "ang_vel_xy", "base_height", "lin_vel_z", "orientation", "act_close_to_default",
+                                "front_back_separation"]
             
-            curr_reward_bounds = {"tau_action_rate":[-1.0e-10, -1.0e-2],
-                                  "tau_action_smoothness":[-1.0e-10, -1.0e-2],
-                                  
-                                  "pos_action_rate":[-1.0e-10, -1.0e-2],
-                                  "pos_action_smoothness":[-1.0e-10, -1.0e-2],
-                                  
-                                  "dof_acc":[-1.0e-12, -2.5e-7],
-                                  
-                                  "joint_power":[-2.0e-10, -2.0e-5],
-                                  "joint_power_dist":[-1.0e-10, -1.0e-5],
-                                  
-                                  "feedback_torques":[-2.0e-8, -2.0e-4],
-                                  "feedforward_torques":[-2.0e-8, -2.0e-4],
-
-                                  "feet_contact_forces":[-1.0e-10,-1e-1]
+            curr_reward_bounds = {"action_rate":[-1.0e-3, -1.0e-2],
+                                  "action_smoothness":[-1.0e-3, -1.0e-2],
+                                  "feedback_torques":[-2.0e-6, -6.0e-4],
+                                  "feet_contact_forces":[-1.0e-1,-5.0e-1],
+                                  "ang_vel_xy":[-0.05, -0.1],
+                                  "base_height":[-1.0,-1.5],
+                                  "lin_vel_z":[-1.0,-2.0],
+                                  "orientation":[-1.0,-2.0],
+                                  "act_close_to_default":[-1.0e-4, -1.0e-2],
+                                  "front_back_separation":[-1.0e-2, -1.0e-1]
                                  }
 
-            curr_steps = 8000
-            warmup_steps = 0
+            curr_steps = 2000
+            warmup_steps = 3000
 
     class commands( LeggedRobotCfg.commands ):
         curriculum = True
@@ -437,11 +413,11 @@ class GO1DynmaicFinetuneCfgPPO( LeggedRobotCfgPPO ):
         
         # debug_warmpinn_wb
         run_name = 'unimodel_grf_pinn_100hz_full_posboot_01_finetune'
-        experiment_name = 'rss_go1_dynamic_finetune'
+        experiment_name = 'rss_go1_dynamic_unimodel'
         save_interval = 100
         
         
-        load_run = "Jan17_23-35-09_unimodel_grf_pinn_100hz_full_posboot_01_p2"
+        load_run = "../rss_go1_dynamic_unimodel/Jan17_23-35-09_unimodel_grf_pinn_100hz_full_posboot_01_p2"
         checkpoint = 5000
         resume = True
 

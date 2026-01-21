@@ -58,7 +58,7 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
     def reset(self):
         """ Reset all robots"""
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
-        obs, privileged_obs, _, _, _, _, _, _ = self.step(torch.zeros(self.num_envs, 2*self.num_actions, device=self.device, requires_grad=False))
+        obs, privileged_obs, _, _, _, _, _ = self.step(torch.zeros(self.num_envs, 2*self.num_actions, device=self.device, requires_grad=False))
         return obs, privileged_obs
 
     def step(self, actions):
@@ -67,6 +67,7 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
         Args:
             actions (torch.Tensor): Tensor of shape (num_envs, num_actions_per_env)
         """
+        self.first_loop = True
         # clip the predicted actions
         clip_actions = self.cfg.normalization.clip_actions
         self.actions = torch.clip(
@@ -118,7 +119,7 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
         # print()
         #         
         # Retunring some extra stuff and two separate reward functions
-        return self.obs_buf, self.privileged_obs_buf, self.obs_history, (self.rew_buf+self.pos_rew_buf), (self.rew_buf + self.tau_rew_buf), self.reset_buf, self.extras, (self.grfs_buf * self.obs_scales.grf)
+        return self.obs_buf, self.privileged_obs_buf, self.obs_history, self.rew_buf, self.reset_buf, self.extras, (self.grfs_buf * self.obs_scales.grf)
 
     
     def create_async_pino_workers(self):
@@ -432,28 +433,8 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
             rew = self.reward_functions[i]() * self.reward_scales[name]
             self.rew_buf += rew
             self.episode_sums[name] += rew
-        
-        # Accumulate position control specific rewards
-        self.pos_rew_buf[:] = 0.
-        for i in range(len(self.pos_reward_functions)):
-            name = self.pos_reward_names[i]
-            # print("Position reward - ", name)
-            rew = self.pos_reward_functions[i]() * self.pos_reward_scales[name]
-            self.pos_rew_buf += rew
-            self.episode_sums[name] += rew
-        
-        # Accumulate torque control specific rewards
-        self.tau_rew_buf[:] = 0.
-        for i in range(len(self.tau_reward_functions)):
-            name = self.tau_reward_names[i]
-            # print("Torque reward - ", name)
-            rew = self.tau_reward_functions[i]() * self.tau_reward_scales[name]
-            self.tau_rew_buf += rew
-            self.episode_sums[name] += rew
 
         if self.cfg.rewards.only_positive_rewards:
-            self.tau_rew_buf[:] = torch.clip(self.tau_rew_buf[:], min=0.)
-            self.pos_rew_buf[:] = torch.clip(self.pos_rew_buf[:], min=0.)
             self.rew_buf[:] = torch.clip(self.rew_buf[:], min=0.)
         
         # add termination reward after clipping
@@ -694,6 +675,9 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
         # print((tau_actions * self.cfg.control.torque_scale + self.default_dof_tau)[0:4,:])
         # print("Feedback Torques - ")
         # print(feedback_torques[0:4,:])
+        if self.first_loop:
+            self.first_loop = False
+            self.first_loop_feedback = self.feedback_torques.clone()
         
         repeat_torque_scales = torch.from_numpy(np.array(self.cfg.control.torque_scale)).repeat(1,4).to(self.device)
         
@@ -1023,6 +1007,13 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
         self.extras = {}
         self.noise_scale_vec = self._get_noise_scale_vec()
         
+        self.wrench_timeouts = torch.round(
+            gs_rand_float(self.wrench_timeout_min,
+                        self.wrench_timeout_max,
+                        (self.cfg.env.num_envs,),
+                        self.device),
+            decimals=self.n_digits).float()
+
         self.push_timeouts = torch.round(
             gs_rand_float(self.push_interval_min,
                           self.push_interval_max,
@@ -1256,24 +1247,6 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
                 # print("Non-zero shared reward + scale - ", key)
                 # print(self.reward_scales[key])
                 self.reward_scales[key] *= self.dt
-
-        for key in list(self.pos_reward_scales.keys()):
-            scale = self.pos_reward_scales[key]
-            if scale ==0:
-                self.pos_reward_scales.pop(key)
-            else:
-                # print("Non-zero position reward + scale - ", key)
-                # print(self.pos_reward_scales[key])
-                self.pos_reward_scales[key] *= self.dt
-
-        for key in list(self.tau_reward_scales.keys()):
-            scale = self.tau_reward_scales[key]
-            if scale ==0:
-                self.tau_reward_scales.pop(key)
-            else:
-                # print("Non-zero torque reward + scale - ", key)
-                # print(self.tau_reward_scales[key])
-                self.tau_reward_scales[key] *= self.dt
         
         # prepare list of functions
         # These are the general rewards....
@@ -1287,28 +1260,6 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
             name = '_reward_' + name
             self.reward_functions.append(getattr(self, name))
 
-        # position control rewards
-        self.pos_reward_functions = []
-        self.pos_reward_names = []
-        for name, scale in self.pos_reward_scales.items():
-            if name =="termination":
-                continue
-            
-            self.pos_reward_names.append(name)
-            name = '_reward_' + name
-            self.pos_reward_functions.append(getattr(self, name))
-        
-        # torque control rewards
-        self.tau_reward_functions = []
-        self.tau_reward_names = []
-        for name, scale in self.tau_reward_scales.items():
-            if name =="termination":
-                continue
-            
-            self.tau_reward_names.append(name)
-            name = '_reward_' + name
-            self.tau_reward_functions.append(getattr(self, name))
-
         # print( (self.reward_scales.keys() | self.pos_reward_scales.keys() | self.tau_reward_scales.keys()))
 
         # if self.use_reward_curriculum:
@@ -1316,7 +1267,7 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
 
         # reward episode sums, across all reward groups
         self.episode_sums = {name: torch.zeros(self.num_envs, dtype=gs.tc_float, device=self.device, requires_grad=False)
-                             for name in (self.reward_scales.keys() | self.pos_reward_scales.keys() | self.tau_reward_scales.keys())}
+                             for name in self.reward_scales.keys()}
 
     def _create_heightfield(self):
         """ Adds a heightfield terrain to the simulation, sets parameters based on the cfg.
@@ -1554,11 +1505,12 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
 
     def _randomize_com_displacement(self, env_ids):
         ''' Randomize base COM'''
-        min_displacement, max_displacement = self.cfg.domain_rand.com_displacement_range
+        min_displacement, max_displacement = self.cfg.domain_rand.com_displacement_range_xy
+        min_dis_z, max_dis_z = self.cfg.domain_rand.com_displacement_range_z
         base_link_id = 1
 
         com_displacement = gs.rand((len(env_ids), 1, 3), dtype=float) * (max_displacement - min_displacement) + min_displacement
-        com_displacement[:, 0, 2] += (gs.rand((len(env_ids), 1,), dtype=float) * (max_displacement+0.15 - min_displacement) + min_displacement+0.15).squeeze() 
+        com_displacement[:, 0, 2] = (gs.rand((len(env_ids), 1,), dtype=float) * (max_dis_z - min_dis_z) + min_dis_z).squeeze() 
 
         self._base_com_bias[env_ids] = com_displacement[:, 0, :].detach().clone()
 
@@ -1640,10 +1592,6 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
             for key in self.reward_curr_keys:
                 if key in self.reward_scales.keys():
                     self.reward_scales[key] = self.reward_curr_bounds[key][0] * self.dt
-                if key in self.pos_reward_scales.keys():
-                    self.pos_reward_scales[key] = self.reward_curr_bounds[key][0] * self.dt
-                if key in self.tau_reward_scales:
-                    self.tau_reward_scales[key] = self.reward_curr_bounds[key][0] * self.dt
         # Gradually increase the regularization strength
         elif self.num_iters > self.reward_warmup_steps and (self.num_iters - self.reward_warmup_steps) < self.reward_curr_steps:
             print("Stepping Reward Curriculum")
@@ -1651,20 +1599,12 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
             for key in self.reward_curr_keys:
                 if key in self.reward_scales.keys():
                     self.reward_scales[key] = ((float(adjusted_iter)/float(self.reward_curr_steps))*self.reward_bound_diffs[key] + self.reward_curr_bounds[key][0])*self.dt
-                if key in self.pos_reward_scales.keys():
-                    self.pos_reward_scales[key] = ((float(adjusted_iter)/float(self.reward_curr_steps))*self.reward_bound_diffs[key] + self.reward_curr_bounds[key][0])*self.dt
-                if key in self.tau_reward_scales:
-                    self.tau_reward_scales[key] = ((float(adjusted_iter)/float(self.reward_curr_steps))*self.reward_bound_diffs[key] + self.reward_curr_bounds[key][0])*self.dt
         # Fix the regularization strength to the upper-bound
         else:
             # by default set the reward to the upper bound
             for key in self.reward_curr_keys:
                 if key in self.reward_scales.keys():
                     self.reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
-                if key in self.pos_reward_scales.keys():
-                    self.pos_reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
-                if key in self.tau_reward_scales:
-                    self.tau_reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
                     
     def step_push(self):
         if self.num_iters > self.num_push_steps:
@@ -1679,6 +1619,7 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
         print("Push Value: ", self.push_value)
         print("Wrench Value: ", self.wrench_value)
         print("Vertical Push Value: ", self.vert_value)
+        print("Mass Max Value: ", self.mass_max_value)
 
     def _parse_cfg(self, cfg, sim_device):
         self.dt = self.cfg.control.dt
@@ -1688,9 +1629,6 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
         self.obs_scales = self.cfg.normalization.obs_scales
         self.reward_scales = class_to_dict(self.cfg.rewards.scales)
         
-        self.pos_reward_scales = class_to_dict(self.cfg.rewards.pos_scales)
-        self.tau_reward_scales = class_to_dict(self.cfg.rewards.tau_scales)
-
         self.use_reward_curriculum = self.cfg.rewards.use_reward_curriculum
 
         self.reward_curr_keys = self.cfg.rewards.reward_curriculum.curr_reward_keys
