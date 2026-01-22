@@ -223,27 +223,27 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
         #     The GRF forces
         grf_np = contact_temp.reshape(contact_temp.shape[0], 12).unsqueeze(2).cpu().numpy()
 
-        #     Pass the numpy (cpu) data structures to shared memeory
-        self.async_pino_manager.shared.q[:]       = wb_pos_np        # num_envs x 19
-        self.async_pino_manager.shared.qd[:]      = wb_vel_np        # num_envs x 18
-        self.async_pino_manager.shared.qd_prev[:] = wb_vel_prev_np   # num_envs x 18
-        self.async_pino_manager.shared.grf[:]     = grf_np           # num_envs x 4 x 3
-        self.async_pino_manager.shared.dt[0]      = self.dt
+        # #     Pass the numpy (cpu) data structures to shared memeory
+        # self.async_pino_manager.shared.q[:]       = wb_pos_np        # num_envs x 19
+        # self.async_pino_manager.shared.qd[:]      = wb_vel_np        # num_envs x 18
+        # self.async_pino_manager.shared.qd_prev[:] = wb_vel_prev_np   # num_envs x 18
+        # self.async_pino_manager.shared.grf[:]     = grf_np           # num_envs x 4 x 3
+        # self.async_pino_manager.shared.dt[0]      = self.dt
 
-        self.async_pino_manager.compute_async()
-        self.async_pino_manager.wait()            # blocking, wait until all workers are done
+        # self.async_pino_manager.compute_async()
+        # self.async_pino_manager.wait()            # blocking, wait until all workers are done
 
-        # now stack the tensor lists to get the necessary state values
-        self.wb_dynamics_buff[:]        = torch.from_numpy(
-            self.async_pino_manager.shared.wb_dynamics).to(self.device) # num_envs x 18
-        self.contact_forces_buff[:]     = torch.from_numpy(
-            self.async_pino_manager.shared.wb_contacts).to(self.device) # num_envs x 18
-        self.wb_mass_mat_buff[:]        = torch.from_numpy(
-            self.async_pino_manager.shared.mass_mat).to(self.device)    # num_envs x 18 x 18
-        self.wb_bias_vec_buff[:]        = torch.from_numpy(
-            self.async_pino_manager.shared.bias).to(self.device)        # num_envs x 18
-        self.torso_6dof_acceleration[:] = torch.from_numpy(
-            self.async_pino_manager.shared.acc6d).to(self.device)       # num_envs x 6
+        # # now stack the tensor lists to get the necessary state values
+        # self.wb_dynamics_buff[:]        = torch.from_numpy(
+        #     self.async_pino_manager.shared.wb_dynamics).to(self.device) # num_envs x 18
+        # self.contact_forces_buff[:]     = torch.from_numpy(
+        #     self.async_pino_manager.shared.wb_contacts).to(self.device) # num_envs x 18
+        # self.wb_mass_mat_buff[:]        = torch.from_numpy(
+        #     self.async_pino_manager.shared.mass_mat).to(self.device)    # num_envs x 18 x 18
+        # self.wb_bias_vec_buff[:]        = torch.from_numpy(
+        #     self.async_pino_manager.shared.bias).to(self.device)        # num_envs x 18
+        # self.torso_6dof_acceleration[:] = torch.from_numpy(
+        #     self.async_pino_manager.shared.acc6d).to(self.device)       # num_envs x 6
 
         # print("-----------------------")
         # print(wb_dynamics_list[12])
