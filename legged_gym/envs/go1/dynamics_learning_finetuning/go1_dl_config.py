@@ -140,7 +140,8 @@ class GO1DynamicFinetuneCfg( LeggedRobotCfg ):
         wrench_timeout_min = 0.01
         wrench_timeout_max = 15.0
         
-        num_push_steps = 1000  # number of steps to apply the same randomization
+        num_push_steps = 500  # number of steps to apply the same randomization
+        push_warmup = 100
         
         randomize_base_mass = True
         # added_mass_range = [-1.0, 8.0]
@@ -149,8 +150,45 @@ class GO1DynamicFinetuneCfg( LeggedRobotCfg ):
         added_mass_min = -1.0
         
         randomize_com_displacement = True
-        com_displacement_range_xy = [-0.25, 0.25]
+        # com_displacement_range_xy = [-0.25, 0.25]
         com_displacement_range_z = [0.10, 0.30]
+
+        com_displacement_xy_min = 0.10
+        com_displacement_xy_max = 0.25
+        
+        # # What changes with finetuning round
+        # push_robots = True
+        # push_interval_max = 15.0
+        # push_interval_min = 8.0
+        # max_push_vel_xy = 2.00
+        # min_push_vel_xy = 0.5
+
+        # max_vertical_push = -0.5
+        # min_vertical_push = 0.00
+        # vert_interval_max = 10.0
+        # vert_interval_min = 0.1
+
+        # max_push_torque = 2.5
+        # min_push_torque = 0.75
+        # wrench_timeout_min = 8.0
+        # wrench_timeout_max = 15.0
+        
+        # num_push_steps = 1  # number of steps to apply the same randomization
+        
+        # randomize_base_mass = True
+        # # added_mass_range = [-1.0, 8.0]
+        # min_added_mass_max = 6.0
+        # max_added_mass_max = 8.0
+        # added_mass_min = 4.0
+        
+        # randomize_com_displacement = True
+        # # com_displacement_range_xy = [-0.25, 0.25]
+        # com_displacement_range_z = [0.10, 0.30]
+
+        # com_displacement_xy_min = 0.15
+        # com_displacement_xy_max = 0.25
+        
+
         
         randomize_ctrl_delay = False
         ctrl_delay_step_range = [0, 1]
@@ -241,11 +279,11 @@ class GO1DynamicFinetuneCfg( LeggedRobotCfg ):
 
         # Assumed order - tau_ff, tau_fb
         # tradeoff_init_weights  = [0.80, 1.4]
-        tradeoff_init_weights  = [1.00, 1.00]
+        tradeoff_init_weights  = [0.60, 2.00]
         tradeoff_final_weights = [1.00, 1.00]
         tradeoff_steps = 10
-        tradeoff_threshold = 0.60
-        use_tradeoff_curriculum = False
+        tradeoff_threshold = 0.50
+        use_tradeoff_curriculum = True
 
     class termination:
         termination_terms = ["roll", "pitch", "height_min", "height_max"]
@@ -305,8 +343,8 @@ class GO1DynamicFinetuneCfg( LeggedRobotCfg ):
             action_rate       = -0.01
             action_smoothness = -0.01
 
-            feedforward_torques   = -2.0e-5
-            feedback_torques      = -6.0e-4
+            feedforward_torques   = -2.0e-4
+            feedback_torques      = -2.0e-4
             act_close_to_default    = -0.01
             dof_act_limits          = -1.0
 
@@ -412,14 +450,16 @@ class GO1DynmaicFinetuneCfgPPO( LeggedRobotCfgPPO ):
         grf_dim = 12
         
         # debug_warmpinn_wb
-        run_name = 'unimodel_grf_pinn_100hz_full_posboot_01_finetune'
+        run_name = 'unimodel_grf_pinn_100hz_full_posboot_02_finetune'
         experiment_name = 'rss_go1_dynamic_unimodel'
         save_interval = 100
         
         
-        load_run = "../rss_go1_dynamic_unimodel/Jan17_23-35-09_unimodel_grf_pinn_100hz_full_posboot_01_p2"
+        # load_run = "Jan21_19-12-44_unimodel_grf_pinn_100hz_full_posboot_01_finetune"
+        load_run = "Jan22_12-37-13_unimodel_grf_pinn_100hz_full_posboot_02_finetune"
         checkpoint = 5000
         resume = True
+        exp_data_path = "exp_data/Jan21_19-12-44_unimodel_grf_pinn_100hz_full_posboot_01_finetune/finetune_hardereval_nopd.csv"
 
         # Load parameters for first function policy
         # run_name = 'test_01'

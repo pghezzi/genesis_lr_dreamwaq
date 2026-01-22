@@ -120,7 +120,21 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
         #         
         # Retunring some extra stuff and two separate reward functions
         return self.obs_buf, self.privileged_obs_buf, self.obs_history, self.rew_buf, self.reset_buf, self.extras, (self.grfs_buf * self.obs_scales.grf)
+    
+    def get_failure_idx(self):
+        return self.reset_buf * ~self.time_out_buf
+    
+    def get_scaled_pos_actions(self):
+                # control_type = 'P'
+        # Pull out the position control actions
+        pos_actions = self.actions[:,0:12]
+        
+        # Scale the position actions
+        repeat_pos_scales = torch.from_numpy(np.array(self.cfg.control.action_scale)).repeat(1,4).to(self.device)
+        
+        actions_scaled = pos_actions * repeat_pos_scales + self.default_dof_pos
 
+        return actions_scaled
     
     def create_async_pino_workers(self):
         wb_correct_pino_2_model_ordering = [0,1,2,3,4,5]
@@ -709,7 +723,7 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
         # actions_scaled = pos_actions * self.cfg.control.action_scale
         actions_scaled = pos_actions * repeat_pos_scales
         target_dof_pos = actions_scaled + self.default_dof_pos
-        target_dof_pos = torch.clamp(target_dof_pos, self.dof_pos_limits_hard[0,0], self.dof_pos_limits_hard[0,1])
+        # target_dof_pos = torch.clamp(target_dof_pos, self.dof_pos_limits_hard[0,0], self.dof_pos_limits_hard[0,1])
 
         # Scale and shift the torque actions
         repeat_torque_scales = torch.from_numpy(np.array(self.cfg.control.torque_scale)).repeat(1,4).to(self.device)
@@ -1408,6 +1422,11 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
             self.robot.get_dofs_limit(self.motors_dof_idx), dim=1)
         self.torque_limits = self.robot.get_dofs_force_range(self.motors_dof_idx)[1]
 
+        self.torque_limits_override = torch.from_numpy(np.array([23.7, 23.7, 35.55, 23.7, 23.7, 35.55, 23.7, 23.7, 35.55, 23.7, 23.7, 35.55])).to(self.device)
+
+        self.torque_limits_lower = self.torque_limits.clone()
+        self.torque_limits_diff = self.torque_limits_override - self.torque_limits
+
         self.dof_pos_limits_hard = self.dof_pos_limits.clone()
 
         print(self.dof_pos_limits_hard.shape)
@@ -1505,11 +1524,12 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
 
     def _randomize_com_displacement(self, env_ids):
         ''' Randomize base COM'''
-        min_displacement, max_displacement = self.cfg.domain_rand.com_displacement_range_xy
+        min_displacement, max_displacement = -self.com_delta_value, self.com_delta_value
         min_dis_z, max_dis_z = self.cfg.domain_rand.com_displacement_range_z
         base_link_id = 1
 
         com_displacement = gs.rand((len(env_ids), 1, 3), dtype=float) * (max_displacement - min_displacement) + min_displacement
+        com_displacement[:, 0, 1] = (gs.rand((len(env_ids), 1,), dtype=float) * (0.15 - (-0.15)) + (-0.15)).squeeze() 
         com_displacement[:, 0, 2] = (gs.rand((len(env_ids), 1,), dtype=float) * (max_dis_z - min_dis_z) + min_dis_z).squeeze() 
 
         self._base_com_bias[env_ids] = com_displacement[:, 0, :].detach().clone()
@@ -1551,7 +1571,7 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
             damping, self.motors_dof_idx, envs_idx=env_ids)
         
     def step_tradeoff_curriculum(self, env_ids):
-        # If the tracking reward is above XX% of the maximum, increase the tradeoff        
+        # # If the tracking reward is above XX% of the maximum, increase the tradeoff        
         if torch.mean(self.episode_sums["tracking_lin_vel"][env_ids]) / self.max_episode_length > \
                 self.cfg.control.tradeoff_threshold * self.reward_scales["tracking_lin_vel"]:
             
@@ -1572,10 +1592,10 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
 
         random_smaple = random.random()
         
-        if random_smaple <= 0.20:  # 20% of the time reduce to lower bound
+        if random_smaple <= 0.25:  # 20% of the time reduce to lower bound
             self.feedforward_tau_weight[env_ids] = self.tradeoff_lowerbounds[0]
             self.feedback_tau_weight[env_ids]    = self.tradeoff_lowerbounds[1]
-        elif random_smaple > 0.20 and random_smaple <= 0.45: # ~25% of the time, sample a random value between the lower and current upper bound
+        elif random_smaple > 0.25 and random_smaple <= 0.50: # ~25% of the time, sample a random value between the lower and current upper bound
             # step_ctr * (1.0/num_steps) -> is the per-env upper bound. Multipled by a random float between [0,1)
             random_step_size = self.tradeoff_step_ctr*float(1.0/self.tradeoff_num_steps) * torch.rand((self.num_envs, 1))
 
@@ -1607,19 +1627,31 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
                     self.reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
                     
     def step_push(self):
-        if self.num_iters > self.num_push_steps:
+        if (self.num_iters - self.push_warmup_step) > self.num_push_steps:
+            return
+        elif self.num_iters < self.push_warmup_step:
+            print("Push Value: ", self.push_value)
+            print("Wrench Value: ", self.wrench_value)
+            print("Vertical Push Value: ", self.vert_value)
+            print("Mass Max Value: ", self.mass_max_value)
+            print("COM Delta Value: ", self.com_delta_value)
+            print("Torque Limits - ", self.torque_limits[0])
             return
 
         self.push_value = (self.num_iters / self.num_push_steps) * self.push_diff + self.push_bounds[0]
         self.wrench_value = (self.num_iters / self.num_push_steps) * self.wrench_diff + self.wrench_bounds[0]
         self.vert_value = (self.num_iters / self.num_push_steps) * self.vert_diff + self.vert_bounds[0]
         self.mass_max_value = (self.num_iters / self.num_push_steps) * self.mass_bounds_diff + self.max_mass_bounds[0]
+        self.com_delta_value = (self.num_iters / self.num_push_steps) * self.com_delta_diff  + self.com_delta_bounds[0]
+        self.torque_limits = (self.num_iters / self.num_push_steps) * self.torque_limits_diff  + self.torque_limits_lower
 
 
         print("Push Value: ", self.push_value)
         print("Wrench Value: ", self.wrench_value)
         print("Vertical Push Value: ", self.vert_value)
         print("Mass Max Value: ", self.mass_max_value)
+        print("COM Delta Value: ", self.com_delta_value)
+        print("Torque Limits - ", self.torque_limits[0])
 
     def _parse_cfg(self, cfg, sim_device):
         self.dt = self.cfg.control.dt
@@ -1659,6 +1691,7 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
         self.n_digits = int(1.0/self.dt)
         
         self.num_push_steps = self.cfg.domain_rand.num_push_steps
+        self.push_warmup_step = self.cfg.domain_rand.push_warmup
         
         self.push_bounds = [self.cfg.domain_rand.min_push_vel_xy,
                             self.cfg.domain_rand.max_push_vel_xy]
@@ -1681,6 +1714,11 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
         self.mass_min = self.cfg.domain_rand.added_mass_min
         self.mass_bounds_diff = self.max_mass_bounds[1] - self.max_mass_bounds[0]
         self.mass_max_value = self.max_mass_bounds[0]
+
+        self.com_delta_bounds = [self.cfg.domain_rand.com_displacement_xy_min,
+                                 self.cfg.domain_rand.com_displacement_xy_max]
+        self.com_delta_diff   = self.com_delta_bounds[1] - self.com_delta_bounds[0]
+        self.com_delta_value = self.com_delta_bounds[0]
 
         # determine privileged observation offset to normalize privileged observations
         self.friction_value_offset = (self.cfg.domain_rand.friction_range[0] + 
@@ -1712,7 +1750,7 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
         self.feedback_tau_weight = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float)
         
         # We want to be at the full bounds right away, but we want to skip back sometimes for exploration
-        self.tradeoff_step_ctr = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float) * self.tradeoff_num_steps
+        self.tradeoff_step_ctr = torch.zeros((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float) * self.tradeoff_num_steps
 
         self.num_iters = 0
 
@@ -1870,7 +1908,7 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
         return torch.sum(torch.square(self.torques), dim=1)
     
     def _reward_feedback_torques(self):
-        return torch.sum(torch.square(self.feedback_torques),dim=1)
+        return torch.sum(torch.square(self.first_loop_feedback),dim=1)
     
     def _reward_feedforward_torques(self):
         return torch.sum(torch.square(self.feedforward_torques),dim=1)

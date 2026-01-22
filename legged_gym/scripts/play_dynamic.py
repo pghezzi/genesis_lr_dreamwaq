@@ -15,7 +15,7 @@ def play(args):
         backend=gs.cpu if args.cpu else gs.gpu,
         logging_level='warning',
     )
-    args.task = "go1_dynamic"
+    args.task = "go1_dynamic_ft"
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, 5)
@@ -31,6 +31,12 @@ def play(args):
     
     
     env_cfg.noise.add_noise = True
+    # Disable some of the domain randomization (our payload will handle that now)
+    env_cfg.domain_rand.randomize_com_displacement = False
+    env_cfg.domain_rand.randomize_pd_gain = False           # Maybe keep this on?
+    env_cfg.domain_rand.push_robots = False
+    env_cfg.domain_rand.randomize_base_mass = False
+    
     env_cfg.asset.fix_base_link = False
     env_cfg.env.debug_viz = True
     
