@@ -1,6 +1,11 @@
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
 
 class Go1RoughCfg( LeggedRobotCfg ):
+    class domain_rand( LeggedRobotCfg.domain_rand):
+        com_pos_x_range = [-0.05, 0.05]
+        com_pos_y_range = [-0.05, 0.05]
+        com_pos_z_range = [0, 0]
+
     class init_state( LeggedRobotCfg.init_state ):
         pos = [0.0, 0.0, 0.42] # x,y,z [m]
         default_joint_angles =  {  # [rad]
