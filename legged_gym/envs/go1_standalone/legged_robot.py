@@ -923,22 +923,28 @@ class LeggedRobot(BaseTask):
         min_mass, max_mass = self.cfg.domain_rand.added_mass_range
         base_link_id = 1
         added_mass = gs.rand((len(env_ids), 1), dtype=float) * \
-                             (max_mass - min_mass) + min_mass
+            (max_mass - min_mass) + min_mass
         self._added_base_mass[env_ids] = added_mass[:].detach().clone()
-        self.rigid_solver.set_links_mass_shift(
-            added_mass, [base_link_id, ], env_ids)
+        self.robot.set_mass_shift(added_mass, [base_link_id, ], env_ids)
 
     def _randomize_com_displacement(self, env_ids):
-
-        min_displacement, max_displacement = self.cfg.domain_rand.com_displacement_range
+        ''' Randomize center of mass displacement of the robot'''
+        min_displacement_x, max_displacement_x = self.cfg.domain_rand.com_pos_x_range
+        min_displacement_y, max_displacement_y = self.cfg.domain_rand.com_pos_y_range
+        min_displacement_z, max_displacement_z = self.cfg.domain_rand.com_pos_z_range
         base_link_id = 1
+        com_displacement = torch.zeros((len(env_ids), 1, 3), dtype=torch.float, device=self.device)
 
-        com_displacement = gs.rand((len(env_ids), 1, 3), dtype=float) \
-        * (max_displacement - min_displacement) + min_displacement
+        com_displacement[:, 0, 0] = gs.rand((len(env_ids), 1), dtype=float).squeeze(1) \
+            * (max_displacement_x - min_displacement_x) + min_displacement_x
+        com_displacement[:, 0, 1] = gs.rand((len(env_ids), 1), dtype=float).squeeze(1) \
+            * (max_displacement_y - min_displacement_y) + min_displacement_y
+        com_displacement[:, 0, 2] = gs.rand((len(env_ids), 1), dtype=float).squeeze(1) \
+            * (max_displacement_z - min_displacement_z) + min_displacement_z
         self._base_com_bias[env_ids] = com_displacement[:,
-            0, :].detach().clone()
+                                                        0, :].detach().clone()
 
-        self.rigid_solver.set_links_COM_shift(
+        self.robot.set_COM_shift(
             com_displacement, [base_link_id,], env_ids)
 
     def _randomize_joint_armature(self, env_ids):
