@@ -910,15 +910,13 @@ class LeggedRobot(BaseTask):
         ''' Randomize friction of all links'''
         min_friction, max_friction = self.cfg.domain_rand.friction_range
 
-        solver = self.rigid_solver
-
-        ratios = gs.rand((len(env_ids), 1), dtype=float).repeat(1, solver.n_geoms) \
-        * (max_friction - min_friction) + min_friction
+        ratios = gs.rand((len(env_ids), 1), dtype=float).repeat(1, self.robot.n_links) \
+            * (max_friction - min_friction) + min_friction
         self._friction_values[env_ids] = ratios[:,
-            0].unsqueeze(1).detach().clone()
+                                                0].unsqueeze(1).detach().clone()
 
-        solver.set_geoms_friction_ratio(
-            ratios, torch.arange(0, solver.n_geoms), env_ids)
+        self.robot.set_friction_ratio(
+            ratios, torch.arange(0, self.robot.n_links), env_ids)
 
     def _randomize_base_mass(self, env_ids=None):
         ''' Randomize base mass'''
