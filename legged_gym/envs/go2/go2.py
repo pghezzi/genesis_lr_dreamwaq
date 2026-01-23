@@ -1,6 +1,5 @@
 import genesis as gs
 from genesis.utils.geom import quat_to_xyz, transform_by_quat, inv_quat, transform_quat_by_quat
-from genesis.engine.solvers.rigid.rigid_solver_decomp import RigidSolver
 from legged_gym import LEGGED_GYM_ROOT_DIR, envs
 from time import time
 import numpy as np
