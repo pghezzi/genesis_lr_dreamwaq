@@ -29,10 +29,10 @@ def play(args):
     
     env_cfg.noise.add_noise = True
     # Disable some of the domain randomization (our payload will handle that now)
-    env_cfg.domain_rand.randomize_com_displacement = True
-    env_cfg.domain_rand.randomize_pd_gain = False           # Maybe keep this on?
-    env_cfg.domain_rand.push_robots = True
-    env_cfg.domain_rand.randomize_base_mass = True
+    # env_cfg.domain_rand.randomize_com_displacement = True
+    # env_cfg.domain_rand.randomize_pd_gain = False           # Maybe keep this on?
+    # env_cfg.domain_rand.push_robots = True
+    # env_cfg.domain_rand.randomize_base_mass = True
 
 
     env_cfg.asset.fix_base_link = False

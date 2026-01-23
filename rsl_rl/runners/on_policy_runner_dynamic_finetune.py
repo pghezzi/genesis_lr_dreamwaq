@@ -101,8 +101,8 @@ class OnPolicyRunnerDynamicFinetune:
         self.alg.init_storage(self.env.num_envs, self.num_steps_per_env, [self.env.num_obs], [self.env.num_privileged_obs], [self.env.num_obs_hist*self.env.num_obs], \
                               [2*self.env.num_actions], [self.policy_cfg["cenet_velo_dim"]], [self.cfg["grf_dim"]], [self.env.wb_dim])
 
-        # if "pretrained_path" in self.policy_cfg.keys():
-        #     self._load_pretrained_model()
+        if "pretrained_path" in self.policy_cfg.keys():
+            self._load_pretrained_model()
             # self.load()
 
         # Log
@@ -142,8 +142,8 @@ class OnPolicyRunnerDynamicFinetune:
         
         obs,obs_hist,torso_velo = self.env.get_observations()
         # self.env.step_tradeoff_curriculum()
-        # if self.env.use_reward_curriculum:
-        #     self.env.step_reward_curriculum()
+        if self.env.use_reward_curriculum:
+            self.env.step_reward_curriculum()
         
         privileged_obs = self.env.get_privileged_observations()
         critic_obs = privileged_obs if privileged_obs is not None else obs
@@ -223,8 +223,8 @@ class OnPolicyRunnerDynamicFinetune:
             print("Min - self.feedback_tau_weight: ", torch.min(self.env.feedback_tau_weight).item())
             print("Avg - self.feedback_tau_weight: ", torch.mean(self.env.feedback_tau_weight).item())
             
-            # if self.env.use_reward_curriculum:
-                # self.env.step_reward_curriculum()
+            if self.env.use_reward_curriculum:
+                self.env.step_reward_curriculum()
             self.env.num_iters += 1
             self.env.step_push()
 

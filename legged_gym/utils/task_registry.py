@@ -64,7 +64,8 @@ class TaskRegistry():
         env_cfg, _ = update_cfg_from_args(env_cfg, None, args)
         set_seed(env_cfg.seed)
         # parse sim params (convert to dict first)
-        sim_device = "cpu" if args.cpu else "cuda"
+        sim_device = "cpu" if args.cpu else args.device
+        print(sim_device)
         env = task_class(   cfg=env_cfg,
                             sim_device=sim_device,
                             headless=args.headless)
@@ -113,7 +114,8 @@ class TaskRegistry():
             log_dir = os.path.join(log_root, datetime.now().strftime('%b%d_%H-%M-%S') + '_' + train_cfg.runner.run_name)
         
         train_cfg_dict = class_to_dict(train_cfg)
-        sim_device = "cpu" if args.cpu else "cuda"
+        sim_device = "cpu" if args.cpu else args.device
+        print(sim_device)
         # select runner according to runner_class_name
         runner_class = runner_registry.get_runner_class(train_cfg.runner_class_name)
         runner = runner_class(env, train_cfg_dict, log_dir, device=sim_device)
