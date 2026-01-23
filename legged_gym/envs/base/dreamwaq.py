@@ -1,7 +1,5 @@
 import genesis as gs
 from genesis.utils.geom import quat_to_xyz, transform_by_quat, inv_quat, transform_quat_by_quat
-from genesis.engine.solvers.rigid.rigid_solver_decomp import RigidSolver
-from genesis.engine.solvers.avatar_solver import AvatarSolver
 from legged_gym import LEGGED_GYM_ROOT_DIR, envs
 from time import time
 import numpy as np
@@ -12,7 +10,6 @@ from torch import Tensor
 from typing import Tuple, Dict
 
 from legged_gym import LEGGED_GYM_ROOT_DIR
-from legged_gym.envs.base.base_task import BaseTask
 from legged_gym.envs.base.base_task_dwq import BaseTaskDWQ
 from legged_gym.utils.math_utils import wrap_to_pi, torch_rand_sqrt_float, quat_apply_yaw, get_scale_shift
 from genesis.utils import geom as gu
@@ -370,6 +367,12 @@ class LeggedRobotDreamWaq(BaseTaskDWQ):
         elif mesh_type =='heightfield':
             self.utils_terrain = Terrain(self.cfg.terrain)
             self._create_heightfield()
+        elif mesh_type == 'custom':
+            self.terrain = self.scene.add_entity(
+                morph=gs.morphs.Terrain(
+                    **self.cfg.terrain.morph_params
+                )
+            )
         elif mesh_type is not None:
             raise ValueError(
                 "Terrain mesh type not recognised. Allowed types are [None, plane, heightfield, trimesh]")

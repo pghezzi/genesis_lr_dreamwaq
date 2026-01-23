@@ -1,7 +1,5 @@
 import genesis as gs
 from genesis.utils.geom import quat_to_xyz, transform_by_quat, inv_quat, transform_quat_by_quat
-from genesis.engine.solvers.rigid.rigid_solver_decomp import RigidSolver
-from genesis.engine.solvers.avatar_solver import AvatarSolver
 from legged_gym import LEGGED_GYM_ROOT_DIR, envs
 from time import time
 import numpy as np
@@ -310,13 +308,6 @@ class LeggedRobot(BaseTask):
             ),
             show_viewer=not self.headless,
         )
-        # query rigid solver
-        for solver in self.scene.sim.solvers:
-            if not isinstance(solver, RigidSolver):
-                continue
-            elif isinstance(solver, AvatarSolver):
-                continue
-            self.rigid_solver = solver
 
         # add camera if needed
         if self.cfg.viewer.add_camera:
@@ -326,10 +317,16 @@ class LeggedRobot(BaseTask):
         mesh_type = self.cfg.terrain.mesh_type
         if mesh_type =='plane':
             self.terrain = self.scene.add_entity(
-                gs.morphs.URDF(file="urdf/plane/plane.urdf", fixed=True))
+                gs.morphs.Plane())
         elif mesh_type =='heightfield':
             self.utils_terrain = Terrain(self.cfg.terrain)
             self._create_heightfield()
+        elif mesh_type == 'custom':
+            self.terrain = self.scene.add_entity(
+                morph=gs.morphs.Terrain(
+                    **self.cfg.terrain.morph_params
+                )
+            )
         elif mesh_type is not None:
             raise ValueError(
                 "Terrain mesh type not recognised. Allowed types are [None, plane, heightfield, trimesh]")

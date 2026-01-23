@@ -1,10 +1,11 @@
 import genesis as gs
-from legged_gym import LEGGED_GYM_ROOT_DIR
-import os
 gs.init(
         backend=gs.gpu,
-        #logging_level='warning',
+        logging_level='warning',
     )
+from legged_gym import LEGGED_GYM_ROOT_DIR
+import os
+
 from legged_gym.envs import *
 from legged_gym.utils import  get_args, export_policy_as_jit, task_registry, Logger
 
@@ -15,7 +16,7 @@ import torch
 def play(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
-    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 5)
+    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 1)
     env_cfg.viewer.rendered_envs_idx = list(range(env_cfg.env.num_envs))
     for i in range(2):
         env_cfg.viewer.pos[i] = env_cfg.viewer.pos[i] - env_cfg.terrain.plane_length / 4
@@ -36,12 +37,21 @@ def play(args):
     env_cfg.commands.ranges.ang_vel_yaw = [0., 0.]
     env_cfg.commands.ranges.heading = [0, 0]
 
+    #env_cfg.terrain.mesh_type = "custom"
+    #env_cfg.terrain.morph_params = {
+    #    "n_subterrains": (2, 2),
+    #    "subterrain_size": (6.0, 6.0),
+    #    "horizontal_scale": 0.25,
+    #    "vertical_scale": 0.005,
+    #    "subterrain_types": [
+    #        ["flat_terrain", "random_uniform_terrain"],
+    #        ["pyramid_sloped_terrain", "discrete_obstacles_terrain"],
+    #    ],
+    #}
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
-    obs = env.get_observations()
-    if type(obs) == tuple:
-        obs = obs[0]
+    obs, obs_hist = env.get_observations()
     # load policy
     train_cfg.runner.resume = True
     ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
@@ -71,12 +81,16 @@ def play(args):
     stop_record = 400
     if RECORD_FRAMES:
         env.floating_camera.start_recording()
-
+    #command = (torch.tensor([2, 0, 0], dtype=torch.float32, device=env.commands_scale.device) 
+    #* env.commands_scale)
     for i in range(10*int(env.max_episode_length)):
-        actions = policy(obs.detach())
-        obs, _, rews, dones, infos = env.step(actions.detach())
+        #obs = obs.detach()
+        #obs[:, 6:9] = command
+        #print(obs[0][6:9]/env.commands_scale)
+        actions = policy(obs, obs_hist.detach())
+        obs, _, _, obs_hist, rews, dones, infos = env.step(actions.detach())
         if MOVE_CAMERA:
-            camera_position += camera_vel * env.dt
+            camera_position +=  camera_vel * env.dt
             env.set_camera(camera_position, camera_position + camera_direction)
             env.floating_camera.render()
         if FOLLOW_ROBOT:
@@ -87,13 +101,8 @@ def play(args):
             env.set_camera(camera_position_follow, camera_lookat_follow)
             env.floating_camera.render()
         if RECORD_FRAMES and i == stop_record:
-            try:
-                filename_mp4 = f"{train_cfg.runner.experiment_name}_{train_cfg.runner.run_name}.mp4"
-            except:
-                from datetime import datetime
-                filename_mp4 = f"{datetime.now().timestamp()}"
-            env.floating_camera.stop_recording(save_to_filename=filename_mp4, fps=30)
-            print("Saved recording to " + filename_mp4)
+            env.floating_camera.stop_recording(save_to_filename="go2_rough_demo.mp4", fps=30)
+            print("Saved recording to " + "go2_rough_demo.mp4")
         
         # print debug info
         # print("base lin vel: ", env.base_lin_vel[robot_index, :].cpu().numpy())
@@ -129,7 +138,7 @@ def play(args):
             logger.print_rewards()
 
 if __name__ == '__main__':
-    EXPORT_POLICY = False
+    EXPORT_POLICY = True
     RECORD_FRAMES = True  # only record frames in extra camera view
     MOVE_CAMERA   = False
     FOLLOW_ROBOT  = True
