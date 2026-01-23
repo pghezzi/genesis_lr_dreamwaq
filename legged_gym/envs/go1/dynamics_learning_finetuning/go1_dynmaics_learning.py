@@ -1526,10 +1526,17 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
         ''' Randomize base COM'''
         min_displacement, max_displacement = -self.com_delta_value, self.com_delta_value
         min_dis_z, max_dis_z = self.cfg.domain_rand.com_displacement_range_z
+        
+        if self.num_iters > 2500:
+            min_dis_z, max_dis_z = 0.10, 0.30
+            
         base_link_id = 1
 
         com_displacement = gs.rand((len(env_ids), 1, 3), dtype=float) * (max_displacement - min_displacement) + min_displacement
-        com_displacement[:, 0, 1] = (gs.rand((len(env_ids), 1,), dtype=float) * (0.15 - (-0.15)) + (-0.15)).squeeze() 
+                
+        if self.num_iters > 2500:
+            com_displacement[:, 0, 1] = (gs.rand((len(env_ids), 1,), dtype=float) * (0.15 - (-0.15)) + (-0.15)).squeeze() 
+            
         com_displacement[:, 0, 2] = (gs.rand((len(env_ids), 1,), dtype=float) * (max_dis_z - min_dis_z) + min_dis_z).squeeze() 
 
         self._base_com_bias[env_ids] = com_displacement[:, 0, :].detach().clone()
@@ -1638,12 +1645,13 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
             print("Torque Limits - ", self.torque_limits[0])
             return
 
-        self.push_value = (self.num_iters / self.num_push_steps) * self.push_diff + self.push_bounds[0]
-        self.wrench_value = (self.num_iters / self.num_push_steps) * self.wrench_diff + self.wrench_bounds[0]
-        self.vert_value = (self.num_iters / self.num_push_steps) * self.vert_diff + self.vert_bounds[0]
-        self.mass_max_value = (self.num_iters / self.num_push_steps) * self.mass_bounds_diff + self.max_mass_bounds[0]
-        self.com_delta_value = (self.num_iters / self.num_push_steps) * self.com_delta_diff  + self.com_delta_bounds[0]
-        self.torque_limits = (self.num_iters / self.num_push_steps) * self.torque_limits_diff  + self.torque_limits_lower
+        adjusted_iter = self.num_iters - self.push_warmup_step
+        self.push_value = (self.num_iters / adjusted_iter) * self.push_diff + self.push_bounds[0]
+        self.wrench_value = (self.num_iters / adjusted_iter) * self.wrench_diff + self.wrench_bounds[0]
+        self.vert_value = (self.num_iters / adjusted_iter) * self.vert_diff + self.vert_bounds[0]
+        self.mass_max_value = (self.num_iters / adjusted_iter) * self.mass_bounds_diff + self.max_mass_bounds[0]
+        self.com_delta_value = (self.num_iters / adjusted_iter) * self.com_delta_diff  + self.com_delta_bounds[0]
+        self.torque_limits = (self.num_iters / adjusted_iter) * self.torque_limits_diff  + self.torque_limits_lower
 
 
         print("Push Value: ", self.push_value)

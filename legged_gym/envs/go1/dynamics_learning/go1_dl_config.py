@@ -384,7 +384,7 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         pinn_init_steps = 0
 
         # pretrained_path = "../../rsl_rl/modules/pretrained_models/rl_pos/Jan17_16-25-46_100hz_posboot_01_no_grf/model_1000.pt"
-        # pretrained_path = "../../rsl_rl/modules/pretrained_models/rl_pos/Jan13_18-35-33_unimodel_boot_01_100hz_tanh_pos/model_1000.pt"
+        pretrained_path = "../../rsl_rl/modules/pretrained_models/rl_pos/Jan13_18-35-33_unimodel_boot_01_100hz_tanh_pos/model_1000.pt"
         # pretrained_path = "../../logs/rss_go1_dynamic_unimodel/Jan15_17-42-47_unimodel_100hz_no_pinn_baseline/model_1700.pt"
 
     class algorithm( LeggedRobotCfgPPO.algorithm ):
