@@ -95,6 +95,9 @@ class LeggedRobot(BaseTask):
             self.privileged_obs_buf = torch.clip(
                 self.privileged_obs_buf, -clip_obs, clip_obs)
         return self.obs_buf, self.privileged_obs_buf, self.rew_buf, self.reset_buf, self.extras
+    
+    def get_observations(self):
+        return self.obs_buf, self.obs_buf
 
     def post_physics_step(self):
         """ check terminations, compute observations and rewards
