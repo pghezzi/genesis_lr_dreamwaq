@@ -414,8 +414,8 @@ class GO1DynmaicCfgPPO( LeggedRobotCfgPPO ):
         
         
         load_run = "Jan17_23-35-09_unimodel_grf_pinn_100hz_full_posboot_01_p2"
-        checkpoint = 5000
-        exp_data_path = "exp_data/Jan17_23-35-09_unimodel_grf_pinn_100hz_full_posboot_01_p2/data_collection_debugging.csv"
+        checkpoint = 3000
+        exp_data_path = "exp_data/Jan17_23-35-09_unimodel_grf_pinn_100hz_full_posboot_01_p2/pos_control_contribution_test_3000_nopd.csv"
 
         # Load parameters for first function policy
         # run_name = 'test_01'
