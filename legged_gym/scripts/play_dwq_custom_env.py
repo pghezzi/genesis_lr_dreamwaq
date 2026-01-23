@@ -37,17 +37,17 @@ def play(args):
     env_cfg.commands.ranges.ang_vel_yaw = [0., 0.]
     env_cfg.commands.ranges.heading = [0, 0]
 
-    #env_cfg.terrain.mesh_type = "custom"
-    #env_cfg.terrain.morph_params = {
-    #    "n_subterrains": (2, 2),
-    #    "subterrain_size": (6.0, 6.0),
-    #    "horizontal_scale": 0.25,
-    #    "vertical_scale": 0.005,
-    #    "subterrain_types": [
-    #        ["flat_terrain", "random_uniform_terrain"],
-    #        ["pyramid_sloped_terrain", "discrete_obstacles_terrain"],
-    #    ],
-    #}
+    env_cfg.terrain.mesh_type = "custom"
+    env_cfg.terrain.morph_params = {
+        "n_subterrains": (2, 2),
+        "subterrain_size": (6.0, 6.0),
+        "horizontal_scale": 0.25,
+        "vertical_scale": 0.005,
+        "subterrain_types": [
+            ["flat_terrain", "random_uniform_terrain"],
+            ["pyramid_sloped_terrain", "discrete_obstacles_terrain"],
+        ],
+    }
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
