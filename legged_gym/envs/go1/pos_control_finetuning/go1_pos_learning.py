@@ -23,7 +23,7 @@ from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg
 from collections import deque
 import torch.nn.functional as F
 
-class LeggedRobotGo1Pos(BaseTask):
+class LeggedRobotGo1PosFinetune(BaseTask):
     def __init__(self, cfg: LeggedRobotCfg, sim_device, headless):
         """ Parses the provided config file,
             calls create_sim() (which creates, simulation, terrain and environments),
@@ -130,8 +130,6 @@ class LeggedRobotGo1Pos(BaseTask):
         actions_scaled = pos_actions * repeat_pos_scales + self.default_dof_pos
 
         return actions_scaled
-
-
 
     def get_prev_obs(self):
         return self.last_obs_buf, self.last_obs_hist, self.llast_obs_buf, self.llast_obs_hist
@@ -710,34 +708,74 @@ class LeggedRobotGo1Pos(BaseTask):
         #               int(self.push_interval_s / self.dt) != 0)] = 0
         #     dofs_vel[:, :2] += push_vel
         #     self.robot.set_dofs_velocity(dofs_vel)
-        if self.push_interval_s > 0 and not self.debug:
+        if self.push_interval_min > 0 and not self.debug:
             max_push_vel_xy = self.cfg.domain_rand.max_push_vel_xy
             max_push_torque = self.cfg.domain_rand.max_push_torque
+            max_vert_vel = self.cfg.domain_rand.max_vertical_push
             
             # interval gating
             push_mask = (
                 (self.common_step_counter + self.env_identities)
-                % int(self.push_interval_s / self.dt)
+                % (self.push_timeouts / self.dt).int()
             ) == 0
+
+            wrench_mask = (
+                (self.common_step_counter + self.env_identities)
+                % (self.wrench_timeouts / self.dt).int()
+            )  == 0
             
+            vert_mask = (
+                (self.common_step_counter + self.env_identities)
+                % (self.vert_timeouts / self.dt).int()
+            )  == 0
+            
+            if self.common_step_counter % 100000 == 0:
+                self.wrench_timeouts = torch.round(
+                    gs_rand_float(self.wrench_timeout_min,
+                                self.wrench_timeout_max,
+                                (self.cfg.env.num_envs,),
+                                self.device),
+                    decimals=self.n_digits).float()
+                self.push_timeouts = torch.round(
+                    gs_rand_float(self.push_interval_min,
+                                self.push_interval_max,
+                                (self.cfg.env.num_envs,),
+                                self.device),
+                    decimals=self.n_digits).float()
+                self.vert_timeouts = torch.round(
+                    gs_rand_float(self.vert_interval_min,
+                                self.vert_interval_max,
+                                (self.cfg.env.num_envs,),
+                                self.device),
+                    decimals=self.n_digits).float()
+                    
             # in Genesis, base link also has DOF, it's 6DOF if not fixed.
             dofs_vel = self.robot.get_dofs_velocity()  # (num_envs, num_dof) [0:3] ~ base_link_vel
-            lin_vel = gs_rand_float(-max_push_vel_xy,
-                                     max_push_vel_xy, (self.num_envs, 2), self.device)
+            lin_vel = gs_rand_float(-self.push_value,
+                                     self.push_value, (self.num_envs, 2), self.device)
             self._rand_push_vels[:, :2] = lin_vel.detach().clone()
             lin_vel[~push_mask] = 0.0
             dofs_vel[:, :2] += lin_vel
             
             ang_push = gs_rand_float(
-                -max_push_torque,
-                max_push_torque,
-                (self.num_envs, 2),   # roll, pitch
+                -self.wrench_value,
+                self.wrench_value,
+                (self.num_envs, 3),   # roll, pitch
                 self.device
             )
-            self._rand_wrench_vels[:, :2] = ang_push.detach().clone()
-            ang_push[~push_mask] = 0.0
-            dofs_vel[:, 3:5] += ang_push
+            # self._rand_wrench_vels[:, :2] = ang_push.detach().clone()
+            ang_push[~wrench_mask] = 0.0
+            dofs_vel[:, 3:6] += ang_push
             
+            vert_push = gs_rand_float(
+                self.vert_value,
+                0.0,
+                (self.num_envs, 1),   # z-axis
+                self.device
+            )
+            vert_push[~vert_mask] = 0.0
+            dofs_vel[:,2] += vert_push.squeeze(-1)
+
             self.robot.set_dofs_velocity(dofs_vel)
 
     def _push_towards_cmd(self):
@@ -853,6 +891,28 @@ class LeggedRobotGo1Pos(BaseTask):
         self.common_step_counter = 0
         self.extras = {}
         self.noise_scale_vec = self._get_noise_scale_vec()
+        
+        self.wrench_timeouts = torch.round(
+            gs_rand_float(self.wrench_timeout_min,
+                        self.wrench_timeout_max,
+                        (self.cfg.env.num_envs,),
+                        self.device),
+            decimals=self.n_digits).float()
+
+        self.push_timeouts = torch.round(
+            gs_rand_float(self.push_interval_min,
+                          self.push_interval_max,
+                          (self.cfg.env.num_envs,),
+                          self.device),
+            decimals=self.n_digits).float()
+        
+        self.vert_timeouts = torch.round(
+            gs_rand_float(self.vert_interval_min,
+                          self.vert_interval_max,
+                          (self.cfg.env.num_envs,),
+                          self.device),
+            decimals=self.n_digits).float()
+
         
         self.forward_vec = torch.zeros(
             (self.num_envs, 3), device=self.device, dtype=gs.tc_float
@@ -1160,8 +1220,8 @@ class LeggedRobotGo1Pos(BaseTask):
         self.torque_limits_override = torch.from_numpy(np.array([23.7, 23.7, 35.55, 23.7, 23.7, 35.55, 23.7, 23.7, 35.55, 23.7, 23.7, 35.55])).to(self.device)
 
         self.torque_limits_lower = self.torque_limits.clone()
-        self.torque_limits_diff = self.torque_limits_override - self.torque_limit
-        
+        self.torque_limits_diff = self.torque_limits_override - self.torque_limits
+
         self.dof_pos_limits_hard = self.dof_pos_limits.clone()
 
         print(self.dof_pos_limits_hard.shape)
@@ -1251,21 +1311,47 @@ class LeggedRobotGo1Pos(BaseTask):
         ''' Randomize base mass'''
         min_mass, max_mass = self.cfg.domain_rand.added_mass_range
         base_link_id = 1
-        added_mass = gs.rand((len(env_ids), 1), dtype=float) * \
-                             (max_mass - min_mass) + min_mass
+        added_mass = gs.rand((len(env_ids), 1), dtype=float) * (max_mass - min_mass) + min_mass
+        
         self._added_base_mass[env_ids] = added_mass[:].detach().clone()
-        self.rigid_solver.set_links_mass_shift(
-            added_mass, [base_link_id, ], env_ids)
+        
+        self.rigid_solver.set_links_mass_shift(added_mass, [base_link_id, ], env_ids)
 
+    # def _randomize_com_displacement(self, env_ids):
+    #     ''' Randomize base COM'''
+    #     min_displacement, max_displacement = self.cfg.domain_rand.com_displacement_range
+    #     base_link_id = 1
+
+    #     com_displacement = gs.rand((len(env_ids), 1, 3), dtype=float) \
+    #     * (max_displacement - min_displacement) + min_displacement
+    #     self._base_com_bias[env_ids] = com_displacement[:,
+    #         0, :].detach().clone()
+
+    #     self.rigid_solver.set_links_COM_shift(
+    #         com_displacement, [base_link_id,], env_ids)
+    
     def _randomize_com_displacement(self, env_ids):
         ''' Randomize base COM'''
-        min_displacement, max_displacement = self.cfg.domain_rand.com_displacement_range
+        min_displacement, max_displacement = -self.com_delta_value, self.com_delta_value
+        min_dis_z, max_dis_z = self.cfg.domain_rand.com_displacement_range_z
+        
+        # if self.num_iters > 3000 and self.num_iters < 3250:
+        #     min_dis_z, max_dis_z = 0.0, 0.10
+        # if self.num_iters > 3250:
+        #     min_dis_z, max_dis_z = 0.10, 0.30
+        
         base_link_id = 1
 
-        com_displacement = gs.rand((len(env_ids), 1, 3), dtype=float) \
-        * (max_displacement - min_displacement) + min_displacement
-        self._base_com_bias[env_ids] = com_displacement[:,
-            0, :].detach().clone()
+        com_displacement = gs.rand((len(env_ids), 1, 3), dtype=float) * (max_displacement - min_displacement) + min_displacement
+        com_displacement[:, 0, 1] = (gs.rand((len(env_ids), 1,), dtype=float) * (0.12 - (-0.12)) + (-0.12)).squeeze() 
+        # if self.num_iters > 3000 and self.num_iters < 3250:
+        #     com_displacement[:, 0, 1] = (gs.rand((len(env_ids), 1,), dtype=float) * (0.1 - (-0.1)) + (-0.1)).squeeze() 
+        # if self.num_iters > 3250:
+        #     com_displacement[:, 0, 1] = (gs.rand((len(env_ids), 1,), dtype=float) * (0.15 - (-0.15)) + (-0.15)).squeeze() 
+        
+        com_displacement[:, 0, 2] = (gs.rand((len(env_ids), 1,), dtype=float) * (max_dis_z - min_dis_z) + min_dis_z).squeeze() 
+
+        self._base_com_bias[env_ids] = com_displacement[:, 0, :].detach().clone()
 
         self.rigid_solver.set_links_COM_shift(
             com_displacement, [base_link_id,], env_ids)
@@ -1326,6 +1412,44 @@ class LeggedRobotGo1Pos(BaseTask):
             for key in self.reward_curr_keys:
                 if key in self.reward_scales.keys():
                     self.reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
+                    
+    def step_push(self):
+        if (self.num_iters - self.push_warmup_step) > self.num_push_steps:
+            return
+        elif self.num_iters <= self.push_warmup_step:
+            print("Push Value: ", self.push_value)
+            print("Wrench Value: ", self.wrench_value)
+            print("Vertical Push Value: ", self.vert_value)
+            print("Mass Max Value: ", self.mass_max_value)
+            print("COM Delta Value: ", self.com_delta_value)
+            print("Torque Limits - ", self.torque_limits[0])
+            return
+
+        adjusted_step = self.num_iters - self.push_warmup_step
+        
+        # Safety catch, hopefully isn't needed really
+        if adjusted_step == 0:
+            print("Push Value: ", self.push_value)
+            print("Wrench Value: ", self.wrench_value)
+            print("Vertical Push Value: ", self.vert_value)
+            print("Mass Max Value: ", self.mass_max_value)
+            print("COM Delta Value: ", self.com_delta_value)
+            print("Torque Limits - ", self.torque_limits[0])
+            return
+
+        self.push_value      = (adjusted_step / self.num_push_steps) * self.push_diff + self.push_bounds[0]
+        self.wrench_value    = (adjusted_step / self.num_push_steps) * self.wrench_diff + self.wrench_bounds[0]
+        self.vert_value      = (adjusted_step / self.num_push_steps) * self.vert_diff + self.vert_bounds[0]
+        self.mass_max_value  = (adjusted_step / self.num_push_steps) * self.mass_bounds_diff + self.max_mass_bounds[0]
+        self.com_delta_value = (adjusted_step / self.num_push_steps) * self.com_delta_diff  + self.com_delta_bounds[0]
+        self.torque_limits   = (adjusted_step / self.num_push_steps) * self.torque_limits_diff  + self.torque_limits_lower
+
+        print("Push Value: ", self.push_value)
+        print("Wrench Value: ", self.wrench_value)
+        print("Vertical Push Value: ", self.vert_value)
+        print("Mass Max Value: ", self.mass_max_value)
+        print("COM Delta Value: ", self.com_delta_value)
+        print("Torque Limits - ", self.torque_limits[0])
 
     def _parse_cfg(self, cfg, sim_device):
         self.dt = self.cfg.control.dt
@@ -1353,6 +1477,47 @@ class LeggedRobotGo1Pos(BaseTask):
         self.max_episode_length = np.ceil(self.max_episode_length_s / self.dt)
 
         self.push_interval_s = self.cfg.domain_rand.push_interval_s
+        
+        self.vert_interval_min = self.cfg.domain_rand.vert_interval_min
+        self.vert_interval_max = self.cfg.domain_rand.vert_interval_max
+
+        self.push_interval_min = self.cfg.domain_rand.push_interval_min
+        self.push_interval_max = self.cfg.domain_rand.push_interval_max
+
+        self.wrench_timeout_min = self.cfg.domain_rand.wrench_timeout_min
+        self.wrench_timeout_max = self.cfg.domain_rand.wrench_timeout_max
+        # self.wrenc_timeouts = torch.zeros(self.num_envs, device=sim_device, dtype=gs.tc_float)
+        self.n_digits = int(1.0/self.dt)
+        
+        self.num_push_steps = self.cfg.domain_rand.num_push_steps
+        self.push_warmup_step = self.cfg.domain_rand.push_warmup
+        
+        self.push_bounds = [self.cfg.domain_rand.min_push_vel_xy,
+                            self.cfg.domain_rand.max_push_vel_xy]
+        self.push_diff = self.push_bounds[1] - self.push_bounds[0]
+        self.push_value = self.push_bounds[0]
+        
+        self.vert_bounds = [self.cfg.domain_rand.min_vertical_push,
+                            self.cfg.domain_rand.max_vertical_push]
+        self.vert_diff = self.vert_bounds[1] - self.vert_bounds[0]
+        self.vert_value = self.vert_bounds[0]
+        
+        self.wrench_bounds = [self.cfg.domain_rand.min_push_torque,
+                              self.cfg.domain_rand.max_push_torque]
+        self.wrench_diff = self.wrench_bounds[1] - self.wrench_bounds[0]
+        self.wrench_value = self.wrench_bounds[0]
+
+        self.max_mass_bounds = [self.cfg.domain_rand.min_added_mass_max,
+                                self.cfg.domain_rand.max_added_mass_max]
+        
+        self.mass_min = self.cfg.domain_rand.added_mass_min
+        self.mass_bounds_diff = self.max_mass_bounds[1] - self.max_mass_bounds[0]
+        self.mass_max_value = self.max_mass_bounds[0]
+
+        self.com_delta_bounds = [self.cfg.domain_rand.com_displacement_xy_min,
+                                 self.cfg.domain_rand.com_displacement_xy_max]
+        self.com_delta_diff   = self.com_delta_bounds[1] - self.com_delta_bounds[0]
+        self.com_delta_value = self.com_delta_bounds[0]
 
         # determine privileged observation offset to normalize privileged observations
         self.friction_value_offset = (self.cfg.domain_rand.friction_range[0] + 
