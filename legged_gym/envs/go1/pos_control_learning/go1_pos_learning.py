@@ -114,7 +114,25 @@ class LeggedRobotGo1Pos(BaseTask):
         #         
         # Retunring some extra stuff and two separate reward functions
         return self.obs_buf, self.privileged_obs_buf, self.obs_history, self.rew_buf, self.reset_buf, self.extras, (self.grfs_buf * self.obs_scales.grf)
+
+
+    def get_failure_idx(self):
+        return self.reset_buf * ~self.time_out_buf
     
+    def get_scaled_pos_actions(self):
+                # control_type = 'P'
+        # Pull out the position control actions
+        pos_actions = self.actions
+        
+        # Scale the position actions
+        repeat_pos_scales = torch.from_numpy(np.array(self.cfg.control.action_scale)).repeat(1,4).to(self.device)
+        
+        actions_scaled = pos_actions * repeat_pos_scales + self.default_dof_pos
+
+        return actions_scaled
+
+
+
     def get_prev_obs(self):
         return self.last_obs_buf, self.last_obs_hist, self.llast_obs_buf, self.llast_obs_hist
 

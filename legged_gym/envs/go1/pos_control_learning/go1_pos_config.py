@@ -353,8 +353,9 @@ class GO1PosCfgPPO( LeggedRobotCfgPPO ):
         save_interval = 100
         
         
-        load_run = "Jan14_13-48-38_100hz_pos_baseline_01"
+        load_run = "Jan17_16-25-46_100hz_pos_baseline_02_no_grf"
         checkpoint = 1500
+        exp_data_path = "exp_data/Jan17_16-25-46_100hz_pos_baseline_02_no_grf/pos_control_test.csv"
 
         # Load parameters for first function policy
         # run_name = 'test_01'
