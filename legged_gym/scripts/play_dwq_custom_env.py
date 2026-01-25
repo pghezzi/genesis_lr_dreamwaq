@@ -29,6 +29,7 @@ def play(args):
     env_cfg.terrain.num_cols = 5
     env_cfg.noise.add_noise = True
     env_cfg.asset.fix_base_link = False
+    train_cfg.runner.resume = False
     # initial state randomization
     env_cfg.init_state.yaw_angle_range = [0., 0.]
     # velocity range
