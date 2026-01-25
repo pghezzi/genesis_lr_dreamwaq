@@ -455,20 +455,12 @@ class GO1DynmaicFinetuneCfgPPO( LeggedRobotCfgPPO ):
         grf_dim = 12
         
         # debug_warmpinn_wb
-        run_name = 'unimodel_grf_pinn_100hz_full_posboot_01_finetune_full_03'
+        run_name = 'unimodel_grf_pinn_100hz_full_posboot_01_finetune_full_04'
         experiment_name = 'rss_go1_dynamic_unimodel_full'
         save_interval = 100
         
         
-        load_run = "temp"
-        # load_run = "Jan22_12-37-13_unimodel_grf_pinn_100hz_full_posboot_02_finetune"
-        checkpoint = 2800
-        resume = True
-        exp_data_path = "exp_data/temp/fullrun_pd_eval_nopd.csv"
-
-        # Load parameters for first function policy
-        # run_name = 'test_01'
-        # experiment_name = 'go1_dynamic'
-        # save_interval = 50
-        # load_run = "Dec01_18-26-31_test_01"
-        # checkpoint = 3000
+        load_run = "Jan24_20-20-52_unimodel_grf_pinn_100hz_full_posboot_01_finetune_full_04"
+        checkpoint = 2500
+        # resume = True
+        exp_data_path = "exp_data/full_trained_model/inital_pd_eval_nopd.csv"

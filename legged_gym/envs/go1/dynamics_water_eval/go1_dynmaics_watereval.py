@@ -204,8 +204,8 @@ class LeggedRobotGo1DynamicWater(BaseTask):
         if self.num_build_envs > 0:
             self.reset_idx(env_ids)
 
-        # in some cases a simulation step might be 
-        #   required to refresh some obs (for example body positions)        
+        # in some cases a simulation step might be
+        #   required to refresh some obs (for example body positions)
         self.compute_observations()
 
         self.llast_actions[:] = self.last_actions[:]
@@ -584,7 +584,8 @@ class LeggedRobotGo1DynamicWater(BaseTask):
             pos=np.array(self.cfg.viewer.pos),
             lookat=np.array(self.cfg.viewer.lookat),
             fov=40,
-            GUI=True,
+            up=np.array([0, 0, 0]),
+            GUI=False,
         )
 
         self._recording = False
@@ -750,38 +751,39 @@ class LeggedRobotGo1DynamicWater(BaseTask):
             self.base_pos[envs_idx] = self.base_init_pos
             self.base_pos[envs_idx] += self.env_origins[envs_idx]
         self.robot.set_pos(
-            self.base_pos[envs_idx], zero_velocity=False, envs_idx=envs_idx)
+            self.base_pos[envs_idx], zero_velocity=True, envs_idx=envs_idx)
         
         self.last_base_pos[envs_idx] = self.base_pos[envs_idx]
 
         # base quat
         self.base_quat[envs_idx] = self.base_init_quat.reshape(1, -1)
-        base_euler = gs_rand_float(-0.1, 0.1, (len(envs_idx), 3), self.device)  # roll, pitch [-0.1, 0.1]
+        base_euler = gs_rand_float(-0.0, 0.0, (len(envs_idx), 3), self.device)  # roll, pitch [-0.1, 0.1]
         base_euler[:, 2] = gs_rand_float(*self.cfg.init_state.yaw_angle_range, (len(envs_idx),), self.device)  # yaw angle
         self.base_quat_offsets = gs_euler2quat(base_euler)
         self.base_quat[envs_idx] = gs_quat_mul(self.base_quat_offsets, self.base_quat[envs_idx],)
         
         self.robot.set_quat(
-            self.base_quat[envs_idx], zero_velocity=False, envs_idx=envs_idx)
+            self.base_quat[envs_idx], zero_velocity=True, envs_idx=envs_idx)
         self.robot.zero_all_dofs_velocity(envs_idx)
+
 
         # update projected gravity
         inv_base_quat = gs_inv_quat(self.base_quat)
         self.projected_gravity = gs_transform_by_quat(
             self.global_gravity, inv_base_quat)
 
-        # reset root states - velocity
-        self.base_lin_vel[envs_idx] = (
-            gs_rand_float(-0.5, 0.5, (len(envs_idx), 3), self.device))
+        # # reset root states - velocity
+        # self.base_lin_vel[envs_idx] = (
+        #     gs_rand_float(-0.00, 0.0, (len(envs_idx), 3), self.device))
         
-        self.base_ang_vel[envs_idx] = (
-            gs_rand_float(-0.5, 0.5, (len(envs_idx), 3), self.device))
+        # self.base_ang_vel[envs_idx] = (
+        #     gs_rand_float(-0.0, 0.0, (len(envs_idx), 3), self.device))
 
-        base_vel = torch.concat(
-            [self.base_lin_vel[envs_idx], self.base_ang_vel[envs_idx]], dim=1)
+        # base_vel = torch.concat(
+        #     [self.base_lin_vel[envs_idx], self.base_ang_vel[envs_idx]], dim=1)
         
-        self.robot.set_dofs_velocity(velocity=base_vel, dofs_idx_local=[
-                                     0, 1, 2, 3, 4, 5], envs_idx=envs_idx)
+        # self.robot.set_dofs_velocity(velocity=base_vel, dofs_idx_local=[
+        #                              0, 1, 2, 3, 4, 5], envs_idx=envs_idx)
         
         if self.use_liquid:
             self._reset_liquid_state(envs_idx)
@@ -793,10 +795,7 @@ class LeggedRobotGo1DynamicWater(BaseTask):
         # Calculate the liquid pose offsets
         new_particle_pos_offset    = new_base_poses
         new_particle_pos_offset[:, 2] = 0.0 # no need to modify the height
-        
-        print(self.liquid_init_pose[envs_idx].shape)
-        print(self.base_quat_offsets.shape)
-        
+                
         # Use the new poses/orientations to reset the liquid particles
         self.liquid.set_particles_vel(0, envs_idx=envs_idx)
         new_particle_posistions = gs_transform_by_quat(self.liquid_init_pose[envs_idx],
@@ -808,87 +807,87 @@ class LeggedRobotGo1DynamicWater(BaseTask):
     def _push_robots(self):
         """ Random pushes the robots. Emulates an impulse by setting a randomized base velocity. 
         """
-        if self.push_interval_s > 0 and not self.debug:
-            max_push_vel_xy = self.cfg.domain_rand.max_push_vel_xy
-            # in Genesis, base link also has DOF, it's 6DOF if not fixed.
-            dofs_vel = self.robot.get_dofs_velocity()  # (num_envs, num_dof) [0:3] ~ base_link_vel
-            push_vel = gs_rand_float(-max_push_vel_xy,
-                                     max_push_vel_xy, (self.num_envs, 2), self.device)
-            self._rand_push_vels[:, :2] = push_vel.detach().clone()
-            push_vel[((self.common_step_counter + self.env_identities) %
-                      int(self.push_interval_s / self.dt) != 0)] = 0
-            dofs_vel[:, :2] += push_vel
-            self.robot.set_dofs_velocity(dofs_vel)
-        
-        # if self.push_interval_min > 0 and not self.debug:
+        # if self.push_interval_s > 0 and not self.debug:
         #     max_push_vel_xy = self.cfg.domain_rand.max_push_vel_xy
-        #     max_push_torque = self.cfg.domain_rand.max_push_torque
-        #     max_vert_vel = self.cfg.domain_rand.max_vertical_push
-            
-        #     # interval gating
-        #     push_mask = (
-        #         (self.common_step_counter + self.env_identities)
-        #         % (self.push_timeouts / self.dt).int()
-        #     ) == 0
-
-        #     wrench_mask = (
-        #         (self.common_step_counter + self.env_identities)
-        #         % (self.wrench_timeouts / self.dt).int()
-        #     )  == 0
-            
-        #     vert_mask = (
-        #         (self.common_step_counter + self.env_identities)
-        #         % (self.vert_timeouts / self.dt).int()
-        #     )  == 0
-            
-        #     if self.common_step_counter % 100000 == 0:
-        #         self.wrench_timeouts = torch.round(
-        #             gs_rand_float(self.wrench_timeout_min,
-        #                         self.wrench_timeout_max,
-        #                         (self.cfg.env.num_envs,),
-        #                         self.device),
-        #             decimals=self.n_digits).float()
-        #         self.push_timeouts = torch.round(
-        #             gs_rand_float(self.push_interval_min,
-        #                         self.push_interval_max,
-        #                         (self.cfg.env.num_envs,),
-        #                         self.device),
-        #             decimals=self.n_digits).float()
-        #         self.vert_timeouts = torch.round(
-        #             gs_rand_float(self.vert_interval_min,
-        #                         self.vert_interval_max,
-        #                         (self.cfg.env.num_envs,),
-        #                         self.device),
-        #             decimals=self.n_digits).float()
-                    
         #     # in Genesis, base link also has DOF, it's 6DOF if not fixed.
         #     dofs_vel = self.robot.get_dofs_velocity()  # (num_envs, num_dof) [0:3] ~ base_link_vel
-        #     lin_vel = gs_rand_float(-self.push_value,
-        #                              self.push_value, (self.num_envs, 2), self.device)
-        #     self._rand_push_vels[:, :2] = lin_vel.detach().clone()
-        #     lin_vel[~push_mask] = 0.0
-        #     dofs_vel[:, :2] += lin_vel
-            
-        #     ang_push = gs_rand_float(
-        #         -self.wrench_value,
-        #         self.wrench_value,
-        #         (self.num_envs, 3),   # roll, pitch
-        #         self.device
-        #     )
-        #     # self._rand_wrench_vels[:, :2] = ang_push.detach().clone()
-        #     ang_push[~wrench_mask] = 0.0
-        #     dofs_vel[:, 3:6] += ang_push
-            
-        #     vert_push = gs_rand_float(
-        #         self.vert_value,
-        #         0.0,
-        #         (self.num_envs, 1),   # z-axis
-        #         self.device
-        #     )
-        #     vert_push[~vert_mask] = 0.0
-        #     dofs_vel[:,2] += vert_push.squeeze(-1)
-
+        #     push_vel = gs_rand_float(-max_push_vel_xy,
+        #                              max_push_vel_xy, (self.num_envs, 2), self.device)
+        #     self._rand_push_vels[:, :2] = push_vel.detach().clone()
+        #     push_vel[((self.common_step_counter + self.env_identities) %
+        #               int(self.push_interval_s / self.dt) != 0)] = 0
+        #     dofs_vel[:, :2] += push_vel
         #     self.robot.set_dofs_velocity(dofs_vel)
+        
+        if self.push_interval_min > 0 and not self.debug:
+            max_push_vel_xy = self.cfg.domain_rand.max_push_vel_xy
+            max_push_torque = self.cfg.domain_rand.max_push_torque
+            max_vert_vel = self.cfg.domain_rand.max_vertical_push
+            
+            # interval gating
+            push_mask = (
+                (self.common_step_counter + self.env_identities)
+                % (self.push_timeouts / self.dt).int()
+            ) == 0
+
+            wrench_mask = (
+                (self.common_step_counter + self.env_identities)
+                % (self.wrench_timeouts / self.dt).int()
+            )  == 0
+            
+            vert_mask = (
+                (self.common_step_counter + self.env_identities)
+                % (self.vert_timeouts / self.dt).int()
+            )  == 0
+            
+            if self.common_step_counter % 100000 == 0:
+                self.wrench_timeouts = torch.round(
+                    gs_rand_float(self.wrench_timeout_min,
+                                self.wrench_timeout_max,
+                                (self.cfg.env.num_envs,),
+                                self.device),
+                    decimals=self.n_digits).float()
+                self.push_timeouts = torch.round(
+                    gs_rand_float(self.push_interval_min,
+                                self.push_interval_max,
+                                (self.cfg.env.num_envs,),
+                                self.device),
+                    decimals=self.n_digits).float()
+                self.vert_timeouts = torch.round(
+                    gs_rand_float(self.vert_interval_min,
+                                self.vert_interval_max,
+                                (self.cfg.env.num_envs,),
+                                self.device),
+                    decimals=self.n_digits).float()
+                    
+            # in Genesis, base link also has DOF, it's 6DOF if not fixed.
+            dofs_vel = self.robot.get_dofs_velocity()  # (num_envs, num_dof) [0:3] ~ base_link_vel
+            lin_vel = gs_rand_float(-self.push_value,
+                                     self.push_value, (self.num_envs, 2), self.device)
+            self._rand_push_vels[:, :2] = lin_vel.detach().clone()
+            lin_vel[~push_mask] = 0.0
+            dofs_vel[:, :2] += lin_vel
+            
+            # ang_push = gs_rand_float(
+            #     -self.wrench_value,
+            #     self.wrench_value,
+            #     (self.num_envs, 3),   # roll, pitch
+            #     self.device
+            # )
+            # # self._rand_wrench_vels[:, :2] = ang_push.detach().clone()
+            # ang_push[~wrench_mask] = 0.0
+            # dofs_vel[:, 3:6] += ang_push
+            
+            # vert_push = gs_rand_float(
+            #     self.vert_value,
+            #     0.0,
+            #     (self.num_envs, 1),   # z-axis
+            #     self.device
+            # )
+            # vert_push[~vert_mask] = 0.0
+            # dofs_vel[:,2] += vert_push.squeeze(-1)
+
+            self.robot.set_dofs_velocity(dofs_vel)
 
     def _push_towards_cmd(self):
         """ Random pushes the robots. Emulates an impulse by setting a randomized base velocity. 
@@ -1296,7 +1295,7 @@ class LeggedRobotGo1DynamicWater(BaseTask):
         
         # Add the liquid container
         self.bucket = self.scene.add_entity(
-            material=gs.materials.Rigid(gravity_compensation=1.0,),
+            material=gs.materials.Rigid(gravity_compensation=0.0,),
             morph=gs.morphs.Mesh(
                 file="water_tank_proper_units_simple.stl",
                 scale=(self.liquid_properties["scale_x"],
@@ -1744,6 +1743,7 @@ class LeggedRobotGo1DynamicWater(BaseTask):
 
         self.sim_substeps = 1
 
+        self.use_liquid = False
         # Added to support liquid payloads
         if self.cfg.env.use_liquid:
             self.sim_substeps = liquid_substeps

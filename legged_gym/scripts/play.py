@@ -1,4 +1,5 @@
 import genesis as gs
+gs.init(backend=gs.gpu, logging_level='warning')
 from legged_gym import LEGGED_GYM_ROOT_DIR
 import os
 
@@ -10,10 +11,6 @@ import torch
 
 
 def play(args):
-    gs.init(
-        backend=gs.cpu if args.cpu else gs.gpu,
-        logging_level='warning',
-    )
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, 5)

@@ -1781,7 +1781,7 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
         self.feedback_tau_weight = torch.zeros((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float)
         
         # We want to be at the full bounds right away, but we want to skip back sometimes for exploration
-        self.tradeoff_step_ctr = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float) * 7.0
+        self.tradeoff_step_ctr = torch.zeros((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float) * 7.0
 
         self.num_iters = 0
 

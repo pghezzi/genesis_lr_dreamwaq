@@ -1,24 +1,7 @@
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
 
 class GO1DynamicWaterCfg( LeggedRobotCfg ):
-    
-    class env( LeggedRobotCfg.env ):
-        num_envs = 10
-        num_observations = 57
-        num_privileged_obs = 79 # robot_state + other privilged info + terrain_heights (121)
-        num_actions = 12
-        env_spacing = 0.5
-        num_obs_hist = 5
-        grf_dim = 12
-        whole_body_dim = 18
-        debug = False # if debugging, visualize contacts, 
-        debug_viz = False # draw debug visualizations
-        use_liquid = True
 
-    class liquid():
-        liquid_type = "water"
-        liquid_volume = 2.0  # liters
-    
     class terrain( LeggedRobotCfg.terrain ):
         mesh_type = "plane" # none, plane, heightfield
         friction = 1.0
@@ -30,6 +13,7 @@ class GO1DynamicWaterCfg( LeggedRobotCfg ):
                             [-1.047, 1.047], [-0.663, 2.966], [-0.837, -2.721],
                             [-1.047, 1.047], [-0.663, 2.966], [-0.837, -2.721]]
         pos = [0.0, 0.0, 0.34] # x,y,z [m]
+        rot = [1.0, 0.0, 0.0, 0.0] # w, x, y, z [quat]
         default_joint_angles = { # = target angles [rad] when action = 0.0
             'FL_hip_joint': 0.0,     # [rad]
             'RL_hip_joint': 0.0,     # [rad]
@@ -103,15 +87,12 @@ class GO1DynamicWaterCfg( LeggedRobotCfg ):
 
         # What changes with finetuning round
         # push_robots = False
-        push_robots = False
-        push_interval_s = 15
-        max_push_vel_xy = 1.0
-        
+        push_robots = True
         
         push_interval_max = 15.0
         push_interval_min = 1.0
         max_push_vel_xy = 1.00
-        min_push_vel_xy = 0.5
+        min_push_vel_xy = 1.00
 
         max_vertical_push = -0.5
         min_vertical_push = 0.00
@@ -205,8 +186,8 @@ class GO1DynamicWaterCfg( LeggedRobotCfg ):
         ref_env = 0
         pos = [2, 2, 2]       # [m]
         lookat = [0., 0, 1.]  # [m]
-        rendered_envs_idx = [i for i in range(0, 3, 1)]  # number of environments to be rendered
-        add_camera = False
+        rendered_envs_idx = [i for i in range(0, 1, 1)]  # number of environments to be rendered
+        add_camera = True
 
     class asset( LeggedRobotCfg.asset ):
         file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/go1/urdf/go1.urdf'
@@ -365,6 +346,22 @@ class GO1DynamicWaterCfg( LeggedRobotCfg ):
             lin_vel_y = [-1.0, 1.0]   # min max [m/s]
             ang_vel_yaw = [-1.0, 1.0]    # min max [rad/s]
             heading = [-3.14, 3.14]
+    
+    class env( LeggedRobotCfg.env ):
+        num_envs = 10
+        num_observations = 57
+        num_privileged_obs = 79 # robot_state + other privilged info + terrain_heights (121)
+        num_actions = 12
+        env_spacing = 0.5
+        num_obs_hist = 5
+        grf_dim = 12
+        whole_body_dim = 18
+        debug = False # if debugging, visualize contacts,
+        debug_viz = False # draw debug visualizations
+        use_liquid = True
+    class liquid():
+        liquid_type = "water"
+        liquid_volume = 6.0  # liters
 
 class GO1DynamicWaterCfgPPO( LeggedRobotCfgPPO ):
     seed = 1
@@ -396,7 +393,7 @@ class GO1DynamicWaterCfgPPO( LeggedRobotCfgPPO ):
         pinn_warmup = 100
         pinn_init_steps = 0
 
-        pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/logs/rss_go1_dynamic_unimodel/Jan17_23-35-09_unimodel_grf_pinn_100hz_full_posboot_01_p2/model_200.pt"
+        # pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/logs/rss_go1_dynamic_unimodel/Jan17_23-35-09_unimodel_grf_pinn_100hz_full_posboot_01_p2/model_200.pt"
         # pretrained_path = "../../rsl_rl/modules/pretrained_models/rl_pos/Jan17_17-39-51_unimodel_grf_01_100hz_tanh_pos/model_1000.pt"
         
     class algorithm( LeggedRobotCfgPPO.algorithm ):
@@ -427,11 +424,10 @@ class GO1DynamicWaterCfgPPO( LeggedRobotCfgPPO ):
         save_interval = 100
         
         
-        load_run = "Jan24_17-36-38_unimodel_grf_pinn_100hz_full_posboot_01_finetune_full_03"
-        # load_run = "Jan22_12-37-13_unimodel_grf_pinn_100hz_full_posboot_02_finetune"
-        checkpoint = 2800
-        # resume = True
-        exp_data_path = "exp_data/Jan24_17-36-38_unimodel_grf_pinn_100hz_full_posboot_01_finetune_full_03_2800/water_test.csv"
+        load_run = "Jan24_20-20-52_unimodel_grf_pinn_100hz_full_posboot_01_finetune_full_04"
+        checkpoint = 2500
+        resume = True
+        exp_data_path = "exp_data/full_trained_model/full_{}L{}_push_01_debugging_tests.csv"
 
         # Load parameters for first function policy
         # run_name = 'test_01'

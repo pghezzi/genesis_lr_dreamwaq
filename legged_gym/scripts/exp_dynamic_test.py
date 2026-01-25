@@ -18,7 +18,7 @@ def play(args):
     args.task = "go1_dynamic_ft"
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
-    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 30)
+    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 10)
     # env_cfg.viewer.rendered_envs_idx = list(range(env_cfg.env.num_envs))
     
     # for i in range(2):
@@ -27,10 +27,10 @@ def play(args):
     
     env_cfg.noise.add_noise = True
     # Disable some of the domain randomization (our payload will handle that now)
-    # env_cfg.domain_rand.randomize_com_displacement = True
-    # env_cfg.domain_rand.randomize_pd_gain = False           # Maybe keep this on?
-    # env_cfg.domain_rand.push_robots = True
-    # env_cfg.domain_rand.randomize_base_mass = True
+    env_cfg.domain_rand.randomize_com_displacement = False
+    env_cfg.domain_rand.randomize_pd_gain = False           # Maybe keep this on?
+    env_cfg.domain_rand.push_robots = False
+    env_cfg.domain_rand.randomize_base_mass = False
 
 
     env_cfg.asset.fix_base_link = False
@@ -81,7 +81,7 @@ def play(args):
     print("Min - self.feedback_tau_weight: ", torch.min(env.feedback_tau_weight).item())
     start_time = time.perf_counter() # Record the start time
 
-    for i in range(2*int(env.max_episode_length)):
+    for i in range(10*int(env.max_episode_length)):
     # for i in range(1000):
         actions = policy(obs.detach(), obs_hist.detach())
         obs, _, obs_hist, rews, dones, infos, grfs = env.step(actions.detach())
@@ -136,6 +136,7 @@ def play(args):
     print("Mean GRF-forces - ", np.mean(total_grfs))
 
     env.shutdown_asynic_pino_workers()
+
 
 if __name__ == '__main__':
     EXPORT_POLICY = False

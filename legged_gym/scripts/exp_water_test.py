@@ -11,19 +11,19 @@ from legged_gym.utils.exp_data_logger import ExpLogger
 import numpy as np
 import torch
 import torch.nn.functional as F
-
+import argparse
 
 def play(args):
 
     args.task = "go1_dynamic_watereval"
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
-    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 30)
-    # env_cfg.viewer.rendered_envs_idx = list(range(env_cfg.env.num_envs))
+    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 10)
+    env_cfg.viewer.rendered_envs_idx = list(range(env_cfg.env.num_envs))
     
-    # for i in range(2):
-    #     env_cfg.viewer.pos[i] = env_cfg.viewer.pos[i] - env_cfg.terrain.plane_length / 4
-    #     env_cfg.viewer.lookat[i] = env_cfg.viewer.lookat[i] - env_cfg.terrain.plane_length / 4    
+    for i in range(2):
+        env_cfg.viewer.pos[i] = env_cfg.viewer.pos[i] - env_cfg.terrain.plane_length / 4
+        env_cfg.viewer.lookat[i] = env_cfg.viewer.lookat[i] - env_cfg.terrain.plane_length / 4    
     
     env_cfg.noise.add_noise = True
     # Disable some of the domain randomization (our payload will handle that now)
@@ -32,10 +32,23 @@ def play(args):
     env_cfg.domain_rand.push_robots = False
     env_cfg.domain_rand.randomize_base_mass = False
 
-
     env_cfg.asset.fix_base_link = False
     env_cfg.env.debug_viz = False
-    env_cfg.viewer.add_camera = False  # use a extra camera for moving
+    
+    if RECORD_FRAMES or FOLLOW_ROBOT:
+        env_cfg.viewer.add_camera = True  # use a extra camera for moving
+    
+    # for MOVE_CAMERA
+    if MOVE_CAMERA:
+        camera_position = np.array(env_cfg.viewer.pos, dtype=np.float64)
+        camera_vel = np.array([1., 1., 0.])
+        camera_direction = np.array(env_cfg.viewer.lookat) - np.array(env_cfg.viewer.pos)
+    
+    # for FOLLOW_ROBOT
+    if FOLLOW_ROBOT:
+        camera_lookat_follow = np.array(env_cfg.viewer.lookat)
+        camera_deviation_follow = np.array([0., 3., -1.])
+        camera_position_follow = camera_lookat_follow - camera_deviation_follow
     
     
     # initial state randomization
@@ -50,6 +63,11 @@ def play(args):
 
     # load policy
     train_cfg.runner.resume = True
+    
+    env_cfg.liquid.liquid_type = args.liquid_type
+    env_cfg.liquid.liquid_volume = args.liquid_volume  # liters
+    train_cfg.runner.exp_data_path = f"exp_data/full_trained_model/full_{int(args.liquid_volume)}L{args.liquid_type}_push_01.csv"
+    env_cfg.env.use_liquid = args.use_liquid
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
@@ -79,30 +97,32 @@ def play(args):
     print("Min - self.feedforward_tau_weight: ", torch.min(env.feedforward_tau_weight).item())
     print("Max - self.feedback_tau_weight: ", torch.max(env.feedback_tau_weight).item())
     print("Min - self.feedback_tau_weight: ", torch.min(env.feedback_tau_weight).item())
+    
+    if RECORD_FRAMES:
+        env.floating_camera.start_recording()
+    
     start_time = time.perf_counter() # Record the start time
 
-    for i in range(2*int(env.max_episode_length)):
-    # for i in range(1000):
+    for i in range(10*int(env.max_episode_length)):
+    # for i in range(50):
         actions = policy(obs.detach(), obs_hist.detach())
         obs, _, obs_hist, rews, dones, infos, grfs = env.step(actions.detach())
 
         rewards.append(rews.cpu().numpy().tolist())
         total_grfs.append(grfs.cpu().numpy().tolist())
-            # {
-            #     'dof_pos_target': actions_scaled[robot_index, joint_index].item(), 
-            #     'dof_pos': env.dof_pos[robot_index, joint_index].item(),
-            #     'dof_vel': env.dof_vel[robot_index, joint_index].item(),
-            #     'dof_tau_target': torques_scaled[robot_index, joint_index].item(),
-            #     'dof_torque': env.torques[robot_index, joint_index].item(),
-            #     'command_x': env.commands[robot_index, 0].item(),
-            #     'command_y': env.commands[robot_index, 1].item(),
-            #     'command_yaw': env.commands[robot_index, 2].item(),
-            #     'base_vel_x': env.base_lin_vel[robot_index, 0].item(),
-            #     'base_vel_y': env.base_lin_vel[robot_index, 1].item(),
-            #     'base_vel_z': env.base_lin_vel[robot_index, 2].item(),
-            #     'base_vel_yaw': env.base_ang_vel[robot_index, 2].item(),
-            #     'contact_forces_z': env.link_contact_forces[robot_index, env.feet_indices, 2].cpu().numpy()
-            # }
+
+        if MOVE_CAMERA:
+            camera_position += camera_vel * env.dt
+            env.set_camera(camera_position, camera_position + camera_direction)
+            env.floating_camera.render()
+        
+        if FOLLOW_ROBOT:
+            # refresh where camera looks at(robot 0 base)
+            camera_lookat_follow = env.base_pos[robot_index, :].cpu().numpy()
+            # refresh camera's position
+            camera_position_follow = camera_lookat_follow - camera_deviation_follow
+            env.set_camera(camera_position_follow, camera_lookat_follow)
+            env.floating_camera.render()
 
         logger.log_states(
             {
@@ -119,7 +139,6 @@ def play(args):
                 'grf':env.grfs_buf.detach().cpu().numpy().tolist(),
                 'q_des':env.get_scaled_pos_actions().detach().cpu().numpy().tolist(),
                 'tau_ff':env.feedforward_torques.detach().cpu().numpy().tolist(),
-                # 'tau_pd':env.feedback_torques_init.detach().cpu().numpy().tolist(),
                 'tau_pd':env.first_loop_feedback.detach().cpu().numpy().tolist(),
                 'failure':list(map(int, env.get_failure_idx().detach().cpu().numpy().tolist()))
             }
@@ -134,14 +153,41 @@ def play(args):
 
     print("Mean Position Rewards - ", np.mean(rewards))
     print("Mean GRF-forces - ", np.mean(total_grfs))
-
-    env.shutdown_asynic_pino_workers()
+    
+    if RECORD_FRAMES:
+        try:
+            filename_mp4 = f"{train_cfg.runner.experiment_name}_{train_cfg.runner.load_run}.mp4"
+        except:
+            from datetime import datetime
+            filename_mp4 = f"{datetime.now().timestamp()}"
+        
+        env.floating_camera.stop_recording(save_to_filename=filename_mp4, fps=30)
+        print("Saved recording to " + filename_mp4)
 
 if __name__ == '__main__':
     EXPORT_POLICY = False
     RECORD_FRAMES = False  # only record frames in extra camera view
     MOVE_CAMERA   = False
-    FOLLOW_ROBOT  = False
+    FOLLOW_ROBOT  = True
     assert not (MOVE_CAMERA and FOLLOW_ROBOT), "Cannot move camera and follow robot at the same time"
-    args = get_args()
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--task',           type=str, default='go2')
+    parser.add_argument('--headless',       action='store_true', default=False)  # enable visualization by default
+    parser.add_argument('-c', '--cpu',      action='store_true', default=False)  # use cuda by default
+    parser.add_argument('-B', '--num_envs', type=int, default=None)
+    parser.add_argument('--max_iterations', type=int, default=None)
+    parser.add_argument('--resume',         type=str, default=None)
+    parser.add_argument('-o', '--offline',  action='store_true', default=False)
+    parser.add_argument('-d', '--device',   type=str, default='cuda')
+
+    parser.add_argument('--debug',          action='store_true', default=False)
+    parser.add_argument('--ckpt',           type=int, default=1000)
+    
+    parser.add_argument('--use_liquid',    type=bool, default='True')
+    parser.add_argument('--liquid_type',   type=str, default='water', choices=['water', 'oil', 'gas'])
+    parser.add_argument('--liquid_volume', type=float, default=4.0)
+
+    args = parser.parse_args()
+    
     play(args)

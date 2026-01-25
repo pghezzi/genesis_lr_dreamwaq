@@ -41,6 +41,26 @@ eight_liters_water_default = {
     "scale_z":1.4
 }
 
+ten_liters_water_default = {
+    "rho": 1000.0,
+    "gamma":0.010,
+    "mu":0.005,
+    "offset":0.015,
+    "scale_x":1.6,
+    "scale_y":1.6,
+    "scale_z":1.6
+}
+
+twelve_liters_water_default = {
+    "rho": 1000.0,
+    "gamma":0.010,
+    "mu":0.005,
+    "offset":0.0125,
+    "scale_x":1.8,
+    "scale_y":1.6,
+    "scale_z":1.6
+}
+
 # Default Container OIL
 two_liters_oil_default = {
     "rho": 1000.0,
@@ -152,6 +172,10 @@ def get_payload_config(payload_type: str, volume: int, container_shape: str = "d
             return six_liters_water_default
         elif volume == 8:
             return eight_liters_water_default
+        elif volume == 10:
+            return ten_liters_water_default
+        elif volume == 12:
+            return twelve_liters_water_default
 
     elif payload_type == "oil":
         if volume == 2:
