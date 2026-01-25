@@ -61,6 +61,8 @@ from legged_gym.envs.go1.pos_control_learning.go1_pos_learning import LeggedRobo
 from legged_gym.envs.go1.pos_control_finetuning.go1_pos_config import GO1PosFinetuneCfg, GO1PosFinetuneCfgPPO
 from legged_gym.envs.go1.pos_control_finetuning.go1_pos_learning import LeggedRobotGo1PosFinetune
 
+from legged_gym.envs.go1.pos_water_eval.go1_pos_config_watereval import GO1PosWaterCfg, GO1PosWaterCfgPPO
+from legged_gym.envs.go1.pos_water_eval.go1_pos_watereval import LeggedRobotGo1PosWater
 
 task_registry.register( "go2", GO2, GO2Cfg(), GO2CfgPPO())
 task_registry.register( "go2_rough", GO2, GO2RoughCfg(), GO2RoughCfgPPO())
@@ -75,6 +77,7 @@ task_registry.register("go1_pos", LeggedRobotGo1Pos, GO1PosCfg(), GO1PosCfgPPO()
 
 task_registry.register("go1_pos_ft", LeggedRobotGo1PosFinetune, GO1PosFinetuneCfg(), GO1PosFinetuneCfgPPO())
 
+task_registry.register("go1_pos_watereval", LeggedRobotGo1PosWater, GO1PosWaterCfg(), GO1PosWaterCfgPPO())
 
 from legged_gym.envs.go1_standalone.legged_robot_config import Go1RoughCfg, Go1RoughCfgPPO
 from legged_gym.envs.go1_standalone.legged_robot import LeggedRobot
