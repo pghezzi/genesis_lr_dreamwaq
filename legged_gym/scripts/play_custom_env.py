@@ -86,13 +86,10 @@ def play(args):
     #command = (torch.tensor([2, 0, 0], dtype=torch.float32, device=env.commands_scale.device) 
     #* env.commands_scale)
     for i in range(10*int(env.max_episode_length)):
-        #obs = obs.detach()
-        #obs[:, 6:9] = command
-        #print(obs[0][6:9]/env.commands_scale)
-        actions = policy(obs)
-        obs, _, _, obs_hist, rews, dones, infos = env.step(actions.detach())
+        actions = policy(obs.detach())
+        obs, _, rews, dones, infos = env.step(actions.detach())
         if MOVE_CAMERA:
-            camera_position +=  camera_vel * env.dt
+            camera_position += camera_vel * env.dt
             env.set_camera(camera_position, camera_position + camera_direction)
             env.floating_camera.render()
         if FOLLOW_ROBOT:
@@ -103,8 +100,13 @@ def play(args):
             env.set_camera(camera_position_follow, camera_lookat_follow)
             env.floating_camera.render()
         if RECORD_FRAMES and i == stop_record:
-            env.floating_camera.stop_recording(save_to_filename="go2_rough_demo.mp4", fps=30)
-            print("Saved recording to " + "go2_rough_demo.mp4")
+            try:
+                filename_mp4 = f"{train_cfg.runner.experiment_name}_{train_cfg.runner.run_name}.mp4"
+            except:
+                from datetime import datetime
+                filename_mp4 = f"{datetime.now().timestamp()}"
+            env.floating_camera.stop_recording(save_to_filename=filename_mp4, fps=30)
+            print("Saved recording to " + filename_mp4)
         
         # print debug info
         # print("base lin vel: ", env.base_lin_vel[robot_index, :].cpu().numpy())
