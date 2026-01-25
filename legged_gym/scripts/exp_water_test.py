@@ -15,7 +15,7 @@ import torch.nn.functional as F
 
 def play(args):
 
-    args.task = "go1_dynamic_ft"
+    args.task = "go1_dynamic_watereval"
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, 30)
@@ -27,10 +27,10 @@ def play(args):
     
     env_cfg.noise.add_noise = True
     # Disable some of the domain randomization (our payload will handle that now)
-    # env_cfg.domain_rand.randomize_com_displacement = True
-    # env_cfg.domain_rand.randomize_pd_gain = False           # Maybe keep this on?
-    # env_cfg.domain_rand.push_robots = True
-    # env_cfg.domain_rand.randomize_base_mass = True
+    env_cfg.domain_rand.randomize_com_displacement = False
+    env_cfg.domain_rand.randomize_pd_gain = False           # Maybe keep this on?
+    env_cfg.domain_rand.push_robots = False
+    env_cfg.domain_rand.randomize_base_mass = False
 
 
     env_cfg.asset.fix_base_link = False

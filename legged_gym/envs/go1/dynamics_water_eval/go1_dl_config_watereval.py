@@ -1,9 +1,9 @@
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
 
-class GO1DynamicFinetuneCfg( LeggedRobotCfg ):
+class GO1DynamicWaterCfg( LeggedRobotCfg ):
     
     class env( LeggedRobotCfg.env ):
-        num_envs = 4096
+        num_envs = 10
         num_observations = 57
         num_privileged_obs = 79 # robot_state + other privilged info + terrain_heights (121)
         num_actions = 12
@@ -13,38 +13,16 @@ class GO1DynamicFinetuneCfg( LeggedRobotCfg ):
         whole_body_dim = 18
         debug = False # if debugging, visualize contacts, 
         debug_viz = False # draw debug visualizations
+        use_liquid = True
 
+    class liquid():
+        liquid_type = "water"
+        liquid_volume = 2.0  # liters
     
     class terrain( LeggedRobotCfg.terrain ):
         mesh_type = "plane" # none, plane, heightfield
         friction = 1.0
         restitution = 0.
-        
-    # class terrain( LeggedRobotCfg.terrain ):
-    #     mesh_type = "heightfield" # none, plane, heightfield or trimesh
-    #     horizontal_scale = 0.2 # [m]. if use smaller horizontal scale, need to decrease terrain_length and terrain_width, or it will compile very slowly.
-    #     vertical_scale = 0.005 # [m]
-    #     border_size = 5 # [m]. implemented a out_of_bound detection, so border_size can be smaller
-    #     curriculum = True
-    #     friction = 1.0
-    #     restitution = 0.
-    #     # rough terrain only:
-    #     measure_heights = True
-    #     measured_points_x = [-1.0, -0.8, -0.6, -0.4, -0.2, 0., 0.2, 0.4, 0.6, 0.8, 1.0]
-    #     measured_points_y = [-1.0, -0.8, -0.6, -0.4, -0.2, 0., 0.2, 0.4, 0.6, 0.8, 1.0]
-    #     # measured_points_x = [-0.5, -0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5]
-    #     # measured_points_y = [-0.5, -0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5]
-    #     selected = False # select a unique terrain type and pass all arguments
-    #     terrain_kwargs = None # Dict of arguments for selected terrain
-    #     max_init_terrain_level = 1 # starting curriculum state
-    #     terrain_length = 6.0 # 
-    #     terrain_width = 6.0  # 
-    #     num_rows = 8  # number of terrain rows (levels)
-    #     num_cols = 5  # number of terrain cols (types)
-    #     # terrain types: [smooth slope, rough slope, stairs up, stairs down, discrete]
-    #     terrain_proportions = [0.2, 0.2, 0.2, 0.2, 0.2]
-    #     # trimesh only:
-    #     slope_treshold = 0.75 # slopes above this threshold will be corrected to vertical surfaces
 
     class init_state( LeggedRobotCfg.init_state ):
         leg_joint_limits = [[-1.047, 1.047], [-0.663, 2.966], [-0.837, -2.721],
@@ -124,7 +102,12 @@ class GO1DynamicFinetuneCfg( LeggedRobotCfg ):
         friction_range = [0.2, 1.8]
 
         # What changes with finetuning round
-        push_robots = True
+        # push_robots = False
+        push_robots = False
+        push_interval_s = 15
+        max_push_vel_xy = 1.0
+        
+        
         push_interval_max = 15.0
         push_interval_min = 1.0
         max_push_vel_xy = 1.00
@@ -141,15 +124,15 @@ class GO1DynamicFinetuneCfg( LeggedRobotCfg ):
         wrench_timeout_max = 5.0
         
         num_push_steps = 500  # number of steps to apply the same randomization
-        push_warmup = 500
+        push_warmup = 3000
         
-        randomize_base_mass = True
+        randomize_base_mass = False
         # added_mass_range = [-1.0, 8.0]
-        min_added_mass_max = 4.0
+        min_added_mass_max = 2.0
         max_added_mass_max = 8.0
         added_mass_min = -1.0
         
-        randomize_com_displacement = True
+        randomize_com_displacement = False
         # com_displacement_range_xy = [-0.25, 0.25]
         com_displacement_range_z = [0.10, 0.30]
 
@@ -223,21 +206,6 @@ class GO1DynamicFinetuneCfg( LeggedRobotCfg ):
         pos = [2, 2, 2]       # [m]
         lookat = [0., 0, 1.]  # [m]
         rendered_envs_idx = [i for i in range(0, 3, 1)]  # number of environments to be rendered
-        # rendered_envs_idx.extend([i for i in range(200, 203, 1)])  # number of environments to be rendered
-        # # rendered_envs_idx.extend([i for i in range(500, 503, 1)])  # number of environments to be rendered
-        # # rendered_envs_idx.extend([i for i in range(750, 753, 1)])  # number of environments to be rendered
-        # rendered_envs_idx.extend([i for i in range(900, 903, 1)])  # number of environments to be rendered
-
-        # rendered_envs_idx.extend([i for i in range(1500, 1503, 1)])
-        # # rendered_envs_idx.extend([i for i in range(1900, 1903, 1)])
-        # # rendered_envs_idx.extend([i for i in range(3500, 3503, 1)])
-        # rendered_envs_idx.extend([i for i in range(4000, 4003, 1)])
-
-        # rendered_envs_idx.extend([i for i in range(1700, 1703, 1)])
-        # # rendered_envs_idx.extend([i for i in range(2200, 2203, 1)])
-        # # rendered_envs_idx.extend([i for i in range(3700, 3703, 1)])
-        # rendered_envs_idx.extend([i for i in range(3900, 3903, 1)])
-        # rendered_envs_idx = [0, 1000, 3500]
         add_camera = False
 
     class asset( LeggedRobotCfg.asset ):
@@ -371,8 +339,8 @@ class GO1DynamicFinetuneCfg( LeggedRobotCfg ):
             
             curr_reward_bounds = {"action_rate":[-1.0e-3, -1.0e-2],
                                   "action_smoothness":[-1.0e-3, -1.0e-2],
-                                  "feedback_torques":[-2.25e-4, -2.0e-4],
-                                  "feedforward_torques":[-2.0e-4, -2.2e-4],
+                                  "feedback_torques":[-2.25e-4, -2.75e-4],
+                                  "feedforward_torques":[-2.0e-4, -2.5e-4],
                                   "feet_contact_forces":[-1.0e-1,-5.0e-1],
                                   "ang_vel_xy":[-0.05, -0.1],
                                   "base_height":[-1.0,-2.0],
@@ -384,7 +352,7 @@ class GO1DynamicFinetuneCfg( LeggedRobotCfg ):
                                  }
 
             curr_steps = 1000
-            warmup_steps = 0
+            warmup_steps = 2500
 
     class commands( LeggedRobotCfg.commands ):
         curriculum = True
@@ -398,9 +366,9 @@ class GO1DynamicFinetuneCfg( LeggedRobotCfg ):
             ang_vel_yaw = [-1.0, 1.0]    # min max [rad/s]
             heading = [-3.14, 3.14]
 
-class GO1DynmaicFinetuneCfgPPO( LeggedRobotCfgPPO ):
+class GO1DynamicWaterCfgPPO( LeggedRobotCfgPPO ):
     seed = 1
-    runner_class_name = "OnPolicyRunnerDynamicFinetune" # Teacher-Student Runner
+    runner_class_name = "OnPolicyRunnerDynamicWater"
     
     class policy( LeggedRobotCfgPPO.policy ):
         activation = 'tanh' # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid, swish (SiLU)
@@ -425,12 +393,11 @@ class GO1DynmaicFinetuneCfgPPO( LeggedRobotCfgPPO ):
         dropout = 0.1
 
         pinn_loss_weight = 0.01
-        pinn_warmup = 10
+        pinn_warmup = 100
         pinn_init_steps = 0
 
-        # pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/logs/rss_go1_dynamic_unimodel/Jan17_23-35-09_unimodel_grf_pinn_100hz_full_posboot_01_p2/model_200.pt"
+        pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/logs/rss_go1_dynamic_unimodel/Jan17_23-35-09_unimodel_grf_pinn_100hz_full_posboot_01_p2/model_200.pt"
         # pretrained_path = "../../rsl_rl/modules/pretrained_models/rl_pos/Jan17_17-39-51_unimodel_grf_01_100hz_tanh_pos/model_1000.pt"
-        # pretrained_path = "../../logs/rss_go1_dynamic_unimodel_full/Jan23_13-43-23_unimodel_grf_pinn_100hz_full_posboot_01_finetune_full_02/model_1000.pt"
         
     class algorithm( LeggedRobotCfgPPO.algorithm ):
         entropy_coef = 0.01
@@ -451,20 +418,20 @@ class GO1DynmaicFinetuneCfgPPO( LeggedRobotCfgPPO ):
         policy_class_name = 'ActorCritic_Dynamic'
         algorithm_class_name = 'PPODynamic'
         num_steps_per_env = 100 # per iteration
-        max_iterations = 2500 # number of policy updates
+        max_iterations = 5000 # number of policy updates
         grf_dim = 12
         
         # debug_warmpinn_wb
-        run_name = 'unimodel_grf_pinn_100hz_full_posboot_01_finetune_full_03'
+        run_name = 'unimodel_grf_pinn_100hz_full_posboot_01_finetune_full_02'
         experiment_name = 'rss_go1_dynamic_unimodel_full'
         save_interval = 100
         
         
-        load_run = "Jan23_20-49-18_unimodel_grf_pinn_100hz_full_posboot_01_finetune_full_02"
+        load_run = "Jan24_17-36-38_unimodel_grf_pinn_100hz_full_posboot_01_finetune_full_03"
         # load_run = "Jan22_12-37-13_unimodel_grf_pinn_100hz_full_posboot_02_finetune"
-        checkpoint = 2600
-        resume = True
-        # exp_data_path = "exp_data/Jan22_23-09-59_unimodel_grf_pinn_100hz_full_posboot_01_finetune_full/fullrun_pd_eval_nopd.csv"
+        checkpoint = 2800
+        # resume = True
+        exp_data_path = "exp_data/Jan24_17-36-38_unimodel_grf_pinn_100hz_full_posboot_01_finetune_full_03_2800/water_test.csv"
 
         # Load parameters for first function policy
         # run_name = 'test_01'

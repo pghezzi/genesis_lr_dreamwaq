@@ -42,7 +42,7 @@ from rsl_rl.modules import ActorCritic_Dynamic, ContextDecoder
 from rsl_rl.env import VecEnv
 
 
-class OnPolicyRunnerDynamicFinetune:
+class OnPolicyRunnerDynamicWater:
 
     def __init__(self,
                  env: VecEnv,
@@ -112,8 +112,6 @@ class OnPolicyRunnerDynamicFinetune:
         self.tot_time = 0
         self.current_learning_iteration = 0
 
-        self.env.create_async_pino_workers()
-
         _, _ = self.env.reset()
 
     # 'action': action_network.state_dict(),
@@ -142,8 +140,8 @@ class OnPolicyRunnerDynamicFinetune:
         
         obs,obs_hist,torso_velo = self.env.get_observations()
         # self.env.step_tradeoff_curriculum()
-        if self.env.use_reward_curriculum:
-            self.env.step_reward_curriculum()
+        # if self.env.use_reward_curriculum:
+        #     self.env.step_reward_curriculum()
         
         privileged_obs = self.env.get_privileged_observations()
         critic_obs = privileged_obs if privileged_obs is not None else obs
@@ -223,10 +221,10 @@ class OnPolicyRunnerDynamicFinetune:
             print("Min - self.feedback_tau_weight: ", torch.min(self.env.feedback_tau_weight).item())
             print("Avg - self.feedback_tau_weight: ", torch.mean(self.env.feedback_tau_weight).item())
             
-            if self.env.use_reward_curriculum:
-                self.env.step_reward_curriculum()
+            # if self.env.use_reward_curriculum:
+                # self.env.step_reward_curriculum()
             self.env.num_iters += 1
-            self.env.step_push()
+            # self.env.step_push()
 
             # # enable additional domain randomizations
             # if (self.env.cfg.domain_rand.enable_additional_ratio < (float(self.env.num_iters)/float(tot_iter))):
@@ -245,9 +243,6 @@ class OnPolicyRunnerDynamicFinetune:
         
         self.current_learning_iteration += num_learning_iterations
         self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(self.current_learning_iteration)))
-
-        # Learning is done, shutdown the async. pinocchio workers
-        self.env.shutdown_asynic_pino_workers()
 
     def log(self, locs, width=80, pad=35):
         self.tot_timesteps += self.num_steps_per_env * self.env.num_envs
@@ -363,7 +358,7 @@ class OnPolicyRunnerDynamicFinetune:
         # Load the VAE decoder model...
         self.alg.decoder.load_state_dict(loaded_dict['decoder_state_dict'])
         self.current_learning_iteration = loaded_dict['iter']
-        self.current_learning_iteration = 2500
+        self.current_learning_iteration = 5000
         return loaded_dict['infos']
 
     def get_inference_policy(self, device=None):

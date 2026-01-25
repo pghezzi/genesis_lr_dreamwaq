@@ -13,8 +13,6 @@ from typing import Tuple, Dict
 import multiprocessing as mp
 import random
 
-
-
 from legged_gym import LEGGED_GYM_ROOT_DIR
 from legged_gym.envs.base.base_task import BaseTask
 from legged_gym.utils.math_utils import wrap_to_pi, torch_rand_sqrt_float, quat_apply_yaw
@@ -24,10 +22,25 @@ from legged_gym.utils.gs_utils import *
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg
 from collections import deque
 import torch.nn.functional as F
-import pinocchio as pn
 
-from .parallel_pino_workers import PinocchioAsync
-class LeggedRobotGo1Dynamic(BaseTask):
+from legged_gym.scripts.liquid_payload_configs import *
+
+# Some values that are held constant for the water tank and liquid
+liquid_substeps      = 5
+liquid_particle_size = 0.01
+
+container_outer_x = 0.20  # X dimension
+container_outer_y = 0.15  # Y dimension
+container_outer_z = 0.20  # total outer height
+container_wall_thickness = .015
+container_bottom_thickness = 0.015
+
+go1_torso_height = 0.114
+bucket_offset = (go1_torso_height/2.0)
+
+
+
+class LeggedRobotGo1DynamicWater(BaseTask):
     def __init__(self, cfg: LeggedRobotCfg, sim_device, headless):
         """ Parses the provided config file,
             calls create_sim() (which creates, simulation, terrain and environments),
@@ -43,7 +56,15 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.height_samples = None
         self.debug_viz = self.cfg.env.debug_viz
         self.init_done = False
+        print(sim_device)
+        if not torch.cuda.is_available():
+            self.device = torch.device('cpu')
+        else:
+            # assert sim_device in ["cpu", "cuda"]
+            self.device = torch.device(sim_device)
+        print(self.device)
         self._parse_cfg(self.cfg, sim_device)
+        print(self.device)
         super().__init__(self.cfg, sim_device, headless)
 
         self._init_buffers()
@@ -71,10 +92,6 @@ class LeggedRobotGo1Dynamic(BaseTask):
         clip_actions = self.cfg.normalization.clip_actions
         self.actions = torch.clip(
             actions, -clip_actions, clip_actions).to(self.device)
-        
-        # only apply the tanh to the torque output, basically bounding the torques but letting the 
-        #      position targets do their own thing
-        # self.actions[:,12:] = F.tanh(self.actions[:,12:])
 
         # Perform random control delay if approperiate
         if self.cfg.domain_rand.randomize_ctrl_delay:
@@ -86,8 +103,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # run simulation steps with current action and PD feedback control
         for _ in range(self.cfg.control.decimation):  # use self-implemented pd controller
             self.torques = self._compute_torques(self.actions)
-            
-
+        
             if self.num_build_envs == 0:
                 torques = self.torques.squeeze()
                 self.robot.control_dofs_force(torques, self.motors_dof_idx)
@@ -110,13 +126,6 @@ class LeggedRobotGo1Dynamic(BaseTask):
         if self.privileged_obs_buf is not None:
             self.privileged_obs_buf = torch.clip(
                 self.privileged_obs_buf, -clip_obs, clip_obs)
-            
-        # total_episodic_rewards = self.rew_buf+self.pos_rew_buf+self.tau_rew_buf
-        # rew_cv = torch.std(total_episodic_rewards) / torch.mean(total_episodic_rewards)
-        # pboot_rew = 1.0 - torch.abs(torch.tanh(rew_cv))
-        # print("rew_cv: ", rew_cv)
-        # print("pboot_rew: ", pboot_rew)
-        # print()
         #         
         # Retunring some extra stuff and two separate reward functions
         return self.obs_buf, self.privileged_obs_buf, self.obs_history, self.rew_buf, self.reset_buf, self.extras, (self.grfs_buf * self.obs_scales.grf)
@@ -135,28 +144,6 @@ class LeggedRobotGo1Dynamic(BaseTask):
         actions_scaled = pos_actions * repeat_pos_scales + self.default_dof_pos
 
         return actions_scaled
-    
-    def create_async_pino_workers(self):
-        wb_correct_pino_2_model_ordering = [0,1,2,3,4,5]
-        wb_correct_pino_2_model_ordering.extend(self.pino_2_model_joint_act_map)
-        
-        # For safeties shake, use only 90% of available CPU's
-        num_cpus = int(mp.cpu_count() * 0.99)
-
-        # Build the class that manages (1) shared input/output memeory and (2) invoking worker processes 
-        self.async_pino_manager = PinocchioAsync(
-            self.pino_model,
-            self.num_envs,
-            self.pino_foot_names,
-            wb_correct_pino_2_model_ordering,
-            self.wb_dim,
-            (12,1),
-            num_cpus
-            )
-
-    def shutdown_asynic_pino_workers(self):
-        # clear shared memory and persistent CPU workers
-        self.async_pino_manager.shutdown()
     
     def get_prev_obs(self):
         return self.last_obs_buf, self.last_obs_hist, self.llast_obs_buf, self.llast_obs_hist
@@ -204,58 +191,6 @@ class LeggedRobotGo1Dynamic(BaseTask):
         base_velo_world = self.robot.get_vel()
         base_ang_velo_world = self.robot.get_ang()
         
-        #     extract the contact forces in pinocchio order
-        contact_temp = self.robot.get_links_net_contact_force()[:, self.pino_feet_indices, :]
-
-        #     push all the CUDA stuff from GPU to CPU for use by the PinocchioAsync class
-        #     The whole-body pose
-        temp_quat = self.base_quat.cpu().numpy()[:,1:]
-        temp_quat = np.concatenate((temp_quat, self.base_quat.cpu().numpy()[:,0][:,np.newaxis]), axis=-1)
-        temp_quat = torch.from_numpy(np.array(temp_quat)).to(self.device)
-        wb_pos_np = torch.concatenate([self.base_pos, temp_quat, self.dof_pos[:,self.model_2_pino_joint_map]], dim=1).cpu().numpy()
-        
-        #     The whole-body velocity
-        wb_vel_np = torch.concatenate([base_velo_world, base_ang_velo_world, self.dof_vel[:,self.model_2_pino_joint_map]], dim=1).cpu().numpy()
-        
-        #     The previous whole-body velocity
-        wb_vel_prev_np = torch.concatenate([self.last_base_world_lin_vel, self.last_base_world_ang_vel, self.last_dof_vel[:,self.model_2_pino_joint_map]], dim=1).cpu().numpy()
-
-        #     The GRF forces
-        grf_np = contact_temp.reshape(contact_temp.shape[0], 12).unsqueeze(2).cpu().numpy()
-
-        #     Pass the numpy (cpu) data structures to shared memeory
-        self.async_pino_manager.shared.q[:]       = wb_pos_np        # num_envs x 19
-        self.async_pino_manager.shared.qd[:]      = wb_vel_np        # num_envs x 18
-        self.async_pino_manager.shared.qd_prev[:] = wb_vel_prev_np   # num_envs x 18
-        self.async_pino_manager.shared.grf[:]     = grf_np           # num_envs x 4 x 3
-        self.async_pino_manager.shared.dt[0]      = self.dt
-
-        self.async_pino_manager.compute_async()
-        self.async_pino_manager.wait()            # blocking, wait until all workers are done
-
-        # now stack the tensor lists to get the necessary state values
-        self.wb_dynamics_buff[:]        = torch.from_numpy(
-            self.async_pino_manager.shared.wb_dynamics).to(self.device) # num_envs x 18
-        self.contact_forces_buff[:]     = torch.from_numpy(
-            self.async_pino_manager.shared.wb_contacts).to(self.device) # num_envs x 18
-        self.wb_mass_mat_buff[:]        = torch.from_numpy(
-            self.async_pino_manager.shared.mass_mat).to(self.device)    # num_envs x 18 x 18
-        self.wb_bias_vec_buff[:]        = torch.from_numpy(
-            self.async_pino_manager.shared.bias).to(self.device)        # num_envs x 18
-        self.torso_6dof_acceleration[:] = torch.from_numpy(
-            self.async_pino_manager.shared.acc6d).to(self.device)       # num_envs x 6
-
-        # print("-----------------------")
-        # print(wb_dynamics_list[12])
-        # print(self.wb_dynamics_buff[12,:])
-        # print("++++++++++++++++++++++++++++++")
-        # print(contact_temp.reshape(contact_temp.shape[0], 12)[317,:])
-        # print(wb_contact_forces_list[317])
-        # print(self.contact_forces_buff[317,:])
-        # print("==============================")
-        # print(pinn_bias_vecs[249])
-        # print(self.wb_bias_vec_buff[249,:])
-
         self._post_physics_step_callback()
 
         # compute observations, rewards, resets, ...
@@ -449,8 +384,6 @@ class LeggedRobotGo1Dynamic(BaseTask):
             self.episode_sums[name] += rew
 
         if self.cfg.rewards.only_positive_rewards:
-            self.tau_rew_buf[:] = torch.clip(self.tau_rew_buf[:], min=0.)
-            self.pos_rew_buf[:] = torch.clip(self.pos_rew_buf[:], min=0.)
             self.rew_buf[:] = torch.clip(self.rew_buf[:], min=0.)
         
         # add termination reward after clipping
@@ -518,7 +451,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
                     self._added_base_mass,        # 1
                     self._base_com_bias,          # 3
                     self._rand_push_vels[:, :2],  # 2
-                    # self._rand_wrench_vels[:, :], # 2
+                    # self._rand_wrench_vels[:, :2], # 2
                     # self.feedforward_tau_weight, # 1
                     # self.feedback_tau_weight,    # 1
                     # heights,                     # 121
@@ -535,29 +468,59 @@ class LeggedRobotGo1Dynamic(BaseTask):
         """ Creates simulation, terrain and evironments
         """
         # create scene
-        self.scene = gs.Scene(
-            sim_options=gs.options.SimOptions(
-                dt=self.sim_dt,
-                substeps=self.sim_substeps),
-            viewer_options=gs.options.ViewerOptions(
-                max_FPS=int(1 / self.dt * self.cfg.control.decimation),
-                camera_pos=np.array(self.cfg.viewer.pos),
-                camera_lookat=np.array(self.cfg.viewer.lookat),
-                camera_fov=40,
-            ),
-            vis_options=gs.options.VisOptions(rendered_envs_idx= self.cfg.viewer.rendered_envs_idx),
-            rigid_options=gs.options.RigidOptions(
-                dt=self.sim_dt,
-                constraint_solver=gs.constraint_solver.Newton,
-                enable_collision=True,
-                enable_joint_limit=True,
-                enable_self_collision=self.cfg.asset.self_collisions,
-                batch_dofs_info=True,   # batch dof info for all envs
-                batch_joints_info=True,
-                batch_links_info=True,
-            ),
-            show_viewer=not self.headless,
-        )
+        # If we are using a liquid, include SPH options
+        if self.use_liquid:
+            self.scene = gs.Scene(
+                sim_options=gs.options.SimOptions(
+                    dt=self.sim_dt,
+                    substeps=self.sim_substeps),
+                viewer_options=gs.options.ViewerOptions(
+                    max_FPS=int(1 / self.dt * self.cfg.control.decimation),
+                    camera_pos=np.array(self.cfg.viewer.pos),
+                    camera_lookat=np.array(self.cfg.viewer.lookat),
+                    camera_fov=40,
+                ),
+                vis_options=gs.options.VisOptions(rendered_envs_idx= self.cfg.viewer.rendered_envs_idx),
+                rigid_options=gs.options.RigidOptions(
+                    dt=self.sim_dt,
+                    constraint_solver=gs.constraint_solver.Newton,
+                    enable_collision=True,
+                    enable_joint_limit=True,
+                    enable_self_collision=self.cfg.asset.self_collisions,
+                    batch_dofs_info=True,   # batch dof info for all envs
+                    batch_joints_info=True,
+                    batch_links_info=True,
+                ),
+                sph_options=gs.options.SPHOptions(
+                    particle_size = liquid_particle_size,
+                ),
+                show_viewer=not self.headless,
+            )
+        else:
+            self.scene = gs.Scene(
+                sim_options=gs.options.SimOptions(
+                    dt=self.sim_dt,
+                    substeps=self.sim_substeps),
+                viewer_options=gs.options.ViewerOptions(
+                    max_FPS=int(1 / self.dt * self.cfg.control.decimation),
+                    camera_pos=np.array(self.cfg.viewer.pos),
+                    camera_lookat=np.array(self.cfg.viewer.lookat),
+                    camera_fov=40,
+                ),
+                vis_options=gs.options.VisOptions(rendered_envs_idx= self.cfg.viewer.rendered_envs_idx),
+                rigid_options=gs.options.RigidOptions(
+                    dt=self.sim_dt,
+                    constraint_solver=gs.constraint_solver.Newton,
+                    enable_collision=True,
+                    enable_joint_limit=True,
+                    enable_self_collision=self.cfg.asset.self_collisions,
+                    batch_dofs_info=True,   # batch dof info for all envs
+                    batch_joints_info=True,
+                    batch_links_info=True,
+                ),
+                show_viewer=not self.headless,
+            )
+
         # query rigid solver
         for solver in self.scene.sim.solvers:
             if not isinstance(solver, RigidSolver):
@@ -693,7 +656,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # print(feedback_torques[0:4,:])
         if self.first_loop:
             self.first_loop = False
-            self.feedback_torques_init = self.feedback_torques
+            self.first_loop_feedback = self.feedback_torques.clone()
         
         repeat_torque_scales = torch.from_numpy(np.array(self.cfg.control.torque_scale)).repeat(1,4).to(self.device)
         
@@ -701,10 +664,6 @@ class LeggedRobotGo1Dynamic(BaseTask):
         
         # torques = (self.feedforward_tau_weight) * self.feedforward_torques + 0.0 * (self.feedback_tau_weight)*self.feedback_torques
         torques = (self.feedforward_tau_weight) * self.feedforward_torques + (self.feedback_tau_weight)*self.feedback_torques
-
-
-        # self.feedforward_torques *= self.feedforward_tau_weight
-        # self.feedback_torques *= self.feedback_tau_weight
 
         # Have the limit be exceeded a little bit to get reward feedback based on exceeding the limits
         return torch.clip(torques, -1.1*self.torque_limits, 1.1*self.torque_limits)
@@ -740,20 +699,6 @@ class LeggedRobotGo1Dynamic(BaseTask):
         return feedback_torques
 
 
-    def _compute_target_dof_pos(self, actions):
-        # control_type = 'P'
-        actions_scaled = actions * self.cfg.control.action_scale
-        target_dof_pos = actions_scaled + self.default_dof_pos
-
-        return target_dof_pos
-    
-    def _compute_target_dof_pos(self, actions):
-        # control_type = 'P'
-        actions_scaled = actions * self.cfg.control.action_scale
-        target_dof_pos = actions_scaled + self.default_dof_pos
-
-        return target_dof_pos
-    
     def _compute_target_dof_pos(self, actions):
         # control_type = 'P'
         actions_scaled = actions * self.cfg.control.action_scale
@@ -813,8 +758,9 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.base_quat[envs_idx] = self.base_init_quat.reshape(1, -1)
         base_euler = gs_rand_float(-0.1, 0.1, (len(envs_idx), 3), self.device)  # roll, pitch [-0.1, 0.1]
         base_euler[:, 2] = gs_rand_float(*self.cfg.init_state.yaw_angle_range, (len(envs_idx),), self.device)  # yaw angle
-        self.base_quat[envs_idx] = gs_quat_mul(
-            gs_euler2quat(base_euler), self.base_quat[envs_idx],)
+        self.base_quat_offsets = gs_euler2quat(base_euler)
+        self.base_quat[envs_idx] = gs_quat_mul(self.base_quat_offsets, self.base_quat[envs_idx],)
+        
         self.robot.set_quat(
             self.base_quat[envs_idx], zero_velocity=False, envs_idx=envs_idx)
         self.robot.zero_all_dofs_velocity(envs_idx)
@@ -836,50 +782,113 @@ class LeggedRobotGo1Dynamic(BaseTask):
         
         self.robot.set_dofs_velocity(velocity=base_vel, dofs_idx_local=[
                                      0, 1, 2, 3, 4, 5], envs_idx=envs_idx)
+        
+        if self.use_liquid:
+            self._reset_liquid_state(envs_idx)
+    
+    def _reset_liquid_state(self, envs_idx):
+        # pull out the new poses and oreintations
+        new_base_poses = self.base_pos[envs_idx].clone().cpu().numpy()
+        
+        # Calculate the liquid pose offsets
+        new_particle_pos_offset    = new_base_poses
+        new_particle_pos_offset[:, 2] = 0.0 # no need to modify the height
+        
+        print(self.liquid_init_pose[envs_idx].shape)
+        print(self.base_quat_offsets.shape)
+        
+        # Use the new poses/orientations to reset the liquid particles
+        self.liquid.set_particles_vel(0, envs_idx=envs_idx)
+        new_particle_posistions = gs_transform_by_quat(self.liquid_init_pose[envs_idx],
+                                                      self.base_quat_offsets).cpu().numpy()
+        new_particle_posistions += new_particle_pos_offset[:, None, :]
+        self.liquid.set_particles_pos(new_particle_posistions,
+                                      envs_idx=envs_idx)
 
     def _push_robots(self):
         """ Random pushes the robots. Emulates an impulse by setting a randomized base velocity. 
         """
-        # if self.push_interval_s > 0 and not self.debug:
-        #     max_push_vel_xy = self.cfg.domain_rand.max_push_vel_xy
-        #     # in Genesis, base link also has DOF, it's 6DOF if not fixed.
-        #     dofs_vel = self.robot.get_dofs_velocity()  # (num_envs, num_dof) [0:3] ~ base_link_vel
-        #     push_vel = gs_rand_float(-max_push_vel_xy,
-        #                              max_push_vel_xy, (self.num_envs, 2), self.device)
-        #     self._rand_push_vels[:, :2] = push_vel.detach().clone()
-        #     push_vel[((self.common_step_counter + self.env_identities) %
-        #               int(self.push_interval_s / self.dt) != 0)] = 0
-        #     dofs_vel[:, :2] += push_vel
-        #     self.robot.set_dofs_velocity(dofs_vel)
         if self.push_interval_s > 0 and not self.debug:
             max_push_vel_xy = self.cfg.domain_rand.max_push_vel_xy
-            max_push_torque = self.cfg.domain_rand.max_push_torque
-            
-            # interval gating
-            push_mask = (
-                (self.common_step_counter + self.env_identities)
-                % int(self.push_interval_s / self.dt)
-            ) == 0
-            
             # in Genesis, base link also has DOF, it's 6DOF if not fixed.
             dofs_vel = self.robot.get_dofs_velocity()  # (num_envs, num_dof) [0:3] ~ base_link_vel
-            lin_vel = gs_rand_float(-max_push_vel_xy,
+            push_vel = gs_rand_float(-max_push_vel_xy,
                                      max_push_vel_xy, (self.num_envs, 2), self.device)
-            self._rand_push_vels[:, :2] = lin_vel.detach().clone()
-            lin_vel[~push_mask] = 0.0
-            dofs_vel[:, :2] += lin_vel
-            
-            ang_push = gs_rand_float(
-                -max_push_torque,
-                max_push_torque,
-                (self.num_envs, 2),   # roll, pitch
-                self.device
-            )
-            self._rand_wrench_vels[:, :2] = ang_push.detach().clone()
-            ang_push[~push_mask] = 0.0
-            dofs_vel[:, 3:5] += ang_push
-            
+            self._rand_push_vels[:, :2] = push_vel.detach().clone()
+            push_vel[((self.common_step_counter + self.env_identities) %
+                      int(self.push_interval_s / self.dt) != 0)] = 0
+            dofs_vel[:, :2] += push_vel
             self.robot.set_dofs_velocity(dofs_vel)
+        
+        # if self.push_interval_min > 0 and not self.debug:
+        #     max_push_vel_xy = self.cfg.domain_rand.max_push_vel_xy
+        #     max_push_torque = self.cfg.domain_rand.max_push_torque
+        #     max_vert_vel = self.cfg.domain_rand.max_vertical_push
+            
+        #     # interval gating
+        #     push_mask = (
+        #         (self.common_step_counter + self.env_identities)
+        #         % (self.push_timeouts / self.dt).int()
+        #     ) == 0
+
+        #     wrench_mask = (
+        #         (self.common_step_counter + self.env_identities)
+        #         % (self.wrench_timeouts / self.dt).int()
+        #     )  == 0
+            
+        #     vert_mask = (
+        #         (self.common_step_counter + self.env_identities)
+        #         % (self.vert_timeouts / self.dt).int()
+        #     )  == 0
+            
+        #     if self.common_step_counter % 100000 == 0:
+        #         self.wrench_timeouts = torch.round(
+        #             gs_rand_float(self.wrench_timeout_min,
+        #                         self.wrench_timeout_max,
+        #                         (self.cfg.env.num_envs,),
+        #                         self.device),
+        #             decimals=self.n_digits).float()
+        #         self.push_timeouts = torch.round(
+        #             gs_rand_float(self.push_interval_min,
+        #                         self.push_interval_max,
+        #                         (self.cfg.env.num_envs,),
+        #                         self.device),
+        #             decimals=self.n_digits).float()
+        #         self.vert_timeouts = torch.round(
+        #             gs_rand_float(self.vert_interval_min,
+        #                         self.vert_interval_max,
+        #                         (self.cfg.env.num_envs,),
+        #                         self.device),
+        #             decimals=self.n_digits).float()
+                    
+        #     # in Genesis, base link also has DOF, it's 6DOF if not fixed.
+        #     dofs_vel = self.robot.get_dofs_velocity()  # (num_envs, num_dof) [0:3] ~ base_link_vel
+        #     lin_vel = gs_rand_float(-self.push_value,
+        #                              self.push_value, (self.num_envs, 2), self.device)
+        #     self._rand_push_vels[:, :2] = lin_vel.detach().clone()
+        #     lin_vel[~push_mask] = 0.0
+        #     dofs_vel[:, :2] += lin_vel
+            
+        #     ang_push = gs_rand_float(
+        #         -self.wrench_value,
+        #         self.wrench_value,
+        #         (self.num_envs, 3),   # roll, pitch
+        #         self.device
+        #     )
+        #     # self._rand_wrench_vels[:, :2] = ang_push.detach().clone()
+        #     ang_push[~wrench_mask] = 0.0
+        #     dofs_vel[:, 3:6] += ang_push
+            
+        #     vert_push = gs_rand_float(
+        #         self.vert_value,
+        #         0.0,
+        #         (self.num_envs, 1),   # z-axis
+        #         self.device
+        #     )
+        #     vert_push[~vert_mask] = 0.0
+        #     dofs_vel[:,2] += vert_push.squeeze(-1)
+
+        #     self.robot.set_dofs_velocity(dofs_vel)
 
     def _push_towards_cmd(self):
         """ Random pushes the robots. Emulates an impulse by setting a randomized base velocity. 
@@ -997,6 +1006,27 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.extras = {}
         self.noise_scale_vec = self._get_noise_scale_vec()
         
+        self.wrench_timeouts = torch.round(
+            gs_rand_float(self.wrench_timeout_min,
+                        self.wrench_timeout_max,
+                        (self.cfg.env.num_envs,),
+                        self.device),
+            decimals=self.n_digits).float()
+
+        self.push_timeouts = torch.round(
+            gs_rand_float(self.push_interval_min,
+                          self.push_interval_max,
+                          (self.cfg.env.num_envs,),
+                          self.device),
+            decimals=self.n_digits).float()
+        
+        self.vert_timeouts = torch.round(
+            gs_rand_float(self.vert_interval_min,
+                          self.vert_interval_max,
+                          (self.cfg.env.num_envs,),
+                          self.device),
+            decimals=self.n_digits).float()
+
         self.forward_vec = torch.zeros(
             (self.num_envs, 3), device=self.device, dtype=gs.tc_float
         )
@@ -1213,8 +1243,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
             if scale ==0:
                 self.reward_scales.pop(key)
             else:
-                # print("Non-zero shared reward + scale - ", key)
-                # print(self.reward_scales[key])
+                # print("Non-zero shared reward + scale - ", key, " - ", self.reward_scales[key]*self.dt)
                 self.reward_scales[key] *= self.dt
         
         # prepare list of functions
@@ -1253,6 +1282,68 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.height_samples = torch.tensor(self.utils_terrain.heightsamples).view(
             self.utils_terrain.tot_rows, self.utils_terrain.tot_cols).to(self.device)
 
+    def _build_liquid_payloads(self):
+        # pull out the liquid properties we are using
+        self.liquid_properties = get_payload_config(self.cfg.liquid.liquid_type, self.cfg.liquid.liquid_volume)
+        
+        rob_pos = np.array(self.cfg.init_state.pos)
+        rob_quat = np.array(self.cfg.init_state.rot)
+        
+        # this 0.1 is a magic value that is slightly shorter than the actual height of the stl model
+        #    effectively "welding" the top of the tank walls and the lid.
+        #    this has been found to precent particles from "spilling" out the top due to minor simulation inaccuracies
+        lid_offset = (0.1/2.0) + (self.liquid_properties["scale_z"]*container_outer_z)
+        
+        # Add the liquid container
+        self.bucket = self.scene.add_entity(
+            material=gs.materials.Rigid(gravity_compensation=1.0,),
+            morph=gs.morphs.Mesh(
+                file="water_tank_proper_units_simple.stl",
+                scale=(self.liquid_properties["scale_x"],
+                       self.liquid_properties["scale_y"],
+                       self.liquid_properties["scale_z"]),    # adjust scale
+                pos= (rob_pos[0], rob_pos[1], bucket_offset),      # position
+                quat=rob_quat, # no rotation; uses w, x, y, z quaternion
+            decimate=False,
+            convexify=False),
+            surface=gs.surfaces.Glass(opacity=0.6))
+        
+        # Add a lid to the liquid container
+        self.lid = self.scene.add_entity(
+            material=gs.materials.Rigid(gravity_compensation=1.0),
+            morph=gs.morphs.Mesh(
+                file="water_tank_lid.stl",
+                scale=(self.liquid_properties["scale_x"],
+                       self.liquid_properties["scale_y"],
+                       1.0),    # adjust scale if needed
+            pos= (rob_pos[0], rob_pos[1], lid_offset),      # position
+            quat=rob_quat, # no rotation; uses w, x, y, z quaternion
+            decimate=False,
+            convexify=False),
+            surface=gs.surfaces.Glass(opacity=0.6))
+
+        # Calculate the scaled internal dimensions of the container
+        #   this offset sets how big of a space that the particle sampler
+        #   will use to fill with particles.
+        #   This is how we determine a volume.
+        scaled_width = container_outer_x * self.liquid_properties["scale_x"] - 2.0 * (self.liquid_properties["scale_x"]*container_wall_thickness)
+        scaled_depth = container_outer_y * self.liquid_properties["scale_y"] - 2.0 * (self.liquid_properties["scale_y"]*container_wall_thickness)
+        scaled_height = container_outer_z * self.liquid_properties["scale_z"] - self.liquid_properties["scale_z"]*container_bottom_thickness
+        
+        # add the liquid itself
+        self.liquid = self.scene.add_entity(
+            material=gs.materials.SPH.Liquid(rho=self.liquid_properties["rho"],
+                                             mu=self.liquid_properties["mu"],
+                                             gamma=self.liquid_properties["gamma"]),
+            morph=gs.morphs.Box(pos=(rob_pos[0],
+                                     rob_pos[1],
+                                     rob_pos[2] + bucket_offset + 0.5*scaled_height),
+                            size=(scaled_width-self.liquid_properties["offset"],
+                                  scaled_depth-self.liquid_properties["offset"],
+                                  scaled_height-self.liquid_properties["offset"])),
+            surface=gs.surfaces.Water(),
+        )
+
     def _create_envs(self):
         """ Creates environments:
              1. loads the robot URDF/MJCF asset, create entity
@@ -1276,9 +1367,21 @@ class LeggedRobotGo1Dynamic(BaseTask):
         )
 
         # add water tanks to robots....
-
+        if self.use_liquid:
+            # Add the contaier, lid, and liquid
+            self._build_liquid_payloads()
+            # Rigidly attach the tank and lid to the robot base
+            if self.bucket and self.robot:
+                self.bucket.attach(self.robot, "base")
+            if self.lid and self.robot:
+                self.lid.attach(self.robot, "base")
+                
         # build
         self.scene.build(n_envs=self.num_envs)
+        
+        if self.use_liquid:
+            # extract the inital pose of the liquid, to be used to reset it later
+            self.liquid_init_pose = self.liquid.get_particles_pos()
 
         self._get_env_origins()
 
@@ -1287,7 +1390,6 @@ class LeggedRobotGo1Dynamic(BaseTask):
         # name to indices
         self.motors_dof_idx = [self.robot.get_joint(
             name).dof_start for name in self.cfg.asset.dof_names]
-
 
         # find link indices, termination links, penalized links, and feet, utility function
         def find_link_indices(names):
@@ -1306,52 +1408,52 @@ class LeggedRobotGo1Dynamic(BaseTask):
         #      and create the necessary index maps.
         ###
         
-        # Create a pinocchio dynamics model and data container
-        self.pino_model = pn.buildModelFromUrdf(os.path.join(asset_root, asset_file), pn.JointModelFreeFlyer())
-        self.pino_data  = self.pino_model.createData()
+        # # Create a pinocchio dynamics model and data container
+        # self.pino_model = pn.buildModelFromUrdf(os.path.join(asset_root, asset_file), pn.JointModelFreeFlyer())
+        # self.pino_data  = self.pino_model.createData()
 
-        # Create the joint mappings from model-2-pino and pino-2-model - model: [FR, FL, RR, RL], pino: [FL, FR, RL, RR]
-        pino_dof_names = [name for name in self.pino_model.names[2:]]   # skip the universe and base joints
+        # # Create the joint mappings from model-2-pino and pino-2-model - model: [FR, FL, RR, RL], pino: [FL, FR, RL, RR]
+        # pino_dof_names = [name for name in self.pino_model.names[2:]]   # skip the universe and base joints
 
-        # Maps from the [FR, FL, RR, RL] leg order used by the model to the [FL, FR, RL, RR] order used by pinocchio 
-        #       I have confirmed that this is the order the joints load in for these URDF's but this should
-        #       be safe for aribitrary orderings.
-        self.model_2_pino_joint_map = []
-        for dof_name in pino_dof_names:
-            self.model_2_pino_joint_map.append(self.dof_names.index(dof_name))
+        # # Maps from the [FR, FL, RR, RL] leg order used by the model to the [FL, FR, RL, RR] order used by pinocchio 
+        # #       I have confirmed that this is the order the joints load in for these URDF's but this should
+        # #       be safe for aribitrary orderings.
+        # self.model_2_pino_joint_map = []
+        # for dof_name in pino_dof_names:
+        #     self.model_2_pino_joint_map.append(self.dof_names.index(dof_name))
 
-        print("self.model_2_pino_joint_map")
-        print(self.model_2_pino_joint_map)
+        # print("self.model_2_pino_joint_map")
+        # print(self.model_2_pino_joint_map)
         
-        # Maps from pinocchio's leg order to the [FR, FL, RR, RL] ordering used by the learning model and
-        #      enforced in this code. Note, pinocchio's DOF positions uses a quat for the orientation
-        #      and so has a lightly different indexing scheme from the output of the elements of the 
-        #      dynamics equations we will use, so we need both
-        self.pino_2_model_joint_pos_map = []
-        self.pino_2_model_joint_act_map = []
-        for joint_name in self.dof_names:
-            joint_id = self.pino_model.getJointId(joint_name)  # pull out the pinocchio idx for this joint
-            joint = self.pino_model.joints[joint_id]           # pull out the joint itself
-            v_idx = joint.idx_v                                # Get the start index of the joint's DoFs in the velocity vector (v)
-            q_idx = joint.idx_q                                # Get the start index of the joint's DoFs in the configuration vector (q)
-            # The joints we care about only have a single DOF...
-            self.pino_2_model_joint_act_map.append(v_idx)
-            self.pino_2_model_joint_pos_map.append(q_idx)
+        # # Maps from pinocchio's leg order to the [FR, FL, RR, RL] ordering used by the learning model and
+        # #      enforced in this code. Note, pinocchio's DOF positions uses a quat for the orientation
+        # #      and so has a lightly different indexing scheme from the output of the elements of the 
+        # #      dynamics equations we will use, so we need both
+        # self.pino_2_model_joint_pos_map = []
+        # self.pino_2_model_joint_act_map = []
+        # for joint_name in self.dof_names:
+        #     joint_id = self.pino_model.getJointId(joint_name)  # pull out the pinocchio idx for this joint
+        #     joint = self.pino_model.joints[joint_id]           # pull out the joint itself
+        #     v_idx = joint.idx_v                                # Get the start index of the joint's DoFs in the velocity vector (v)
+        #     q_idx = joint.idx_q                                # Get the start index of the joint's DoFs in the configuration vector (q)
+        #     # The joints we care about only have a single DOF...
+        #     self.pino_2_model_joint_act_map.append(v_idx)
+        #     self.pino_2_model_joint_pos_map.append(q_idx)
 
-        print("self.pino_2_model_joint_pos_map and self.pino_2_model_joint_act_map")
-        print(self.pino_2_model_joint_pos_map)
-        print(self.pino_2_model_joint_act_map)
+        # print("self.pino_2_model_joint_pos_map and self.pino_2_model_joint_act_map")
+        # print(self.pino_2_model_joint_pos_map)
+        # print(self.pino_2_model_joint_act_map)
 
 
-        # Also need a separate list of foot names and indicies... so stupid...
-        self.pino_foot_names = []
+        # # Also need a separate list of foot names and indicies... so stupid...
+        # self.pino_foot_names = []
 
-        for frame in self.pino_model.frames:
-            name = frame.name
-            if name.endswith("foot"):
-                self.pino_foot_names.append(name)
+        # for frame in self.pino_model.frames:
+        #     name = frame.name
+        #     if name.endswith("foot"):
+        #         self.pino_foot_names.append(name)
 
-        self.pino_feet_indices = find_link_indices(self.pino_foot_names)
+        # self.pino_feet_indices = find_link_indices(self.pino_foot_names)
 
         self.termination_indices = find_link_indices(
             self.cfg.asset.terminate_after_contacts_on)
@@ -1377,7 +1479,14 @@ class LeggedRobotGo1Dynamic(BaseTask):
             self.robot.get_dofs_limit(self.motors_dof_idx), dim=1)
         self.torque_limits = self.robot.get_dofs_force_range(self.motors_dof_idx)[1]
 
+        self.torque_limits_override = torch.from_numpy(np.array([23.7, 23.7, 35.55, 23.7, 23.7, 35.55, 23.7, 23.7, 35.55, 23.7, 23.7, 35.55])).to(self.device)
+
+        self.torque_limits_lower = self.torque_limits.clone()
+        self.torque_limits_diff = self.torque_limits_override - self.torque_limits
+
         self.dof_pos_limits_hard = self.dof_pos_limits.clone()
+
+        print(self.dof_pos_limits_hard.shape)
 
         for i in range(self.dof_pos_limits.shape[0]):
             # soft limits
@@ -1462,23 +1571,37 @@ class LeggedRobotGo1Dynamic(BaseTask):
 
     def _randomize_base_mass(self, env_ids=None):
         ''' Randomize base mass'''
-        min_mass, max_mass = self.cfg.domain_rand.added_mass_range
+        min_mass, max_mass = self.mass_min, self.mass_max_value
+        min_mass, max_mass = 4.00, 6.00
         base_link_id = 1
-        added_mass = gs.rand((len(env_ids), 1), dtype=float) * \
-                             (max_mass - min_mass) + min_mass
+        added_mass = gs.rand((len(env_ids), 1), dtype=float) * (max_mass - min_mass) + min_mass
+        
         self._added_base_mass[env_ids] = added_mass[:].detach().clone()
-        self.rigid_solver.set_links_mass_shift(
-            added_mass, [base_link_id, ], env_ids)
+        
+        self.rigid_solver.set_links_mass_shift(added_mass, [base_link_id, ], env_ids)
 
     def _randomize_com_displacement(self, env_ids):
         ''' Randomize base COM'''
-        min_displacement, max_displacement = self.cfg.domain_rand.com_displacement_range
+        min_displacement, max_displacement = -self.com_delta_value, self.com_delta_value
+        min_dis_z, max_dis_z = self.cfg.domain_rand.com_displacement_range_z
+        
+        if self.num_iters > 3000 and self.num_iters < 3250:
+            min_dis_z, max_dis_z = 0.0, 0.10
+        if self.num_iters > 3250:
+            min_dis_z, max_dis_z = 0.10, 0.30
+        
         base_link_id = 1
 
-        com_displacement = gs.rand((len(env_ids), 1, 3), dtype=float) \
-        * (max_displacement - min_displacement) + min_displacement
-        self._base_com_bias[env_ids] = com_displacement[:,
-            0, :].detach().clone()
+        com_displacement = gs.rand((len(env_ids), 1, 3), dtype=float) * (max_displacement - min_displacement) + min_displacement
+        
+        if self.num_iters > 3000 and self.num_iters < 3250:
+            com_displacement[:, 0, 1] = (gs.rand((len(env_ids), 1,), dtype=float) * (0.1 - (-0.1)) + (-0.1)).squeeze() 
+        if self.num_iters > 3250:
+            com_displacement[:, 0, 1] = (gs.rand((len(env_ids), 1,), dtype=float) * (0.15 - (-0.15)) + (-0.15)).squeeze() 
+        
+        com_displacement[:, 0, 2] = (gs.rand((len(env_ids), 1,), dtype=float) * (max_dis_z - min_dis_z) + min_dis_z).squeeze() 
+
+        self._base_com_bias[env_ids] = com_displacement[:, 0, :].detach().clone()
 
         self.rigid_solver.set_links_COM_shift(
             com_displacement, [base_link_id,], env_ids)
@@ -1517,7 +1640,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
             damping, self.motors_dof_idx, envs_idx=env_ids)
         
     def step_tradeoff_curriculum(self, env_ids):
-        # If the tracking reward is above XX% of the maximum, increase the tradeoff        
+        # # If the tracking reward is above XX% of the maximum, increase the tradeoff        
         if torch.mean(self.episode_sums["tracking_lin_vel"][env_ids]) / self.max_episode_length > \
                 self.cfg.control.tradeoff_threshold * self.reward_scales["tracking_lin_vel"]:
             
@@ -1538,10 +1661,10 @@ class LeggedRobotGo1Dynamic(BaseTask):
 
         random_smaple = random.random()
         
-        if random_smaple <= 0.20:  # 20% of the time reduce to lower bound
+        if random_smaple <= 0.25:  # 20% of the time reduce to lower bound
             self.feedforward_tau_weight[env_ids] = self.tradeoff_lowerbounds[0]
             self.feedback_tau_weight[env_ids]    = self.tradeoff_lowerbounds[1]
-        elif random_smaple > 0.20 and random_smaple <= 0.45: # ~25% of the time, sample a random value between the lower and current upper bound
+        elif random_smaple > 0.25 and random_smaple <= 0.50: # ~25% of the time, sample a random value between the lower and current upper bound
             # step_ctr * (1.0/num_steps) -> is the per-env upper bound. Multipled by a random float between [0,1)
             random_step_size = self.tradeoff_step_ctr*float(1.0/self.tradeoff_num_steps) * torch.rand((self.num_envs, 1))
 
@@ -1558,6 +1681,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
             for key in self.reward_curr_keys:
                 if key in self.reward_scales.keys():
                     self.reward_scales[key] = self.reward_curr_bounds[key][0] * self.dt
+                    # print("Reward - ", key, " scale - ", self.reward_scales[key])
         # Gradually increase the regularization strength
         elif self.num_iters > self.reward_warmup_steps and (self.num_iters - self.reward_warmup_steps) < self.reward_curr_steps:
             print("Stepping Reward Curriculum")
@@ -1565,21 +1689,66 @@ class LeggedRobotGo1Dynamic(BaseTask):
             for key in self.reward_curr_keys:
                 if key in self.reward_scales.keys():
                     self.reward_scales[key] = ((float(adjusted_iter)/float(self.reward_curr_steps))*self.reward_bound_diffs[key] + self.reward_curr_bounds[key][0])*self.dt
+                    # print("Reward - ", key, " scale - ", self.reward_scales[key])
         # Fix the regularization strength to the upper-bound
         else:
             # by default set the reward to the upper bound
             for key in self.reward_curr_keys:
                 if key in self.reward_scales.keys():
                     self.reward_scales[key] = self.reward_curr_bounds[key][1] * self.dt
+                    
+    def step_push(self):
+        if (self.num_iters - self.push_warmup_step) > self.num_push_steps:
+            return
+        elif self.num_iters <= self.push_warmup_step:
+            print("Push Value: ", self.push_value)
+            print("Wrench Value: ", self.wrench_value)
+            print("Vertical Push Value: ", self.vert_value)
+            print("Mass Max Value: ", self.mass_max_value)
+            print("COM Delta Value: ", self.com_delta_value)
+            print("Torque Limits - ", self.torque_limits[0])
+            return
+
+        adjusted_step = self.num_iters - self.push_warmup_step
+        
+        # Safety catch, hopefully isn't needed really
+        if adjusted_step == 0:
+            print("Push Value: ", self.push_value)
+            print("Wrench Value: ", self.wrench_value)
+            print("Vertical Push Value: ", self.vert_value)
+            print("Mass Max Value: ", self.mass_max_value)
+            print("COM Delta Value: ", self.com_delta_value)
+            print("Torque Limits - ", self.torque_limits[0])
+            return
+
+        self.push_value      = (adjusted_step / self.num_push_steps) * self.push_diff + self.push_bounds[0]
+        self.wrench_value    = (adjusted_step / self.num_push_steps) * self.wrench_diff + self.wrench_bounds[0]
+        self.vert_value      = (adjusted_step / self.num_push_steps) * self.vert_diff + self.vert_bounds[0]
+        self.mass_max_value  = (adjusted_step / self.num_push_steps) * self.mass_bounds_diff + self.max_mass_bounds[0]
+        self.com_delta_value = (adjusted_step / self.num_push_steps) * self.com_delta_diff  + self.com_delta_bounds[0]
+        self.torque_limits   = (adjusted_step / self.num_push_steps) * self.torque_limits_diff  + self.torque_limits_lower
+
+        print("Push Value: ", self.push_value)
+        print("Wrench Value: ", self.wrench_value)
+        print("Vertical Push Value: ", self.vert_value)
+        print("Mass Max Value: ", self.mass_max_value)
+        print("COM Delta Value: ", self.com_delta_value)
+        print("Torque Limits - ", self.torque_limits[0])
 
     def _parse_cfg(self, cfg, sim_device):
         self.dt = self.cfg.control.dt
         # use self-implemented pd controller
         self.sim_dt = self.dt / self.cfg.control.decimation
-        self.sim_substeps = 1
         self.obs_scales = self.cfg.normalization.obs_scales
         self.reward_scales = class_to_dict(self.cfg.rewards.scales)
-        
+
+        self.sim_substeps = 1
+
+        # Added to support liquid payloads
+        if self.cfg.env.use_liquid:
+            self.sim_substeps = liquid_substeps
+            self.use_liquid = True
+
         self.use_reward_curriculum = self.cfg.rewards.use_reward_curriculum
 
         self.reward_curr_keys = self.cfg.rewards.reward_curriculum.curr_reward_keys
@@ -1599,6 +1768,47 @@ class LeggedRobotGo1Dynamic(BaseTask):
         self.max_episode_length = np.ceil(self.max_episode_length_s / self.dt)
 
         self.push_interval_s = self.cfg.domain_rand.push_interval_s
+
+        self.vert_interval_min = self.cfg.domain_rand.vert_interval_min
+        self.vert_interval_max = self.cfg.domain_rand.vert_interval_max
+
+        self.push_interval_min = self.cfg.domain_rand.push_interval_min
+        self.push_interval_max = self.cfg.domain_rand.push_interval_max
+
+        self.wrench_timeout_min = self.cfg.domain_rand.wrench_timeout_min
+        self.wrench_timeout_max = self.cfg.domain_rand.wrench_timeout_max
+        # self.wrenc_timeouts = torch.zeros(self.num_envs, device=sim_device, dtype=gs.tc_float)
+        self.n_digits = int(1.0/self.dt)
+        
+        self.num_push_steps = self.cfg.domain_rand.num_push_steps
+        self.push_warmup_step = self.cfg.domain_rand.push_warmup
+        
+        self.push_bounds = [self.cfg.domain_rand.min_push_vel_xy,
+                            self.cfg.domain_rand.max_push_vel_xy]
+        self.push_diff = self.push_bounds[1] - self.push_bounds[0]
+        self.push_value = self.push_bounds[0]
+        
+        self.vert_bounds = [self.cfg.domain_rand.min_vertical_push,
+                            self.cfg.domain_rand.max_vertical_push]
+        self.vert_diff = self.vert_bounds[1] - self.vert_bounds[0]
+        self.vert_value = self.vert_bounds[0]
+        
+        self.wrench_bounds = [self.cfg.domain_rand.min_push_torque,
+                              self.cfg.domain_rand.max_push_torque]
+        self.wrench_diff = self.wrench_bounds[1] - self.wrench_bounds[0]
+        self.wrench_value = self.wrench_bounds[0]
+
+        self.max_mass_bounds = [self.cfg.domain_rand.min_added_mass_max,
+                                self.cfg.domain_rand.max_added_mass_max]
+        
+        self.mass_min = self.cfg.domain_rand.added_mass_min
+        self.mass_bounds_diff = self.max_mass_bounds[1] - self.max_mass_bounds[0]
+        self.mass_max_value = self.max_mass_bounds[0]
+
+        self.com_delta_bounds = [self.cfg.domain_rand.com_displacement_xy_min,
+                                 self.cfg.domain_rand.com_displacement_xy_max]
+        self.com_delta_diff   = self.com_delta_bounds[1] - self.com_delta_bounds[0]
+        self.com_delta_value = self.com_delta_bounds[0]
 
         # determine privileged observation offset to normalize privileged observations
         self.friction_value_offset = (self.cfg.domain_rand.friction_range[0] + 
@@ -1628,7 +1838,9 @@ class LeggedRobotGo1Dynamic(BaseTask):
 
         self.feedforward_tau_weight = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float)
         self.feedback_tau_weight = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float)
-        self.tradeoff_step_ctr = torch.zeros((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float)
+        
+        # We want to be at the full bounds right away, but we want to skip back sometimes for exploration
+        self.tradeoff_step_ctr = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float) * self.tradeoff_num_steps
 
         self.num_iters = 0
 
@@ -1786,7 +1998,7 @@ class LeggedRobotGo1Dynamic(BaseTask):
         return torch.sum(torch.square(self.torques), dim=1)
     
     def _reward_feedback_torques(self):
-        return torch.sum(torch.square(self.feedback_torques),dim=1)
+        return torch.sum(torch.square(self.first_loop_feedback),dim=1)
     
     def _reward_feedforward_torques(self):
         return torch.sum(torch.square(self.feedforward_torques),dim=1)
@@ -1851,9 +2063,9 @@ class LeggedRobotGo1Dynamic(BaseTask):
         actions_scaled = pos_actions * repeat_pos_scales + self.default_dof_pos
         
         # Penalize dof positions too close to the limit
-        out_of_limits = -(actions_scaled - self.dof_pos_limits[:, 0]).clip(max=0.)  # lower limit
+        out_of_limits = -(actions_scaled - self.dof_pos_limits_hard[:, 0]).clip(max=0.)  # lower limit
         out_of_limits += (actions_scaled - \
-                          self.dof_pos_limits[:, 1]).clip(min=0.)
+                          self.dof_pos_limits_hard[:, 1]).clip(min=0.)
         return torch.sum(out_of_limits, dim=1)
     
     def _reward_act_close_to_default(self):
@@ -2246,7 +2458,8 @@ class LeggedRobotGo1Dynamic(BaseTask):
             bonus_x = 0.175
             if i > 1:
                 bonus_x = 0.10
-            bonus_y = 0.20
+            
+            bonus_y = 0.25
             # now calculate the more complicated Raibert hueristic
             #     symmetry hueristic
             raibert_xy = raibert_gain * (self.base_lin_vel[:,:2] - self.commands[:,:2])  # (num_env, 2)
