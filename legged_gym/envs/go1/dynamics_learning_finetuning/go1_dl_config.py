@@ -283,7 +283,7 @@ class GO1DynamicFinetuneCfg( LeggedRobotCfg ):
         tradeoff_final_weights = [1.00, 1.00]
         tradeoff_steps = 10
         tradeoff_threshold = 0.50
-        use_tradeoff_curriculum = True
+        use_tradeoff_curriculum = False
 
     class termination:
         termination_terms = ["roll", "pitch", "height_min", "height_max"]
@@ -427,7 +427,7 @@ class GO1DynmaicFinetuneCfgPPO( LeggedRobotCfgPPO ):
         pinn_init_steps = 0
 
         # pretrained_path = "/home/oyoungquist/Research/LearningWBIC/genesis_lr_dreamwaq/logs/rss_go1_dynamic/Jan12_20-55-27_full_approach_boot_newfilm_01_100hz_posboot/model_5000.pt"
-        pretrained_path = "../../rsl_rl/modules/pretrained_models/rl_pos/Jan13_18-35-33_unimodel_boot_01_100hz_tanh_pos/model_1000.pt"
+        # pretrained_path = "../../rsl_rl/modules/pretrained_models/rl_pos/Jan13_18-35-33_unimodel_boot_01_100hz_tanh_pos/model_1000.pt"
 
     class algorithm( LeggedRobotCfgPPO.algorithm ):
         entropy_coef = 0.01
@@ -453,15 +453,15 @@ class GO1DynmaicFinetuneCfgPPO( LeggedRobotCfgPPO ):
         
         # debug_warmpinn_wb
         run_name = 'ablation_unimodel_np_grfdec_grfcrit_100hz_posboot_01_finetune'
-        experiment_name = 'rss_go1_dynamic_unimodel'
+        experiment_name = 'rss_go1_dynamic_unimodel_nopinn'
         save_interval = 100
         
         
         # load_run = "Jan21_19-12-44_unimodel_grf_pinn_100hz_full_posboot_01_finetune"
-        load_run = "Jan17_23-04-11_ablation_unimodel_np_grfdec_grfcrit_100hz_posboot_01"
+        load_run = "Jan23_13-31-44_ablation_unimodel_np_grfdec_grfcrit_100hz_posboot_01_finetune_02"
         checkpoint = 5000
-        # resume = True
-        # exp_data_path = "exp_data/Jan21_19-12-44_unimodel_grf_pinn_100hz_full_posboot_01_finetune/finetune_hardereval_nopd.csv"
+        resume = True
+        exp_data_path = "exp_data/nopinn_ablation_nopayload_test/basic_test.csv"
 
         # Load parameters for first function policy
         # run_name = 'test_01'

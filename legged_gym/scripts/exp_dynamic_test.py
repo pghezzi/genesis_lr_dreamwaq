@@ -14,7 +14,7 @@ import torch.nn.functional as F
 
 
 def play(args):
-    args.task = "go1_dynamic"
+    args.task = "go1_dynamic_ft"
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, 30)
@@ -75,7 +75,7 @@ def play(args):
     print("Min - self.feedback_tau_weight: ", torch.min(env.feedback_tau_weight).item())
     start_time = time.perf_counter() # Record the start time
 
-    for i in range(10*int(env.max_episode_length)):
+    for i in range(2*int(env.max_episode_length)):
     # for i in range(1000):
         actions = policy(obs.detach(), obs_hist.detach())
         obs, _, obs_hist, rews, dones, infos, grfs = env.step(actions.detach())
@@ -113,7 +113,7 @@ def play(args):
                 'grf':env.grfs_buf.detach().cpu().numpy().tolist(),
                 'q_des':env.get_scaled_pos_actions().detach().cpu().numpy().tolist(),
                 'tau_ff':env.feedforward_torques.detach().cpu().numpy().tolist(),
-                'tau_pd':env.feedback_torques_init.detach().cpu().numpy().tolist(),
+                'tau_pd':env.first_loop_feedback.detach().cpu().numpy().tolist(),
                 'failure':list(map(int, env.get_failure_idx().detach().cpu().numpy().tolist()))
             }
         )
