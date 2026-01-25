@@ -329,7 +329,7 @@ class PPOPos:
                     all_enc_recons.extend(enc_update_obs_decode.clone().detach().cpu().numpy())
 
                 # autoenc_loss = (nn.MSELoss()(cenet_torso_velo,vel_target) + nn.MSELoss()(enc_update_obs_decode,decode_target) + beta*(-0.5 * torch.sum(1 + logvar_latent - mean_latent.pow(2) - logvar_latent.exp())))/self.num_mini_batches
-                cenet_qref_pred = dof_target(cenet_qref_pred)
+                cenet_qref_pred = dof_target(cenet_qref_pred).float()
                 q_ref_pred_error = F.mse_loss(cenet_qref_pred, q_pos_ref)
                 vel_pred_error = F.mse_loss(cenet_torso_velo,vel_target)
                 recon_error    = F.mse_loss(enc_update_obs_decode,decode_target)

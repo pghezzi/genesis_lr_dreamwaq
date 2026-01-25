@@ -178,7 +178,7 @@ class OnPolicyRunnerPos:
                 self.alg.compute_returns(critic_obs)
 
             mean_pos_value_loss, mean_pos_surrogate_loss, mean_autoenc_loss, mean_decoder_loss, \
-                mean_vel_loss, mean_recon_loss, mean_kld_loss, mean_tau_loss, mean_qref_loss = self.alg.update(self.env._get_pd_torques, self.env.default_dof_pos, beta=2.0)
+                mean_vel_loss, mean_recon_loss, mean_kld_loss, mean_tau_loss, mean_qref_loss = self.alg.update(self.env._compute_target_dof_pos, self.env.default_dof_pos, beta=2.0)
             
             # if self.env.use_reward_curriculum:
             #     self.env.step_reward_curriculum()
