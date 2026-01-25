@@ -29,7 +29,7 @@ def play(args):
     env_cfg.terrain.num_cols = 5
     env_cfg.noise.add_noise = True
     env_cfg.asset.fix_base_link = False
-    train_cfg.runner.resume = False
+    
     # initial state randomization
     env_cfg.init_state.yaw_angle_range = [0., 0.]
     # velocity range
@@ -54,7 +54,7 @@ def play(args):
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
     obs, obs_hist = env.get_observations()
     # load policy
-    train_cfg.runner.resume = True
+    train_cfg.runner.resume = False
     ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
     policy = ppo_runner.get_inference_policy(device=env.device)
     
