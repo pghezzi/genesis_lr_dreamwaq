@@ -284,7 +284,7 @@ class GO1DynamicFinetuneCfg( LeggedRobotCfg ):
         tradeoff_final_weights = [1.00, 1.00]
         tradeoff_steps = 10
         tradeoff_threshold = 0.60
-        use_tradeoff_curriculum = True
+        use_tradeoff_curriculum = False
 
     class termination:
         termination_terms = ["roll", "pitch", "height_min", "height_max"]
@@ -371,7 +371,7 @@ class GO1DynamicFinetuneCfg( LeggedRobotCfg ):
             
             curr_reward_bounds = {"action_rate":[-1.0e-3, -1.0e-2],
                                   "action_smoothness":[-1.0e-3, -1.0e-2],
-                                  "feedback_torques":[-2.25e-4, -2.0e-4],
+                                  "feedback_torques":[-2.25e-4, -1.9e-4],
                                   "feedforward_torques":[-2.0e-4, -2.2e-4],
                                   "feet_contact_forces":[-1.0e-1,-5.0e-1],
                                   "ang_vel_xy":[-0.05, -0.1],
@@ -460,11 +460,11 @@ class GO1DynmaicFinetuneCfgPPO( LeggedRobotCfgPPO ):
         save_interval = 100
         
         
-        load_run = "Jan23_20-49-18_unimodel_grf_pinn_100hz_full_posboot_01_finetune_full_02"
+        load_run = "temp"
         # load_run = "Jan22_12-37-13_unimodel_grf_pinn_100hz_full_posboot_02_finetune"
-        checkpoint = 2600
+        checkpoint = 2800
         resume = True
-        # exp_data_path = "exp_data/Jan22_23-09-59_unimodel_grf_pinn_100hz_full_posboot_01_finetune_full/fullrun_pd_eval_nopd.csv"
+        exp_data_path = "exp_data/temp/fullrun_pd_eval_nopd.csv"
 
         # Load parameters for first function policy
         # run_name = 'test_01'
