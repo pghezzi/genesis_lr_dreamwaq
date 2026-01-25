@@ -955,14 +955,14 @@ class ActorCritic_Pos(nn.Module):
     @torch.jit.export
     def act_inference_deploy(self, obs, obs_history):
         # Call the forward method of the context encoder
-        _, _, z, torso_velo = self.cenet_enc_forward(obs_history)
+        _, _, z, torso_velo, q_ref = self.cenet_enc_forward(obs_history)
         
         # create the actors observation
         current_obs = torch.cat((obs,z,torso_velo), dim=-1)   
         
         # call the actors forward method and return it's results
         actions_pos = self.actor_forward(current_obs)
-        return actions_pos
+        return actions_pos, q_ref
     
     @torch.jit.export
     def act_inference_deploy_log(self, obs, obs_history):
