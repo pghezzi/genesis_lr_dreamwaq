@@ -54,6 +54,7 @@ def play(args):
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
     obs, obs_hist = env.get_observations()
     # load policy
+    
     train_cfg.runner.resume = False
     ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
     policy = ppo_runner.get_inference_policy(device=env.device)
@@ -88,7 +89,7 @@ def play(args):
         #obs = obs.detach()
         #obs[:, 6:9] = command
         #print(obs[0][6:9]/env.commands_scale)
-        actions = policy(obs, obs_hist.detach())
+        actions = policy(obs)
         obs, _, _, obs_hist, rews, dones, infos = env.step(actions.detach())
         if MOVE_CAMERA:
             camera_position +=  camera_vel * env.dt
