@@ -24,6 +24,7 @@ from collections import deque
 import torch.nn.functional as F
 
 from legged_gym.scripts.liquid_payload_configs import *
+from legged_gym.envs.go1.pos_rl2ac_water_eval.rl2ac_adaptive_controller import RL2ACAdaptiveCtrl
 
 # Some values that are held constant for the water tank and liquid
 liquid_substeps      = 5
@@ -68,7 +69,10 @@ class LeggedRobotGo1PosRL2ACWater(BaseTask):
         super().__init__(self.cfg, sim_device, headless)
 
         self._init_buffers()
-        self._prepare_reward_function()    
+        self._prepare_reward_function()
+        
+        self.rl2ac_adaptive_ctrl = RL2ACAdaptiveCtrl(self.num_envs)
+        self.adaptive_torques = torch.zeros((self.num_envs, 12), device=self.device, dtype=torch.float32)
                 
         self.init_done = True
 
@@ -89,6 +93,7 @@ class LeggedRobotGo1PosRL2ACWater(BaseTask):
             actions (torch.Tensor): Tensor of shape (num_envs, num_actions_per_env)
         """
         self.first_loop = True
+        self.iter_ctr = 0
         # clip the predicted actions
         clip_actions = self.cfg.normalization.clip_actions
         self.actions = torch.clip(
@@ -103,7 +108,8 @@ class LeggedRobotGo1PosRL2ACWater(BaseTask):
         
         # run simulation steps with current action and PD feedback control
         for _ in range(self.cfg.control.decimation):  # use self-implemented pd controller
-            self.torques = self._compute_torques(self.actions)
+            self.torques = self._compute_torques(self.actions, q_ref)
+            self.iter_ctr += 1
         
             if self.num_build_envs == 0:
                 torques = self.torques.squeeze()
@@ -631,7 +637,7 @@ class LeggedRobotGo1PosRL2ACWater(BaseTask):
         # randomly zero out the various elements of the commands
         
 
-    def _compute_torques(self, actions):
+    def _compute_torques(self, actions, q_ref):
         # control_type = 'P'
         repeat_pos_scales = torch.from_numpy(np.array(self.cfg.control.action_scale)).repeat(1,4).to(self.device)
         # actions_scaled = pos_actions * self.cfg.control.action_scale
@@ -641,28 +647,27 @@ class LeggedRobotGo1PosRL2ACWater(BaseTask):
 
         # Calculate the feedback-control torques
         #     include PD scaling values 
-        self.feedback_torques = (
-            (self._kp_scale * self.p_gains) * (actions_scaled - self.dof_pos) - (self._kd_scale * self.d_gains) * self.dof_vel
-        )
-        # Combine with the scaled + offset torque actions
-        # print("FeedForward Torque - ")
-        # print((tau_actions * self.cfg.control.torque_scale + self.default_dof_tau)[0:4,:])
-        # print("Feedback Torques - ")
-        # print(feedback_torques[0:4,:])
+        if self.iter_ctr % 2 == 0:
+            # Only update the PD-torques at an update rate of 500 Hz (every other BGF update...)
+            self.feedback_torques = ((self._kp_scale * self.p_gains) * (actions_scaled - self.dof_pos) - (self._kd_scale * self.d_gains) * self.dof_vel)
         
         if self.first_loop:
             self.first_loop_feedback = self.feedback_torques
             self.first_loop = False
         
-        # torques = (self.feedforward_tau_weight) * self.feedforward_torques + 0.0 * (self.feedback_tau_weight)*self.feedback_torques
         torques = self.feedback_torques
 
+        if self.iter_ctr == 0:
+            self.rl2ac_adaptive_ctrl.update_cmd(q_ref, actions_scaled, torques)
+        
+        self.rl2ac_adaptive_ctrl.update_state(self.dof_pos, self.dof_vel, self.dof_tau)
+        
+        self.adaptive_torques = self.rl2ac_adaptive_ctrl.update_compensation(self.sim_dt)
 
-        # self.feedforward_torques *= self.feedforward_tau_weight
-        # self.feedback_torques *= self.feedback_tau_weight
+        comp_torques = torques + self.adaptive_torques
 
         # Have the limit be exceeded a little bit to get reward feedback based on exceeding the limits
-        return torch.clip(torques, -2.0*self.torque_limits, 2.0*self.torque_limits)
+        return torch.clip(comp_torques, -2.0*self.torque_limits, 2.0*self.torque_limits)
 
     def _get_pinn_actions(self, actions):
         # apply the tanh activation to scale between [-1, 1]

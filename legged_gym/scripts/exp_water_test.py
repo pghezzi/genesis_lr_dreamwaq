@@ -100,7 +100,7 @@ def play(args):
     start_time = time.perf_counter() # Record the start time
 
     for i in range(10*int(env.max_episode_length)):
-    # for i in range(10):
+    # for i in range(100):
         actions, q_ref = policy(obs.detach(), obs_hist.detach())
         obs, _, obs_hist, rews, dones, infos, grfs = env.step(actions.detach(), q_ref.detach())
 
@@ -120,23 +120,27 @@ def play(args):
             env.set_camera(camera_position_follow, camera_lookat_follow)
             env.floating_camera.render()
 
-        logger.log_states(
-            {
-                'base_cmd':env.commands.detach().cpu().numpy().tolist(),
-                'base_pose':env.base_pos.detach().cpu().numpy().tolist(),
-                'base_rpy':env.base_euler.detach().cpu().numpy().tolist(),
-                'dof_pose':env.dof_pos.detach().cpu().numpy().tolist(),
-                'base_lin_vel':env.base_lin_vel.detach().cpu().numpy().tolist(),
-                'base_ang_vel':env.base_ang_vel.detach().cpu().numpy().tolist(),
-                'dof_vel':env.dof_vel.detach().cpu().numpy().tolist(),
-                'proj_grav':env.projected_gravity.detach().cpu().numpy().tolist(),
-                'feet_pos':env.feet_pos.detach().cpu().numpy().tolist(),
-                'tau_act':env.dof_tau.detach().cpu().numpy().tolist(),
-                'grf':env.grfs_buf.detach().cpu().numpy().tolist(),
-                'q_des':env.get_scaled_pos_actions().detach().cpu().numpy().tolist(),
-                'tau_pd':env.first_loop_feedback.detach().cpu().numpy().tolist(),
-                'failure':list(map(int, env.get_failure_idx().detach().cpu().numpy().tolist()))
-            }
+        # this accounts for the fact that the sim is running twicw as fast for this approach
+        #     doing this prevents an imbalance in collected data.
+        if i % 2 == 0:
+            logger.log_states(
+                {
+                    'base_cmd':env.commands.detach().cpu().numpy().tolist(),
+                    'base_pose':env.base_pos.detach().cpu().numpy().tolist(),
+                    'base_rpy':env.base_euler.detach().cpu().numpy().tolist(),
+                    'dof_pose':env.dof_pos.detach().cpu().numpy().tolist(),
+                    'base_lin_vel':env.base_lin_vel.detach().cpu().numpy().tolist(),
+                    'base_ang_vel':env.base_ang_vel.detach().cpu().numpy().tolist(),
+                    'dof_vel':env.dof_vel.detach().cpu().numpy().tolist(),
+                    'proj_grav':env.projected_gravity.detach().cpu().numpy().tolist(),
+                    'feet_pos':env.feet_pos.detach().cpu().numpy().tolist(),
+                    'tau_act':env.dof_tau.detach().cpu().numpy().tolist(),
+                    'grf':env.grfs_buf.detach().cpu().numpy().tolist(),
+                    'q_des':env.get_scaled_pos_actions().detach().cpu().numpy().tolist(),
+                    'tau_pd':env.first_loop_feedback.detach().cpu().numpy().tolist(),
+                    'tau_comp':env.adaptive_torques.detach().cpu().numpy().tolist(),
+                    'failure':list(map(int, env.get_failure_idx().detach().cpu().numpy().tolist()))
+                }
         )
 
 

@@ -224,8 +224,8 @@ class GO1PosRL2ACWaterCfg( LeggedRobotCfg ):
         # torque_scale = [10.0, 10.0, 10.0] # action scale:  target torque = torque_scale * tau_action + defaultTorque
         
         
-        dt =  0.01     # control frequency 200Hz
-        decimation = 5  # decimation: Number of control action updates @ sim DT per policy DT
+        dt =  0.01     # control frequency 100Hz
+        decimation = 10  # decimation: Number of control action updates @ sim DT per policy DT
 
         # Assumed order - tau_ff, tau_fb
         # tradeoff_init_weights  = [0.80, 1.4]
@@ -417,7 +417,7 @@ class GO1PosRL2ACWaterCfgPPO( LeggedRobotCfgPPO ):
         save_interval = 100
         
         
-        load_run = "Jan17_21-22-07_100hz_rl2ac_baseline_nogrf_01"
+        load_run = "Jan25_18-53-20_100hz_rl2ac_baseline_nogrf_01"
         checkpoint = 1500
         resume = True
         exp_data_path = "exp_data/pos_trained_model/pos_noliquid_push_01.csv"
