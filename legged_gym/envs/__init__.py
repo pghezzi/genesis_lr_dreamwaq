@@ -61,6 +61,9 @@ from legged_gym.envs.go1.pos_control_learning.go1_pos_learning import LeggedRobo
 from legged_gym.envs.go1.dynamics_learning_finetuning.go1_dl_config import GO1DynamicFinetuneCfg, GO1DynmaicFinetuneCfgPPO
 from legged_gym.envs.go1.dynamics_learning_finetuning.go1_dynmaics_learning import LeggedRobotGo1DynamicFinetuning
 
+from legged_gym.envs.go1.dynamics_water_eval.go1_dl_config_watereval import GO1DynamicWaterCfg, GO1DynamicWaterCfgPPO
+from legged_gym.envs.go1.dynamics_water_eval.go1_dynmaics_watereval import LeggedRobotGo1DynamicWater
+
 task_registry.register( "go2", GO2, GO2Cfg(), GO2CfgPPO())
 task_registry.register( "go2_rough", GO2, GO2RoughCfg(), GO2RoughCfgPPO())
 task_registry.register( "go2_deploy", GO2Deploy, GO2DeployCfg(), GO2DeployCfgPPO())
@@ -73,6 +76,8 @@ task_registry.register("go1_dynamic", LeggedRobotGo1Dynamic, GO1DynamicCfg(), GO
 task_registry.register("go1_pos", LeggedRobotGo1Pos, GO1PosCfg(), GO1PosCfgPPO())
 
 task_registry.register("go1_dynamic_ft", LeggedRobotGo1DynamicFinetuning, GO1DynamicFinetuneCfg(), GO1DynmaicFinetuneCfgPPO())
+
+task_registry.register("go1_dynamic_watereval", LeggedRobotGo1DynamicWater, GO1DynamicWaterCfg(), GO1DynamicWaterCfgPPO())
 
 from legged_gym.envs.go1_standalone.legged_robot_config import Go1RoughCfg, Go1RoughCfgPPO
 from legged_gym.envs.go1_standalone.legged_robot import LeggedRobot
