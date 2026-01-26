@@ -22,7 +22,7 @@ def play(args):
         env_cfg.viewer.pos[i] = env_cfg.viewer.pos[i] - env_cfg.terrain.plane_length / 4
         env_cfg.viewer.lookat[i] = env_cfg.viewer.lookat[i] - env_cfg.terrain.plane_length / 4
     env_cfg.env.debug_viz = True
-    if RECORD_FRAMES or FOLLOW_ROBOT or FIXED_CAMERA:
+    if RECORD_FRAMES or FOLLOW_ROBOT:
         env_cfg.viewer.add_camera = True  # use a extra camera for moving
     env_cfg.terrain.border_size = 5
     env_cfg.terrain.num_rows = 2
@@ -70,23 +70,22 @@ def play(args):
     joint_index = 2 # which joint is used for logging
     stop_state_log = 300 # number of steps before plotting states
     stop_rew_log = env.max_episode_length + 1 # number of steps before print average episode rewards
-   
-    env_cfg.viewer.pos = env.base_pos[robot_index, :].cpu().numpy()
-    env_cfg.viewer.pos[2]  = 10
     
-
     # for MOVE_CAMERA
     camera_position = np.array(env_cfg.viewer.pos, dtype=np.float64)
     camera_vel = np.array([1., 1., 0.])
     camera_direction = np.array(env_cfg.viewer.lookat) - np.array(env_cfg.viewer.pos)
     # for FOLLOW_ROBOT
     camera_lookat_follow = np.array(env_cfg.viewer.lookat)
-    camera_deviation_follow = np.array([1., 1., -.5])
+    camera_deviation_follow = np.array([1., 1., -1.])
     camera_position_follow = camera_lookat_follow - camera_deviation_follow
     # for RECORD_FRAMES
     stop_record = 400
     if RECORD_FRAMES:
         env.floating_camera.start_recording()
+    if FIXED_CAMERA:
+        env.set_camera(camera_position, camera_position + camera_direction)
+        env.floating_camera.render()
     #command = (torch.tensor([2, 0, 0], dtype=torch.float32, device=env.commands_scale.device) 
     #* env.commands_scale)
     for i in range(10*int(env.max_episode_length)):
@@ -102,9 +101,6 @@ def play(args):
             # refresh camera's position
             camera_position_follow = camera_lookat_follow - camera_deviation_follow
             env.set_camera(camera_position_follow, camera_lookat_follow)
-            env.floating_camera.render()
-        if FIXED_CAMERA:
-            env.set_camera(camera_position, camera_position + camera_direction)
             env.floating_camera.render()
         if RECORD_FRAMES and i == stop_record:
             try:
@@ -153,7 +149,7 @@ if __name__ == '__main__':
     RECORD_FRAMES = True  # only record frames in extra camera view
     MOVE_CAMERA   = False
     FOLLOW_ROBOT  = False
-    FIXED_CAMERA  = True
+    FIXED_CAMERA  = False
     assert not (MOVE_CAMERA and FOLLOW_ROBOT), "Cannot move camera and follow robot at the same time"
     args = get_args()
     play(args)
