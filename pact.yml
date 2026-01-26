@@ -1,4 +1,4 @@
-name: genesis_pact
+name: genesis_pact_fullgrf
 channels:
   - conda-forge
   - defaults
@@ -266,4 +266,4 @@ dependencies:
       - xlsxwriter==3.2.9
       - z3-solver==4.15.3.0
       - zipp==3.23.0
-prefix: /home/oyoungquist/.conda/envs/genesis_pact
+prefix: /home/oyoungquist/.conda/envs/genesis_pact_fullgrf

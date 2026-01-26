@@ -35,8 +35,10 @@ def gs_transform_by_quat(pos, quat):
         ],
         dim=-1,
     ).reshape(*quat.shape[:-1], 3, 3)
-    rotated_pos = torch.matmul(rot_matrix, pos.unsqueeze(-1)).squeeze(-1)
-
+    if pos.dim() == 3:
+      rotated_pos = torch.matmul(rot_matrix[:, None, :], pos.unsqueeze(-1)).squeeze(-1)
+    else:
+      rotated_pos = torch.matmul(rot_matrix, pos.unsqueeze(-1)).squeeze(-1)
     return rotated_pos
 
 
