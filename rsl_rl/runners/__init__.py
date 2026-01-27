@@ -34,6 +34,7 @@ from .on_policy_runner_dwq import OnPolicyRunnerDWQ
 from .on_policy_runner_dynamic import OnPolicyRunnerDynamic
 from .on_policy_runner_pos import OnPolicyRunnerPos
 from .on_policy_runner_tau_finetune import OnPolicyRunnerTauFinetune
+from .on_policy_runner_tau_water import OnPolicyRunnerTauWater
 
 from rsl_rl.utils.runner_registry import runner_registry
 runner_registry.register("OnPolicyRunner", OnPolicyRunner)
@@ -42,3 +43,4 @@ runner_registry.register("TSRunner", TSRunner)
 runner_registry.register("OnPolicyRunnerDynamic", OnPolicyRunnerDynamic)
 runner_registry.register("OnPolicyRunnerPos", OnPolicyRunnerPos)  # Alias for positional control
 runner_registry.register("OnPolicyRunnerTauFinetune", OnPolicyRunnerTauFinetune)
+runner_registry.register("OnPolicyRunnerTauWater", OnPolicyRunnerTauWater)
