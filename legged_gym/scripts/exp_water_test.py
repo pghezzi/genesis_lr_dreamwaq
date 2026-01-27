@@ -67,7 +67,8 @@ def play(args):
     env_cfg.liquid.liquid_type = args.liquid_type
     env_cfg.liquid.liquid_volume = args.liquid_volume  # liters
     train_cfg.runner.exp_data_path = f"exp_data/basic_trained_model/basic_{int(args.liquid_volume)}L{args.liquid_type}_push_01.csv"
-    env_cfg.env.use_liquid = args.use_liquid
+    # env_cfg.env.use_liquid = args.use_liquid
+    env_cfg.env.use_liquid = False
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
