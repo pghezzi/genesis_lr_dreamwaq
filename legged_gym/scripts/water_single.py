@@ -305,8 +305,8 @@ class Creator():
     # then set their initial pose and cache some values for reset
     if self.liquid:
       self.liquid_init_pose = self.liquid.get_particles_pos()
-    print(self.franka.links) 
-    self.franka.set_dofs_position([[go1_default[i] for i in go1_list]])
+    self.motors = [self.franka.get_joint(x).dof_start for x in go1_list]
+    self.franka.set_dofs_position([[go1_default[i] for i in go1_list]], self.motors)
     
     self.franka_init_pos = self.franka.get_pos().detach().clone()
     self.franka_init_quat = self.franka.get_quat().detach().clone()
