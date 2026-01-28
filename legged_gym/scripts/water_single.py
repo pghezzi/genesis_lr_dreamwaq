@@ -137,6 +137,8 @@ go1_list = [
             'RL_calf_joint',
           ]
 
+go1_links = ['FL_foot', 'FR_foot', 'RL_foot', 'RR_foot']
+
 class LiquidOpts():
 
   """
@@ -213,7 +215,9 @@ class Creator():
         gs.morphs.URDF(
             pos = self.rob_pos,
             file='../../resources/robots/go1/urdf/go1.urdf',
-            merge_fixed_links= True,),
+            merge_fixed_links= True,
+            links_to_keep=go1_links,
+            ),
     )
   
 
