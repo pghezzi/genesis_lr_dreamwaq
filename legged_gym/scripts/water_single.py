@@ -215,7 +215,6 @@ class Creator():
             file='../../resources/robots/go1/urdf/go1.urdf',
             merge_fixed_links= True,),
     )
-    self.franka.set_dofs_position([go1_default[i] for i in go1_list])
   
 
   # For multiple robots, might need to be smarter and initialize the liquids and payloads at their "starting" positions
@@ -302,7 +301,9 @@ class Creator():
     # then set their initial pose and cache some values for reset
     if self.liquid:
       self.liquid_init_pose = self.liquid.get_particles_pos()
-
+    
+    self.franka.set_dofs_position([[go1_default[i] for i in go1_list]])
+    
     self.franka_init_pos = self.franka.get_pos().detach().clone()
     self.franka_init_quat = self.franka.get_quat().detach().clone()
     self.franka_init_dof_pos = self.franka.get_dofs_position().detach().clone()
@@ -347,7 +348,7 @@ class Creator():
     self.liquid.set_particles_pos(new_particle_posistions)
 
 
-num_envs = 5
+num_envs = 1  
 
 with torch.no_grad():
   cass = Creator()
