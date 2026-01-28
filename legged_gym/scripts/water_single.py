@@ -107,8 +107,38 @@ def gs_quat_mul(a, b):
 
     return quat
 
+go1_default = {  # [rad]
+            "FL_hip_joint": 0.0,
+            "FR_hip_joint": 0.0,
+            "RL_hip_joint": 0.0,
+            "RR_hip_joint": 0.0,
+            "FL_thigh_joint": 0.8,
+            "FR_thigh_joint": 0.8,
+            "RL_thigh_joint": 1.0,
+            "RR_thigh_joint": 1.0,
+            "FL_calf_joint": -1.5,
+            "FR_calf_joint": -1.5,
+            "RL_calf_joint": -1.5,
+            "RR_calf_joint": -1.5,
+        }
+
+go1_list = [
+            'FR_hip_joint',
+            'FR_thigh_joint',
+            'FR_calf_joint',
+            'FL_hip_joint',
+            'FL_thigh_joint',
+            'FL_calf_joint',
+            'RR_hip_joint',
+            'RR_thigh_joint',
+            'RR_calf_joint',
+            'RL_hip_joint',
+            'RL_thigh_joint',
+            'RL_calf_joint',
+          ]
 
 class LiquidOpts():
+
   """
   rho (float, optional) – The density (kg/m^3) the material tends to maintain in equilibrium (i.e., the “rest” or undeformed state). Default is 1000.
   stiffness (float, optional) – State stiffness (N/m^2). A material constant controlling how pressure increases with compression. Default is 50000.0.
@@ -185,6 +215,7 @@ class Creator():
             file='../../resources/robots/go1/urdf/go1.urdf',
             merge_fixed_links= True,),
     )
+    self.franka.set_dofs_position([go1_default[i] for i in go1_list])
   
 
   # For multiple robots, might need to be smarter and initialize the liquids and payloads at their "starting" positions
@@ -332,7 +363,7 @@ with torch.no_grad():
     for _ in range(500):
       cass.scene.step()
       # cass.cam.render()
-
+    
     cass.reset()
     
   #
