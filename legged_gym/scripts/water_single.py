@@ -24,10 +24,10 @@ go1_torso_height = 0.114
 # Cube Parameters
 outer_x = 0.20;  # X dimension
 outer_y = 0.15;  # Y dimension
-outer_z = 0.20;  # total outer height
+outer_z = 0.10;  # total outer height
 wall_thickness = .015
 bottom_thickness = 0.015
-stl_scale = 1.0
+stl_scale = 2.0
 
 
 liquid_init_buffer = 0.035 # (needs to be slightly bigger than particle size I suspect)
@@ -196,21 +196,21 @@ class Creator():
             show_viewer=True,
         )
 
-  #   self.cam = self.scene.add_camera(
-  #     res    = (1280, 960),
-  #     pos    = (3.0, 5.0, 1.5),
-  #     lookat = (0, 0, 0.1),
-  #     fov    = 40,
-  #     GUI    = False
-  # )
+    self.cam = self.scene.add_camera(
+       res    = (1280, 960),
+       pos    = (1.0*stl_scale, 1.0*stl_scale , 0.5*stl_scale ),
+       lookat = (0, 0, 0.1),
+       fov    = 40,
+       GUI    = True
+   )
 
     self.plane = self.scene.add_entity(
                 gs.morphs.URDF(file="urdf/plane/plane.urdf", fixed=True))
+    self.rob_pos = (0, 0, 0.32)
     self.franka = None
     self.liquid = None
   
   def add_robot(self):
-    self.rob_pos = (0, 0, 0.5)
     self.franka = self.scene.add_entity(
         gs.morphs.URDF(
             pos = self.rob_pos,
@@ -241,14 +241,18 @@ class Creator():
     )
 
     # Add a lid to the liquid container
+    if self.franka:
+        _lid_off =  (lid_offset - (go1_torso_height/2.0))* stl_scale  +  (go1_torso_height/2.0)
+    else:
+        _lid_off = lid_offset * stl_scale  - (go1_torso_height/2.0)
     self.lid = self.scene.add_entity(
       material=gs.materials.Rigid(
         gravity_compensation=1.0,
         ),
       morph=gs.morphs.Mesh(
           file="water_tank_lid.stl",
-          scale=(stl_scale, stl_scale, stl_scale),    # adjust scale if needed
-          pos= (0, 0, lid_offset),      # position
+          scale=(stl_scale, stl_scale, 1),    # adjust scale if needed
+          pos= (0, 0, _lid_off),      # position
           quat=(1.0, 0.0, 0.0, 0.0), # no rotation; uses w, x, y, z quaternion
           decimate=False,
           convexify=False
@@ -275,10 +279,13 @@ class Creator():
     #     surface=gs.surfaces.Water(),
     # ) for i in range(n_envs)
     # ]
-
+    if not self.franka:
+        _bucket_offset = -0.2 
+    else:
+        _bucket_offset = bucket_offset +  0.5*scaled_height
     self.liquid = self.scene.add_entity(
         material=gs.materials.SPH.Liquid(rho=liquid_mass, mu=liquid_mu, gamma=liquid_gamma),
-        morph=gs.morphs.Box(pos=(self.rob_pos[0], self.rob_pos[1], self.rob_pos[2] + bucket_offset + 0.5*scaled_height), 
+        morph=gs.morphs.Box(pos=(self.rob_pos[0], self.rob_pos[1], self.rob_pos[2] + _bucket_offset), 
                           size=(scaled_width-varied_buffers[0],scaled_depth-varied_buffers[0],scaled_height-varied_buffers[0])),
         surface=gs.surfaces.Water(),
     )
@@ -298,6 +305,10 @@ class Creator():
     
     if self.lid and self.franka:
       self.lid.attach(self.franka, "base")
+    elif self.bucket and self.lid:
+      print(self.bucket.links)
+      self.lid.attach(self.bucket, "water_tank_proper_units_simple_stl_baselink")
+
     
     self.scene.build(**kwargs)
     
@@ -305,12 +316,12 @@ class Creator():
     # then set their initial pose and cache some values for reset
     if self.liquid:
       self.liquid_init_pose = self.liquid.get_particles_pos()
-    self.motors = [self.franka.get_joint(x).dof_start for x in go1_list]
-    self.franka.set_dofs_position([[go1_default[i] for i in go1_list]], self.motors)
-    
-    self.franka_init_pos = self.franka.get_pos().detach().clone()
-    self.franka_init_quat = self.franka.get_quat().detach().clone()
-    self.franka_init_dof_pos = self.franka.get_dofs_position().detach().clone()
+    if self.franka:
+        self.motors = [self.franka.get_joint(x).dof_start for x in go1_list]
+        self.franka.set_dofs_position([[go1_default[i] for i in go1_list]], self.motors)
+        self.franka_init_pos = self.franka.get_pos().detach().clone()
+        self.franka_init_quat = self.franka.get_quat().detach().clone()
+        self.franka_init_dof_pos = self.franka.get_dofs_position().detach().clone()
 
   def reset(self):
 
@@ -361,15 +372,16 @@ with torch.no_grad():
   cass.build(n_envs=num_envs, env_spacing=(1.0, 1.0))
 
 
-  # cass.cam.start_recording()
+  cass.cam.start_recording()
 
   import time
-  for i in range(10):
-    for _ in range(500):
-      cass.scene.step()
-      # cass.cam.render()
+  for _ in range(500):
+    cass.scene.step()
+    if cass.franka:
+        cass.franka.set_dofs_position(cass.franka_init_dof_pos)
+
+    cass.cam.render()
     
-    cass.reset()
     
   #
 
@@ -381,6 +393,6 @@ with torch.no_grad():
 
   from datetime import datetime
 
-  # cass.cam.stop_recording(save_to_filename=f'video_liquid_{liquid_mass}_{datetime.now().timestamp()}.mp4', fps=60)
+  cass.cam.stop_recording(save_to_filename=f'video_go2_large_box.mp4', fps=60)
 
   #https://github.com/Genesis-Embodied-AI/Genesis/blob/main/genesis/engine/entities/sph_entity.py
