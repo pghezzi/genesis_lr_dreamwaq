@@ -18,7 +18,7 @@ def play(args):
     args.task = "go1_rl2ac_watereval"
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
-    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 10)
+    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 1)
     env_cfg.viewer.rendered_envs_idx = list(range(env_cfg.env.num_envs))
     
     for i in range(2):
@@ -68,7 +68,8 @@ def play(args):
     env_cfg.liquid.liquid_type = args.liquid_type
     env_cfg.liquid.liquid_volume = args.liquid_volume  # liters
     train_cfg.runner.exp_data_path = f"exp_data/rl2ac_trained_model/rl2ac_{int(args.liquid_volume)}L{args.liquid_type}_push_01.csv"
-    env_cfg.env.use_liquid = args.use_liquid
+    # env_cfg.env.use_liquid = args.use_liquid
+    env_cfg.env.use_liquid = False
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
@@ -122,29 +123,28 @@ def play(args):
 
         # this accounts for the fact that the sim is running twicw as fast for this approach
         #     doing this prevents an imbalance in collected data.
-        if i % 2 == 0:
-            logger.log_states(
-                {
-                    'base_cmd':env.commands.detach().cpu().numpy().tolist(),
-                    'base_pose':env.base_pos.detach().cpu().numpy().tolist(),
-                    'base_rpy':env.base_euler.detach().cpu().numpy().tolist(),
-                    'dof_pose':env.dof_pos.detach().cpu().numpy().tolist(),
-                    'base_lin_vel':env.base_lin_vel.detach().cpu().numpy().tolist(),
-                    'base_ang_vel':env.base_ang_vel.detach().cpu().numpy().tolist(),
-                    'dof_vel':env.dof_vel.detach().cpu().numpy().tolist(),
-                    'proj_grav':env.projected_gravity.detach().cpu().numpy().tolist(),
-                    'feet_pos':env.feet_pos.detach().cpu().numpy().tolist(),
-                    'tau_act':env.dof_tau.detach().cpu().numpy().tolist(),
-                    'grf':env.grfs_buf.detach().cpu().numpy().tolist(),
-                    'q_des':env.get_scaled_pos_actions().detach().cpu().numpy().tolist(),
-                    'tau_pd':env.first_loop_feedback.detach().cpu().numpy().tolist(),
-                    'tau_comp':env.adaptive_torques.detach().cpu().numpy().tolist(),
-                    'failure':list(map(int, env.get_failure_idx().detach().cpu().numpy().tolist()))
-                }
+        logger.log_states(
+            {
+                'base_cmd':env.commands.detach().cpu().numpy().tolist(),
+                'base_pose':env.base_pos.detach().cpu().numpy().tolist(),
+                'base_rpy':env.base_euler.detach().cpu().numpy().tolist(),
+                'dof_pose':env.dof_pos.detach().cpu().numpy().tolist(),
+                'base_lin_vel':env.base_lin_vel.detach().cpu().numpy().tolist(),
+                'base_ang_vel':env.base_ang_vel.detach().cpu().numpy().tolist(),
+                'dof_vel':env.dof_vel.detach().cpu().numpy().tolist(),
+                'proj_grav':env.projected_gravity.detach().cpu().numpy().tolist(),
+                'feet_pos':env.feet_pos.detach().cpu().numpy().tolist(),
+                'tau_act':env.dof_tau.detach().cpu().numpy().tolist(),
+                'grf':env.grfs_buf.detach().cpu().numpy().tolist(),
+                'q_des':env.get_scaled_pos_actions().detach().cpu().numpy().tolist(),
+                'tau_pd':env.first_loop_feedback.detach().cpu().numpy().tolist(),
+                'tau_comp':env.adaptive_torques.detach().cpu().numpy().tolist(),
+                'failure':list(map(int, env.get_failure_idx().detach().cpu().numpy().tolist()))
+            }
         )
 
 
-    logger.save_log()
+    # logger.save_log()
 
     end_time = time.perf_counter()   # Record the end time
     execution_time = end_time - start_time

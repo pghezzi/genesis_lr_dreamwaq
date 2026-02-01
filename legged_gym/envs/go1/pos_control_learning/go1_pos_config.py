@@ -174,8 +174,8 @@ class GO1PosCfg( LeggedRobotCfg ):
         
         action_scale = [0.25, 0.25, 0.25]    # action scale: target angle = action_scale * pose_action + defaultAngle        
         
-        dt =  0.01     # control frequency 100Hz
-        decimation = 5  # decimation: Number of control action updates @ sim DT per policy DT
+        dt =  0.02     # control frequency 100Hz
+        decimation = 4  # decimation: Number of control action updates @ sim DT per policy DT
 
 
     class termination:
@@ -222,10 +222,10 @@ class GO1PosCfg( LeggedRobotCfg ):
             foot_swing  = 0.00
             
             # smoothness and stability
-            lin_vel_z        = -1.0
+            lin_vel_z        = -2.0
             base_height      = -1.0
             ang_vel_xy       = -0.05
-            orientation      = -1.0
+            orientation      = -0.2
             dof_acc          = -2.5e-7
             joint_power      = -2.e-5
             joint_power_dist = -1.e-5
@@ -241,7 +241,7 @@ class GO1PosCfg( LeggedRobotCfg ):
             foot_clearance   = 0.5            # tracking reward for feet reaching the desired clearance
             foot_slip        = -0.1           # penalty for feet slipping
             feet_contact_forces = -1.0e-1     # penalty for high contact forces on the feet
-            raibert  = 0.01                    # tracking reward foot placement in x/y-plane
+            # raibert  = 0.01                    # tracking reward foot placement in x/y-plane
 
         class reward_curriculum():
             # curr_reward_keys = ["tau_action_rate", "tau_action_smoothness", "feedforward_torques",
@@ -348,7 +348,7 @@ class GO1PosCfgPPO( LeggedRobotCfgPPO ):
         grf_dim = 12
         
         # debug_warmpinn_wb
-        run_name = '100hz_rl2ac_baseline_nogrf_01'
+        run_name = '50hz_rl2ac_baseline_nogrf_02'
         experiment_name = 'rss_go1_rl2ac'
         save_interval = 100
         

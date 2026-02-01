@@ -647,9 +647,9 @@ class LeggedRobotGo1PosRL2ACWater(BaseTask):
 
         # Calculate the feedback-control torques
         #     include PD scaling values 
-        if self.iter_ctr % 2 == 0:
+        if self.iter_ctr % 4 == 0:
             # Only update the PD-torques at an update rate of 500 Hz (every other BGF update...)
-            self.feedback_torques = ((self._kp_scale * self.p_gains) * (actions_scaled - self.dof_pos) - (self._kd_scale * self.d_gains) * self.dof_vel)
+            self.feedback_torques = ((0.92 * self.p_gains) * (actions_scaled - self.dof_pos) - (self._kd_scale * self.d_gains) * self.dof_vel * 0.92)
         
         if self.first_loop:
             self.first_loop_feedback = self.feedback_torques
@@ -657,8 +657,11 @@ class LeggedRobotGo1PosRL2ACWater(BaseTask):
         
         torques = self.feedback_torques
 
-        if self.iter_ctr == 0:
-            self.rl2ac_adaptive_ctrl.update_cmd(q_ref, actions_scaled, torques)
+        
+
+        if self.iter_ctr % 4 == 0:
+            def_ref_adjusted = self._compute_target_dof_pos(q_ref)
+            self.rl2ac_adaptive_ctrl.update_cmd(def_ref_adjusted, actions_scaled, torques)
         
         self.rl2ac_adaptive_ctrl.update_state(self.dof_pos, self.dof_vel, self.dof_tau)
         
@@ -699,10 +702,12 @@ class LeggedRobotGo1PosRL2ACWater(BaseTask):
 
     def _compute_target_dof_pos(self, actions):
         # control_type = 'P'
-        actions_scaled = actions * self.cfg.control.action_scale
+        repeat_pos_scales = torch.from_numpy(np.array(self.cfg.control.action_scale)).repeat(1,4).to(self.device)
+        actions_scaled = actions * repeat_pos_scales
         target_dof_pos = actions_scaled + self.default_dof_pos
 
         return target_dof_pos
+
 
     def _reset_dofs(self, envs_idx):
         """ Resets DOF position and velocities of selected environmments
