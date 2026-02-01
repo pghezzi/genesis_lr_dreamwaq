@@ -216,6 +216,7 @@ class LeggedRobotGo1DynamicWater(BaseTask):
 
         if self.debug_viz:
             self._draw_debug_vis()
+            # self._draw_contactforce_arrows()
 
     def check_base_pos_out_of_bound(self):
         """ Check if the base position is out of the terrain bounds
@@ -480,7 +481,16 @@ class LeggedRobotGo1DynamicWater(BaseTask):
                     camera_lookat=np.array(self.cfg.viewer.lookat),
                     camera_fov=40,
                 ),
-                vis_options=gs.options.VisOptions(rendered_envs_idx= self.cfg.viewer.rendered_envs_idx),
+                vis_options=gs.options.VisOptions(
+                    rendered_envs_idx= self.cfg.viewer.rendered_envs_idx,
+                    # ambient_light=(0.2, 0.2, 0.2),
+                    # background_color=(0.93,0.92,0.87)
+                    background_color=(0.0,0.0,0.0),
+                    shadow=True,
+                    lights=[
+                        {"type": "directional", "dir": (1, 1, -1), "color": (1.0, 1.0, 1.0), "intensity": 5.0},
+                    ],
+                ),
                 rigid_options=gs.options.RigidOptions(
                     dt=self.sim_dt,
                     constraint_solver=gs.constraint_solver.Newton,
@@ -507,7 +517,10 @@ class LeggedRobotGo1DynamicWater(BaseTask):
                     camera_lookat=np.array(self.cfg.viewer.lookat),
                     camera_fov=40,
                 ),
-                vis_options=gs.options.VisOptions(rendered_envs_idx= self.cfg.viewer.rendered_envs_idx),
+                vis_options=gs.options.VisOptions(
+                    rendered_envs_idx= self.cfg.viewer.rendered_envs_idx,
+                    ambient_light=(0.5, 0.5, 0.5)
+                ),
                 rigid_options=gs.options.RigidOptions(
                     dt=self.sim_dt,
                     constraint_solver=gs.constraint_solver.Newton,
@@ -584,8 +597,8 @@ class LeggedRobotGo1DynamicWater(BaseTask):
             pos=np.array(self.cfg.viewer.pos),
             lookat=np.array(self.cfg.viewer.lookat),
             fov=40,
-            up=np.array([0, 0, 0]),
-            GUI=False,
+            # up=np.array([0, 0, 0]),
+            GUI=True,
         )
 
         self._recording = False
@@ -629,6 +642,15 @@ class LeggedRobotGo1DynamicWater(BaseTask):
             self.commands[env_ids, :2], dim=1) > 0.2).unsqueeze(1)
         
         # randomly zero out the various elements of the commands
+        
+    def set_commands(self, env_ids, commands):
+        """ Set commands of some environments
+
+        Args:
+            env_ids (List[int]): Environments ids for which new commands are needed
+            commands (torch.Tensor): Tensor of shape (len(env_ids), 3)
+        """
+        self.commands[env_ids] = torch.from_numpy(commands).to(self.device).float()
         
 
     def _compute_torques(self, actions):
@@ -889,16 +911,24 @@ class LeggedRobotGo1DynamicWater(BaseTask):
 
             self.robot.set_dofs_velocity(dofs_vel)
 
-    def _push_towards_cmd(self):
-        """ Random pushes the robots. Emulates an impulse by setting a randomized base velocity. 
-        """
-        if self.push_interval_s > 0 and not self.debug:
-            # in Genesis, base link also has DOF, it's 6DOF if not fixed.
-            dofs_vel = self.robot.get_dofs_velocity()  # (num_envs, num_dof) [0:3] ~ base_link_vel
-            cmd_scaled = 0.01*self.commands[:,0:2]
-            dofs_vel[:, :2] += cmd_scaled
-            self._rand_push_vels[:, :2] = cmd_scaled.detach().clone()
-            self.robot.set_dofs_velocity(dofs_vel)
+    # def _push_towards_cmd(self):
+    #     """ Random pushes the robots. Emulates an impulse by setting a randomized base velocity. 
+    #     """
+    #     if self.push_interval_s > 0 and not self.debug:
+    #         # in Genesis, base link also has DOF, it's 6DOF if not fixed.
+    #         dofs_vel = self.robot.get_dofs_velocity()  # (num_envs, num_dof) [0:3] ~ base_link_vel
+    #         cmd_scaled = 0.01*self.commands[:,0:2]
+    #         dofs_vel[:, :2] += cmd_scaled
+    #         self._rand_push_vels[:, :2] = cmd_scaled.detach().clone()
+    #         self.robot.set_dofs_velocity(dofs_vel)
+    
+    def push_forwards(self):
+        # in Genesis, base link also has DOF, it's 6DOF if not fixed.
+        print("Pushing robot!")
+        dofs_vel = self.robot.get_dofs_velocity()  # (num_envs, num_dof) [0:3] ~ base_link_vel
+        dofs_vel[:, 6] += -0.5
+        self._rand_push_vels[:, :2] = dofs_vel[:,0:2].detach().clone()
+        self.robot.set_dofs_velocity(dofs_vel)
 
 
     def _update_terrain_curriculum(self, env_ids):
@@ -1389,7 +1419,7 @@ class LeggedRobotGo1DynamicWater(BaseTask):
         # name to indices
         self.motors_dof_idx = [self.robot.get_joint(
             name).dof_start for name in self.cfg.asset.dof_names]
-
+        
         # find link indices, termination links, penalized links, and feet, utility function
         def find_link_indices(names):
             link_indices = list()
@@ -1837,10 +1867,10 @@ class LeggedRobotGo1DynamicWater(BaseTask):
         # self.feedback_tau_weight = 1.0
 
         self.feedforward_tau_weight = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float)
-        self.feedback_tau_weight = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float)
+        self.feedback_tau_weight = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float) * 3.0
         
         # We want to be at the full bounds right away, but we want to skip back sometimes for exploration
-        self.tradeoff_step_ctr = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float) * self.tradeoff_num_steps
+        self.tradeoff_step_ctr = torch.zeros((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float) * self.tradeoff_num_steps
 
         self.num_iters = 0
 
@@ -1861,6 +1891,22 @@ class LeggedRobotGo1DynamicWater(BaseTask):
         self.scene.draw_debug_spheres(height_points[0, :],
                                       radius=0.03,
                                       color=(0, 0, 1, 0.7))  # only draw for the first env
+        
+        
+    def _draw_contactforce_arrows(self):
+        self.scene.clear_debug_objects()
+        contact_forces = self.link_contact_forces[:, self.feet_indices, 2]
+        
+        for i in range(len(self.feet_indices)):
+            force = contact_forces[0,:].cpu().numpy()
+            
+            print(force)
+            
+            if np.linalg.norm(force) > 1.0:
+                start_pnt = self.feet_pos[0,i].cpu().numpy()
+                print(start_pnt)
+                self.scene.draw_debug_arrow(start_pnt, force)                
+                
 
     def _get_env_origins(self):
         """ Sets environment origins. On rough terrain the origins are defined by the terrain platforms.

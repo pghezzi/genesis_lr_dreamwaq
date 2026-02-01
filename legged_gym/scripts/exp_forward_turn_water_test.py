@@ -23,7 +23,7 @@ def play(args):
     
     for i in range(2):
         env_cfg.viewer.pos[i] = env_cfg.viewer.pos[i] - env_cfg.terrain.plane_length / 4
-        env_cfg.viewer.lookat[i] = env_cfg.viewer.lookat[i] - env_cfg.terrain.plane_length / 4    
+        env_cfg.viewer.lookat[i] = env_cfg.viewer.lookat[i] - env_cfg.terrain.plane_length / 4
     
     env_cfg.noise.add_noise = True
     # Disable some of the domain randomization (our payload will handle that now)
@@ -48,8 +48,8 @@ def play(args):
     # for FOLLOW_ROBOT
     if FOLLOW_ROBOT:
         camera_lookat_follow = np.array(env_cfg.viewer.lookat)
-        camera_deviation_follow = np.array([0., 3., -1.])
-        camera_position_follow = camera_lookat_follow - camera_deviation_follow
+        camera_deviation_follow = np.array([1., 1.0, -0.5])
+        camera_position_follow = camera_lookat_follow - camera_deviation_follow        
     
     
     # initial state randomization
@@ -60,18 +60,18 @@ def play(args):
     env_cfg.commands.ranges.ang_vel_yaw = [-1.0, 1.0]
     
     env_cfg.commands.ranges.heading = [0, 0]
-    env_cfg.commands.resampling_time = 10.0
+    env_cfg.commands.resampling_time = 20000000.0  # effectively disable command resampling
 
     # load policy
     train_cfg.runner.resume = True
     
-    env_cfg.env.use_liquid = False
-    args.liquid_type = "none"
-    args.liquid_volume = 0.0  # liters
-
+    env_cfg.env.use_liquid = True
+    args.liquid_type = "water"
+    args.liquid_volume = 12.0  # liters
+    
     env_cfg.liquid.liquid_type = args.liquid_type
     env_cfg.liquid.liquid_volume = args.liquid_volume  # liters
-    train_cfg.runner.exp_data_path = f"exp_data/full_trained_model_04/full_{int(args.liquid_volume)}L{args.liquid_type}_push.csv"
+    train_cfg.runner.exp_data_path = f"exp_data/full_trained_model_03/forward_turn_02/full_{int(args.liquid_volume)}L{args.liquid_type}_push.csv"
     # env_cfg.env.use_liquid = args.use_liquid
 
     # prepare environment
@@ -87,7 +87,7 @@ def play(args):
     
     if type(obs) == tuple:
         obs = obs[0]
-
+    
 
     env.num_iters += 1
     # env.step_push()
@@ -97,6 +97,15 @@ def play(args):
     joint_index = 2 # which joint is used for logging
     rewards = []
     total_grfs  = []
+
+    if FIXED_CAMERA:
+        env_cfg.viewer.pos = env.base_pos[robot_index, :].cpu().numpy()
+        env_cfg.viewer.pos[0]  += 1.0
+        env_cfg.viewer.pos[1]  += 1.0
+        env_cfg.viewer.pos[2]  = 6
+        camera_position = np.array(env_cfg.viewer.pos, dtype=np.float64)
+        camera_direction = np.array(env_cfg.viewer.lookat) - np.array(env_cfg.viewer.pos)
+
 
     print("Max - self.feedforward_tau_weight: ", torch.max(env.feedforward_tau_weight).item())
     print("Min - self.feedforward_tau_weight: ", torch.min(env.feedforward_tau_weight).item())
@@ -108,11 +117,19 @@ def play(args):
     
     start_time = time.perf_counter() # Record the start time
 
-    for i in range(10*int(env.max_episode_length)):
-    # for i in range(2*int(env.max_episode_length)):
-    # for i in range(50):
+    env.set_commands(np.array([[0]]), np.array([[1.0, 0.0, -1.0]]))  # set initial command to move forward slowly
+
+    for i in range(2*int(env.max_episode_length)):
+    # for i in range(1500):
+        env.set_commands(np.array([[0]]), np.array([[1.0, 0.0, -1.0]]))  # set initial command to move forward slowly
+
+        # if i*env.dt > 6.10 and i*env.dt < 6.20:
+        # env.push_forwards()
+        #     print("********** Pushing Forward! **********")
+
         actions = policy(obs.detach(), obs_hist.detach())
         obs, _, obs_hist, rews, dones, infos, grfs = env.step(actions.detach())
+
 
         rewards.append(rews.cpu().numpy().tolist())
         total_grfs.append(grfs.cpu().numpy().tolist())
@@ -130,6 +147,13 @@ def play(args):
             env.set_camera(camera_position_follow, camera_lookat_follow)
             env.floating_camera.render()
 
+        if FIXED_CAMERA:
+            env.set_camera(camera_position, camera_position + camera_direction)
+            env.floating_camera.render()
+        
+        latent_current_obs = ppo_runner.get_actor_critic().current_obs.detach().clone()
+        grf_pred = ppo_runner.get_decoder().forward(latent_current_obs).detach().clone()[:,57:].cpu().numpy() / 0.01  # unscale
+        
         logger.log_states(
             {
                 'base_cmd':env.commands.detach().cpu().numpy().tolist(),
@@ -146,7 +170,8 @@ def play(args):
                 'q_des':env.get_scaled_pos_actions().detach().cpu().numpy().tolist(),
                 'tau_ff':env.feedforward_torques.detach().cpu().numpy().tolist(),
                 'tau_pd':env.first_loop_feedback.detach().cpu().numpy().tolist(),
-                'failure':list(map(int, env.get_failure_idx().detach().cpu().numpy().tolist()))
+                'failure':list(map(int, env.get_failure_idx().detach().cpu().numpy().tolist())),
+                'pred_grf':grf_pred.tolist()
             }
         )
 
@@ -162,7 +187,7 @@ def play(args):
     
     if RECORD_FRAMES:
         try:
-            filename_mp4 = f"{train_cfg.runner.experiment_name}_{train_cfg.runner.load_run}.mp4"
+            filename_mp4 = f"PACT_{train_cfg.runner.experiment_name}_{train_cfg.runner.load_run}_forward_turn_12L_topdown.mp4"
         except:
             from datetime import datetime
             filename_mp4 = f"{datetime.now().timestamp()}"
@@ -175,6 +200,7 @@ if __name__ == '__main__':
     RECORD_FRAMES = False  # only record frames in extra camera view
     MOVE_CAMERA   = False
     FOLLOW_ROBOT  = False
+    FIXED_CAMERA  = False
     assert not (MOVE_CAMERA and FOLLOW_ROBOT), "Cannot move camera and follow robot at the same time"
     
     parser = argparse.ArgumentParser()

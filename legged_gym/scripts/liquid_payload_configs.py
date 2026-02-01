@@ -51,6 +51,16 @@ ten_liters_water_default = {
     "scale_z":1.6
 }
 
+# ten_liters_water_default = {
+#     "rho": 1000.0,
+#     "gamma":0.010,
+#     "mu":0.005,
+#     "offset":0.015,
+#     "scale_x":1.2,
+#     "scale_y":3.2,
+#     "scale_z":1.0
+# }
+
 twelve_liters_water_default = {
     "rho": 1000.0,
     "gamma":0.010,
@@ -60,6 +70,16 @@ twelve_liters_water_default = {
     "scale_y":1.6,
     "scale_z":1.6
 }
+
+# twelve_liters_water_default = {
+#     "rho": 1000.0,
+#     "gamma":0.010,
+#     "mu":0.005,
+#     "offset":0.0125,
+#     "scale_x":1.4,
+#     "scale_y":3.0,
+#     "scale_z":1.2
+# }
 
 # Default Container OIL
 two_liters_oil_default = {

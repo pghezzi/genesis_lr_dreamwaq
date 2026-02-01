@@ -114,6 +114,12 @@ class OnPolicyRunnerDynamicWater:
 
         _, _ = self.env.reset()
 
+    def get_actor_critic(self):
+        return self.alg.actor_critic
+    
+    def get_decoder(self):
+        return self.alg.decoder
+
     # 'action': action_network.state_dict(),
     # 'decoder': decoder.state_dict(),
     def _load_pretrained_model(self):
