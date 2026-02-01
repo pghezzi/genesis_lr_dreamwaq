@@ -277,6 +277,8 @@ class ActorCritic_Dynamic(nn.Module):
         
         self.distribution = None
         
+        self.current_obs = None
+        
         # disable args validation for speedup
         Normal.set_default_validate_args = False
 
@@ -516,12 +518,15 @@ class ActorCritic_Dynamic(nn.Module):
         return sample
     
     # Method using during simulated inference
+    @torch.jit.export
     def act_inference(self,obs,obs_history):
         # Call the forward method of the context encoder
         _, _, z, torso_velo = self.cenet_enc_forward(obs_history)
         
         # create the actors observation
         current_obs = torch.cat((obs,z,torso_velo), dim=-1)   
+        
+        # self.current_obs =  torch.cat((z,torso_velo), dim=-1)
         
         # call the actors forward method and return it's results
         actions_pos, actions_tau = self.actor_forward(current_obs)

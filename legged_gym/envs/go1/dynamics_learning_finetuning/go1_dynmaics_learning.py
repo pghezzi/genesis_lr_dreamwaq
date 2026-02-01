@@ -1534,19 +1534,19 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
         min_displacement, max_displacement = -self.com_delta_value, self.com_delta_value
         min_dis_z, max_dis_z = self.cfg.domain_rand.com_displacement_range_z
         
-        if self.num_iters > 500 and self.num_iters < 750:
+        if self.num_iters > 300 and self.num_iters < 700:
             min_dis_z, max_dis_z = 0.0, 0.10
-        if self.num_iters > 750:
+        if self.num_iters > 700:
             min_dis_z, max_dis_z = 0.10, 0.30
         
         base_link_id = 1
 
         com_displacement = gs.rand((len(env_ids), 1, 3), dtype=float) * (max_displacement - min_displacement) + min_displacement
         
-        if self.num_iters > 500 and self.num_iters < 750:
+        if self.num_iters > 300 and self.num_iters < 700:
             com_displacement[:, 0, 1] = (gs.rand((len(env_ids), 1,), dtype=float) * (0.1 - (-0.1)) + (-0.1)).squeeze() 
-        if self.num_iters > 750:
-            com_displacement[:, 0, 1] = (gs.rand((len(env_ids), 1,), dtype=float) * (0.15 - (-0.15)) + (-0.15)).squeeze() 
+        if self.num_iters > 700:
+            com_displacement[:, 0, 1] = (gs.rand((len(env_ids), 1,), dtype=float) * (0.12 - (-0.12)) + (-0.12)).squeeze() 
         
         com_displacement[:, 0, 2] = (gs.rand((len(env_ids), 1,), dtype=float) * (max_dis_z - min_dis_z) + min_dis_z).squeeze() 
 
@@ -1778,10 +1778,10 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
         # self.feedback_tau_weight = 1.0
 
         self.feedforward_tau_weight = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float)
-        self.feedback_tau_weight = torch.zeros((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float)
+        self.feedback_tau_weight = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float)
         
         # We want to be at the full bounds right away, but we want to skip back sometimes for exploration
-        self.tradeoff_step_ctr = torch.zeros((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float) * 7.0
+        self.tradeoff_step_ctr = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float) * 7.0
 
         self.num_iters = 0
 

@@ -140,8 +140,8 @@ class GO1DynamicFinetuneCfg( LeggedRobotCfg ):
         wrench_timeout_min = 0.01
         wrench_timeout_max = 5.0
         
-        num_push_steps = 500  # number of steps to apply the same randomization
-        push_warmup = 500
+        num_push_steps = 1000  # number of steps to apply the same randomization
+        push_warmup = 100
         
         randomize_base_mass = True
         # added_mass_range = [-1.0, 8.0]
@@ -151,7 +151,7 @@ class GO1DynamicFinetuneCfg( LeggedRobotCfg ):
         
         randomize_com_displacement = True
         # com_displacement_range_xy = [-0.25, 0.25]
-        com_displacement_range_z = [0.10, 0.30]
+        com_displacement_range_z = [-0.05, -0.05]
 
         com_displacement_xy_min = 0.075
         com_displacement_xy_max = 0.25
@@ -284,7 +284,7 @@ class GO1DynamicFinetuneCfg( LeggedRobotCfg ):
         tradeoff_final_weights = [1.00, 1.00]
         tradeoff_steps = 10
         tradeoff_threshold = 0.60
-        use_tradeoff_curriculum = False
+        use_tradeoff_curriculum = True
 
     class termination:
         termination_terms = ["roll", "pitch", "height_min", "height_max"]
@@ -361,7 +361,7 @@ class GO1DynamicFinetuneCfg( LeggedRobotCfg ):
             foot_clearance   = 0.5            # tracking reward for feet reaching the desired clearance
             foot_slip        = -0.1           # penalty for feet slipping
             feet_contact_forces = -2.0e-1     # penalty for high contact forces on the feet
-            raibert  = 0.01                   # tracking reward foot placement in x/y-plane
+            raibert  = 0.0                   # tracking reward foot placement in x/y-plane
             front_back_separation = -0.01     # penalty for small distance between front and back feet during contact
 
         class reward_curriculum():
@@ -371,14 +371,14 @@ class GO1DynamicFinetuneCfg( LeggedRobotCfg ):
             
             curr_reward_bounds = {"action_rate":[-1.0e-3, -1.0e-2],
                                   "action_smoothness":[-1.0e-3, -1.0e-2],
-                                  "feedback_torques":[-2.25e-4, -1.9e-4],
+                                  "feedback_torques":[-2.25e-4, -1.5e-4],
                                   "feedforward_torques":[-2.0e-4, -2.2e-4],
                                   "feet_contact_forces":[-1.0e-1,-5.0e-1],
                                   "ang_vel_xy":[-0.05, -0.1],
                                   "base_height":[-1.0,-2.0],
                                   "lin_vel_z":[-1.0,-2.0],
                                   "orientation":[-1.0,-2.0],
-                                  "act_close_to_default":[-1.0e-4, -1.0e-3],
+                                  "act_close_to_default":[-1.0e-4, -1.0e-6],
                                   "front_back_separation":[-1.0e-2, -1.0e-1],
                                   "dof_act_limits":[-1.0, -2.0]
                                  }
@@ -455,12 +455,12 @@ class GO1DynmaicFinetuneCfgPPO( LeggedRobotCfgPPO ):
         grf_dim = 12
         
         # debug_warmpinn_wb
-        run_name = 'unimodel_grf_pinn_100hz_full_posboot_01_finetune_full_04'
+        run_name = 'unimodel_grf_pinn_100hz_full_posboot_01_finetune_full_05'
         experiment_name = 'rss_go1_dynamic_unimodel_full'
         save_interval = 100
         
         
-        load_run = "Jan24_20-20-52_unimodel_grf_pinn_100hz_full_posboot_01_finetune_full_04"
-        checkpoint = 2500
-        # resume = True
+        load_run = "Jan23_20-49-18_unimodel_grf_pinn_100hz_full_posboot_01_finetune_full_02"
+        checkpoint = 2600
+        resume = True
         exp_data_path = "exp_data/full_trained_model/inital_pd_eval_nopd.csv"
