@@ -364,6 +364,9 @@ class OnPolicyRunnerDynamicFinetune:
         self.alg.decoder.load_state_dict(loaded_dict['decoder_state_dict'])
         self.current_learning_iteration = loaded_dict['iter']
         self.current_learning_iteration = 2500
+
+        self.alg.actor_critic.std.data.fill_(0.30)
+
         return loaded_dict['infos']
 
     def get_inference_policy(self, device=None):

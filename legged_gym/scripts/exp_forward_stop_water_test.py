@@ -67,11 +67,12 @@ def play(args):
     
     env_cfg.env.use_liquid = True
     args.liquid_type = "water"
-    args.liquid_volume = 12.0  # liters
+    args.liquid_volume = 6.0  # liters
+    args.liquid_tank = "default"
     
     env_cfg.liquid.liquid_type = args.liquid_type
     env_cfg.liquid.liquid_volume = args.liquid_volume  # liters
-    train_cfg.runner.exp_data_path = f"exp_data/full_trained_model_03/forward_stop/full_{int(args.liquid_volume)}L{args.liquid_type}_push.csv"
+    train_cfg.runner.exp_data_path = f"exp_data/full_trained_model_03/forward_stop/full_{int(args.liquid_volume)}L{args.liquid_type}_{args.liquid_tank}_push.csv"
     # env_cfg.env.use_liquid = args.use_liquid
 
     # prepare environment
@@ -88,6 +89,11 @@ def play(args):
     if type(obs) == tuple:
         obs = obs[0]
     
+
+    # path = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'policies')
+    # export_policy_as_jit(ppo_runner.alg.actor_critic, path)
+    # print('Exported policy as jit script to: ', path)
+
 
     env.num_iters += 1
     # env.step_push()
@@ -111,14 +117,14 @@ def play(args):
     env.set_commands(np.array([[0]]), np.array([[1.0, 0.0, 0.0]]))  # set initial command to move forward slowly
 
     # for i in range(10*int(env.max_episode_length)):
-    for i in range(800):
-        if i*env.dt > 2.0:
+    for i in range(400):
+        if i*env.dt > 3.0:
             env.set_commands(np.array([[0]]), np.array([[0.0, 0.0, 0.0]]))  # set command to stop
             print("********** Zeroing Command! **********")
 
-        if i*env.dt > 2.70 and i*env.dt < 3.00:
-            env.push_forwards()
-            print("********** Pushing Forward! **********")
+        # if i*env.dt > 2.70 and i*env.dt < 3.00:
+        #     env.push_forwards()
+        #     print("********** Pushing Forward! **********")
 
 
 
@@ -142,8 +148,8 @@ def play(args):
             env.set_camera(camera_position_follow, camera_lookat_follow)
             env.floating_camera.render()
         
-        latent_current_obs = ppo_runner.get_actor_critic().current_obs.detach().clone()
-        grf_pred = ppo_runner.get_decoder().forward(latent_current_obs).detach().clone()[:,57:].cpu().numpy() / 0.01  # unscale
+        # latent_current_obs = ppo_runner.get_actor_critic().current_obs.detach().clone()
+        # grf_pred = ppo_runner.get_decoder().forward(latent_current_obs).detach().clone()[:,57:].cpu().numpy() / 0.01  # unscale
         
         logger.log_states(
             {
@@ -161,13 +167,13 @@ def play(args):
                 'q_des':env.get_scaled_pos_actions().detach().cpu().numpy().tolist(),
                 'tau_ff':env.feedforward_torques.detach().cpu().numpy().tolist(),
                 'tau_pd':env.first_loop_feedback.detach().cpu().numpy().tolist(),
-                'failure':list(map(int, env.get_failure_idx().detach().cpu().numpy().tolist())),
-                'pred_grf':grf_pred.tolist()
+                'failure':list(map(int, env.get_failure_idx().detach().cpu().numpy().tolist()))
+                # 'pred_grf':grf_pred.tolist()
             }
         )
 
 
-    logger.save_log()
+    # logger.save_log()
 
     end_time = time.perf_counter()   # Record the end time
     execution_time = end_time - start_time
@@ -178,7 +184,7 @@ def play(args):
     
     if RECORD_FRAMES:
         try:
-            filename_mp4 = f"PACT_{train_cfg.runner.experiment_name}_{train_cfg.runner.load_run}_forward_slosh_test_12L_01.mp4"
+            filename_mp4 = f"PACT_{train_cfg.runner.experiment_name}_{train_cfg.runner.load_run}_forward_slosh_6L_04.mp4"
         except:
             from datetime import datetime
             filename_mp4 = f"{datetime.now().timestamp()}"
@@ -188,7 +194,7 @@ def play(args):
 
 if __name__ == '__main__':
     EXPORT_POLICY = False
-    RECORD_FRAMES = False  # only record frames in extra camera view
+    RECORD_FRAMES = True  # only record frames in extra camera view
     MOVE_CAMERA   = False
     FOLLOW_ROBOT  = True
     assert not (MOVE_CAMERA and FOLLOW_ROBOT), "Cannot move camera and follow robot at the same time"
@@ -209,6 +215,7 @@ if __name__ == '__main__':
     parser.add_argument('--use_liquid',    type=bool, default='True')
     parser.add_argument('--liquid_type',   type=str, default='water', choices=['water', 'oil', 'gas'])
     parser.add_argument('--liquid_volume', type=float, default=4.0)
+    parser.add_argument('--liquid_tank', type=str, default="default", choices=["default", "wide", "tall", "offset"])
 
     args = parser.parse_args()
     

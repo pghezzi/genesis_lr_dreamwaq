@@ -439,20 +439,30 @@ class ActorCritic_Dynamic(nn.Module):
 
     # Functions that are specific to PPO training
     @property
+    @torch.jit.ignore
     def action_mean(self):
         return self.distribution.mean
 
     @property
+    @torch.jit.ignore
     def action_std(self):
         return self.distribution.stddev
 
     @property
+    @torch.jit.ignore
     def entropy(self):
         return self.distribution.entropy().sum(dim=-1)
 
+    @torch.jit.ignore
     def get_actions_log_prob(self, actions):
         return self.distribution.log_prob(actions).sum(dim=-1)
 
+    @torch.no_grad
+    @torch.jit.ignore
+    def _clip_std(self,):
+        self.std.data.clamp_(0.1, 5.0)
+
+    @torch.jit.ignore
     def update_distribution(self, curr_obs):
         mean_pos, mean_tau = self.actor_forward(curr_obs)
         self.mean_pos = mean_pos
@@ -462,7 +472,7 @@ class ActorCritic_Dynamic(nn.Module):
         # std_pos = torch.clamp(self.std_pos, 0.05, 1.1)
         # std_tau = torch.clamp(self.std_tau, 0.05, 1.1)
 
-        self.std.data.clamp_(0.2, 5.0)
+        self._clip_std()
 
         # self.std.data.clamp_(0.2, 1.1)
         mean = torch.cat([mean_pos, mean_tau], dim=-1)
@@ -470,6 +480,7 @@ class ActorCritic_Dynamic(nn.Module):
         self.distribution = Normal(mean, mean * 0.0 + self.std)
 
     # method used during simulated training
+    @torch.jit.ignore
     def act(self, obs, obs_history, **kwargs):
         # Call the forward method of the context encoder
         mean, logvar, z, torso_velo = self.cenet_enc_forward(obs_history)
@@ -493,6 +504,7 @@ class ActorCritic_Dynamic(nn.Module):
     
 
     # method used during simulated training
+    @torch.jit.ignore
     def act_bootmask(self, obs, obs_history, **kwargs):
         # Call the forward method of the context encoder
         mean, logvar, z, torso_velo = self.cenet_enc_forward(obs_history)

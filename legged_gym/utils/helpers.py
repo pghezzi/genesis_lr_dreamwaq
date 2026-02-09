@@ -137,10 +137,22 @@ def export_policy_as_jit(actor_critic, path):
         exporter.export(path)
     else: 
         os.makedirs(path, exist_ok=True)
-        path = os.path.join(path, 'policy_1.pt')
+        path = os.path.join(path, 'pact_policy_3_smooth_ft.pt')
         model = copy.deepcopy(actor_critic).to('cpu')
         traced_script_module = torch.jit.script(model)
         traced_script_module.save(path)
+
+# def export_policy_as_jit(actor_critic, path):
+#     if hasattr(actor_critic, 'memory_a'):
+#         # assumes LSTM: TODO add GRU
+#         exporter = PolicyExporterLSTM(actor_critic)
+#         exporter.export(path)
+#     else: 
+#         os.makedirs(path, exist_ok=True)
+#         path = os.path.join(path, 'policy_1_go2.pt')
+#         model = copy.deepcopy(actor_critic.actor).to('cpu')
+#         traced_script_module = torch.jit.script(model)
+#         traced_script_module.save(path)
     
 def export_estimator_as_jit(estimator, path):
     os.makedirs(path, exist_ok=True)

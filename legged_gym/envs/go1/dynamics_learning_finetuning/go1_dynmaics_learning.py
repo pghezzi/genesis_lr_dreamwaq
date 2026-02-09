@@ -149,7 +149,7 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
         wb_correct_pino_2_model_ordering.extend(self.pino_2_model_joint_act_map)
         
         # For safeties shake, use only 90% of available CPU's
-        num_cpus = int(mp.cpu_count() * 0.95)
+        num_cpus = int(mp.cpu_count() * 0.98)
 
         # Build the class that manages (1) shared input/output memeory and (2) invoking worker processes 
         self.async_pino_manager = PinocchioAsync(
@@ -507,8 +507,7 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
 
         if self.cfg.domain_rand.randomize_ctrl_delay:
             # normalize to [0, 1]
-            ctrl_delay = (self.action_delay /
-                          self.cfg.domain_rand.ctrl_delay_step_range[1]).unsqueeze(1)
+            ctrl_delay = (self.action_delay / self.cfg.domain_rand.ctrl_delay_step_range[1]).unsqueeze(1)
 
         if self.num_privileged_obs is not None:
             # TODO for liquid payloads -> added liquid mass + vscosity values to priv. obs.
@@ -1534,19 +1533,19 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
         min_displacement, max_displacement = -self.com_delta_value, self.com_delta_value
         min_dis_z, max_dis_z = self.cfg.domain_rand.com_displacement_range_z
         
-        if self.num_iters > 300 and self.num_iters < 700:
+        if self.num_iters > 200 and self.num_iters < 600:
             min_dis_z, max_dis_z = 0.0, 0.10
-        if self.num_iters > 700:
-            min_dis_z, max_dis_z = 0.10, 0.30
+        if self.num_iters > 600:
+            min_dis_z, max_dis_z = 0.10, 0.25
         
         base_link_id = 1
 
         com_displacement = gs.rand((len(env_ids), 1, 3), dtype=float) * (max_displacement - min_displacement) + min_displacement
         
-        if self.num_iters > 300 and self.num_iters < 700:
+        if self.num_iters > 200 and self.num_iters < 600:
             com_displacement[:, 0, 1] = (gs.rand((len(env_ids), 1,), dtype=float) * (0.1 - (-0.1)) + (-0.1)).squeeze() 
-        if self.num_iters > 700:
-            com_displacement[:, 0, 1] = (gs.rand((len(env_ids), 1,), dtype=float) * (0.12 - (-0.12)) + (-0.12)).squeeze() 
+        if self.num_iters > 600:
+            com_displacement[:, 0, 1] = (gs.rand((len(env_ids), 1,), dtype=float) * (0.15 - (-0.15)) + (-0.15)).squeeze() 
         
         com_displacement[:, 0, 2] = (gs.rand((len(env_ids), 1,), dtype=float) * (max_dis_z - min_dis_z) + min_dis_z).squeeze() 
 
@@ -1619,6 +1618,37 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
 
             self.feedforward_tau_weight[env_ids] = random_step_size[env_ids]*self.bound_diff[0] + self.tradeoff_lowerbounds[0]
             self.feedback_tau_weight[env_ids]    = random_step_size[env_ids]*self.bound_diff[1] + self.tradeoff_lowerbounds[1]
+
+    # self.feedforward_tau_weight = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float)
+    # self.feedback_tau_weight = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float)
+    
+    # # We want to be at the full bounds right away, but we want to skip back sometimes for exploration
+    # self.tradeoff_step_ctr = torch.zeros((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float)
+
+    # def step_tradeoff_curriculum(self, env_ids):
+    #     # # If the tracking reward is above XX% of the maximum, increase the tradeoff        
+    #     if torch.mean(self.episode_sums["tracking_lin_vel"][env_ids]) / self.max_episode_length > \
+    #             self.cfg.control.tradeoff_threshold * self.reward_scales["tracking_lin_vel"]:
+
+    #         # Increment the tradeoff step-counter for these successful envs.
+    #         self.tradeoff_step_ctr[env_ids] += 1.0
+
+    #         # Check if this increased the step count of any env beyond the maximum and then reset
+    #         max_step_mask = self.tradeoff_step_ctr > self.tradeoff_num_steps
+    #         self.tradeoff_step_ctr[max_step_mask] = self.tradeoff_num_steps
+
+    #     # apply the curriculum scaling
+    #     self.feedforward_tau_weight[env_ids]  = self.tradeoff_step_ctr[env_ids] *float(1.0/self.tradeoff_num_steps)*self.bound_diff[0] + self.tradeoff_lowerbounds[0]
+    #     self.feedback_tau_weight[env_ids]     = self.tradeoff_step_ctr[env_ids] *float(1.0/self.tradeoff_num_steps)*self.bound_diff[1] + self.tradeoff_lowerbounds[1]
+
+    #     random_smaple = random.random()
+        
+    #     if random_smaple <= 0.50: # ~50% of the time, sample a random value between the lower and current upper bound
+    #         # step_ctr * (1.0/num_steps) -> is the per-env upper bound. Multipled by a random float between [0,1)
+    #         random_step_size = self.tradeoff_step_ctr*float(1.0/self.tradeoff_num_steps) * torch.rand((self.num_envs, 1))
+
+    #         self.feedforward_tau_weight[env_ids] = random_step_size[env_ids]*self.bound_diff[0] + self.tradeoff_lowerbounds[0]
+    #         self.feedback_tau_weight[env_ids]    = random_step_size[env_ids]*self.bound_diff[1] + self.tradeoff_lowerbounds[1]
 
     def step_reward_curriculum(self):
         # Safety catch
@@ -1781,7 +1811,7 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
         self.feedback_tau_weight = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float)
         
         # We want to be at the full bounds right away, but we want to skip back sometimes for exploration
-        self.tradeoff_step_ctr = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float) * 7.0
+        self.tradeoff_step_ctr = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float) * 7
 
         self.num_iters = 0
 
@@ -2315,13 +2345,13 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
         in_contact = fz > 10.0
         
         # Only apply this penalty when both front or both rear feet are in contact
-        front_contact_gate = in_contact[:,0] & in_contact[:,1]
-        rear_contact_gate = in_contact[:,2] & in_contact[:,3]
-        
-        d_front = torch.norm(self.feet_pos[:, 0, :2] - self.feet_pos[:, 1, 0:2], dim=1)
-        d_rear = torch.norm(self.feet_pos[:, 2, :2] - self.feet_pos[:, 3, 0:2], dim=1)
+        front_contact_gate = in_contact[:,0] | in_contact[:,1]
+        rear_contact_gate = in_contact[:,2] | in_contact[:,3]
 
-        d_min = 0.20
+        d_front = torch.abs(self.feet_pos[:, 0, 1] - self.feet_pos[:, 1, 1])
+        d_rear = torch.abs(self.feet_pos[:, 2, 1] - self.feet_pos[:, 3, 1])
+
+        d_min = 0.40
 
         penalty_front = torch.clamp(d_min - d_front, min=0.0) ** 2
         penalty_rear = torch.clamp(d_min - d_rear, min=0.0) ** 2
@@ -2330,6 +2360,105 @@ class LeggedRobotGo1DynamicFinetuning(BaseTask):
         penalty_rear *= rear_contact_gate.float()
 
         return penalty_front + penalty_rear
+
+    def _reward_feet_spread_pairwise_axes(self):
+        """
+        Pair-aware, axis-separated feet spread reward.
+
+        Requested behavior:
+        - Lateral pairs on the same side (front/back): (FL,RL), (FR,RR)
+            -> do NOT consider X-distance (fore-aft). (Only Y term.)
+        - Side pairs on the same row (left/right): (FL,FR), (RL,RR)
+            -> do NOT consider Y-distance (lateral). (Only X term.)
+        - Diagonal pairs: (FL,RR), (FR,RL)
+            -> consider both axes (weighted blend).
+
+        Reward uses smooth sigmoids as soft minimum-separation constraints and contact gating.
+        Returns: (N,) in [0, 1]
+        """
+        # -------------------- hyperparameters (tune) --------------------
+        y_min = 0.35      # min lateral separation target [m]
+        x_min = 0.40      # min fore-aft separation target [m]
+        k_y   = 50.0      # sharpness for lateral hinge
+        k_x   = 30.0      # sharpness for fore-aft hinge
+        alpha_diag = 0.8  # diagonal pair blend: weight on lateral term (0..1)
+        fz_thr = 5.0      # contact threshold [N] if using forces
+
+        # contact weighting mode:
+        #   "both"  -> w_ij = c_i * c_j  (strict stance-only)
+        #   "blend" -> w_ij = 0.5*(c_i + c_j) (some signal when one foot swings)
+        contact_mode = "blend"
+        # ----------------------------------------------------------------
+
+        # Assumed foot order: 0=FL, 1=FR, 2=RL, 3=RR (common in RSL-RL / legged_gym setups)
+        # FL, FR, RL, RR = 0, 1, 2, 3
+        FR, FL, RR, RL = 0, 1, 2, 3
+
+        inv_base_quat = inv_quat(self.base_quat)
+
+        # Trasnform feet pose into base-frame
+        feet_base_01 = transform_by_quat((self.feet_pos[:,0,:] - self.base_pos), inv_base_quat)
+        feet_base_02 = transform_by_quat((self.feet_pos[:,1,:] - self.base_pos), inv_base_quat)
+        feet_base_03 = transform_by_quat((self.feet_pos[:,2,:] - self.base_pos), inv_base_quat)
+        feet_base_04 = transform_by_quat((self.feet_pos[:,3,:] - self.base_pos), inv_base_quat)
+
+        feet_stack_base = torch.stack([feet_base_01, feet_base_02, feet_base_03, feet_base_04], dim=1)  # (N,4,3)
+        
+        feet_xy = feet_stack_base[:,:,:2]  # (N,4,2) use XY for support polygon in ground plane
+
+        # contact mask (N,4) in {0,1}
+        c = (self.link_contact_forces[:, self.feet_indices, 2] > fz_thr).float()
+
+        # Define pair groups per your constraint
+        side_pairs   = [(FL, FR), (RL, RR)]      # left/right
+        lateral_pairs = [(FL, RL), (FR, RR)]     # front/back on same side
+        diag_pairs   = [(FL, RR), (FR, RL)]      # diagonals
+
+        r = torch.zeros(feet_xy.shape[0], device=feet_xy.device)
+        denom = torch.zeros_like(r)
+
+        def w_pair(i, j):
+            if contact_mode == "blend":
+                return 0.5 * (c[:, i] + c[:, j])
+            return c[:, i] * c[:, j]
+
+        def r_x(dx):
+            return torch.sigmoid(k_x * (dx - x_min))
+
+        def r_y(dy):
+            return torch.sigmoid(k_y * (dy - y_min))
+
+        # Side pairs: ignore Y, only use X
+        for i, j in side_pairs:
+            dxy = feet_xy[:, i] - feet_xy[:, j]
+            dx = torch.abs(dxy[:, 0])
+            wij = w_pair(i, j)
+            rij = r_x(dx)
+            r += wij * rij
+            denom += wij
+
+        # Lateral pairs: ignore X, only use Y
+        for i, j in lateral_pairs:
+            dxy = feet_xy[:, i] - feet_xy[:, j]
+            dy = torch.abs(dxy[:, 1])
+            wij = w_pair(i, j)
+            rij = r_y(dy)
+            r += wij * rij
+            denom += wij
+
+        # Diagonal pairs: use both (blend)
+        for i, j in diag_pairs:
+            dxy = feet_xy[:, i] - feet_xy[:, j]
+            dx = torch.abs(dxy[:, 0])
+            dy = torch.abs(dxy[:, 1])
+            wij = w_pair(i, j)
+            rij = alpha_diag * r_y(dy) + (1.0 - alpha_diag) * r_x(dx)
+            r += wij * rij
+            denom += wij
+
+        r = torch.where(denom > 0.0, r / (denom + 1e-6), torch.zeros_like(r))
+        
+        return r
 
     def _reward_alive_bonus(self):
         return ~self.reset_buf

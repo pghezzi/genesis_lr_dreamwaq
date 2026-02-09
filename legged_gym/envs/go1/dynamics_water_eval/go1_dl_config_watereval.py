@@ -14,6 +14,7 @@ class GO1DynamicWaterCfg( LeggedRobotCfg ):
                             [-1.047, 1.047], [-0.663, 2.966], [-0.837, -2.721]]
         pos = [0.0, 0.0, 0.34] # x,y,z [m]
         rot = [1.0, 0.0, 0.0, 0.0] # w, x, y, z [quat]
+        # rot = [0.7071, 0.0, 0.0, -0.7071] # w, x, y, z [quat]
         default_joint_angles = { # = target angles [rad] when action = 0.0
             'FL_hip_joint': 0.0,     # [rad]
             'RL_hip_joint': 0.0,     # [rad]
@@ -170,12 +171,24 @@ class GO1DynamicWaterCfg( LeggedRobotCfg ):
         enable_additional_ratio = 0.5
 
 
+    # class noise (LeggedRobotCfg.noise):
+    #     add_noise = True
+    #     noise_level = 1.0 # scales other values
+    #     class noise_scales:
+    #         dof_pos = 0.01
+    #         dof_vel = 0.5
+    #         dof_tau = 0.5
+    #         lin_vel = 0.1
+    #         ang_vel = 0.2
+    #         gravity = 0.05
+    #         height_measurements = 0.1
+
     class noise (LeggedRobotCfg.noise):
         add_noise = True
         noise_level = 1.0 # scales other values
         class noise_scales:
-            dof_pos = 0.01
-            dof_vel = 0.5
+            dof_pos = 0.001
+            dof_vel = 0.025
             dof_tau = 0.5
             lin_vel = 0.1
             ang_vel = 0.2
@@ -190,7 +203,8 @@ class GO1DynamicWaterCfg( LeggedRobotCfg ):
         add_camera = True
 
     class asset( LeggedRobotCfg.asset ):
-        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/go1/urdf/go1.urdf'
+        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/go1/urdf/go1_old.urdf'
+        # file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/go1_description/urdf/go1.urdf'
         dof_names = [        # specify the sequence of actions
             'FR_hip_joint',
             'FR_thigh_joint',
@@ -219,6 +233,9 @@ class GO1DynamicWaterCfg( LeggedRobotCfg ):
         # Much smaller values than typical... only used for feedback control
         stiffness = {'joint': 10.0}   # [N*m/rad]
         damping   = {'joint': 0.25}     # [N*m*s/rad]
+
+        # stiffness = {'joint': 60.0}   # [N*m/rad]
+        # damping   = {'joint': 5.0}     # [N*m*s/rad]
         
         action_scale = [0.25, 0.25, 0.25]    # action scale: target angle = action_scale * pose_action + defaultAngle
         torque_scale = [10.0, 10.0, 10.0] # action scale:  target torque = torque_scale * tau_action + defaultTorque
@@ -233,7 +250,7 @@ class GO1DynamicWaterCfg( LeggedRobotCfg ):
         tradeoff_final_weights = [1.00, 1.00]
         tradeoff_steps = 10
         tradeoff_threshold = 0.60
-        use_tradeoff_curriculum = True
+        use_tradeoff_curriculum = False
 
     class termination:
         termination_terms = ["roll", "pitch", "height_min", "height_max"]
@@ -356,12 +373,13 @@ class GO1DynamicWaterCfg( LeggedRobotCfg ):
         num_obs_hist = 5
         grf_dim = 12
         whole_body_dim = 18
-        debug = False # if debugging, visualize contacts,
+        debug = True # if debugging, visualize contacts,
         debug_viz = False # draw debug visualizations
         use_liquid = True
     class liquid():
         liquid_type = "water"
         liquid_volume = 6.0  # liters
+        liquid_tank = "default"
 
 class GO1DynamicWaterCfgPPO( LeggedRobotCfgPPO ):
     seed = 1
@@ -424,8 +442,13 @@ class GO1DynamicWaterCfgPPO( LeggedRobotCfgPPO ):
         save_interval = 100
         
         
-        load_run = "Jan24_20-20-52_unimodel_grf_pinn_100hz_full_posboot_01_finetune_full_04"
-        checkpoint = 2500
+        # load_run = "Jan24_20-20-52_unimodel_grf_pinn_100hz_full_posboot_01_finetune_full_04"
+        # checkpoint = 2500
+        load_run = "Jan27_12-19-34_unimodel_grf_pinn_100hz_full_posboot_01_finetune_full_05"
+        checkpoint = 5000
+
+        # load_run = "Feb05_19-42-08_unimodel_grf_pinn_100hz_full_posboot_01_finetune_full_05"
+        # checkpoint = 5500
         resume = True
         exp_data_path = "exp_data/full_trained_model/full_{}L{}_push_01_debugging_tests.csv"
 

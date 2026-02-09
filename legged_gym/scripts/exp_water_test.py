@@ -65,14 +65,16 @@ def play(args):
     # load policy
     train_cfg.runner.resume = True
     
-    env_cfg.env.use_liquid = False
-    args.liquid_type = "none"
-    args.liquid_volume = 0.0  # liters
+    args.use_liquid = True
+    args.liquid_type = "water"
+    args.liquid_tank = "default"
+    args.liquid_volume = 12.0  # liters
 
     env_cfg.liquid.liquid_type = args.liquid_type
     env_cfg.liquid.liquid_volume = args.liquid_volume  # liters
-    train_cfg.runner.exp_data_path = f"exp_data/full_trained_model_04/full_{int(args.liquid_volume)}L{args.liquid_type}_push.csv"
-    # env_cfg.env.use_liquid = args.use_liquid
+    env_cfg.liquid.liquid_tank = args.liquid_tank  # liters
+    train_cfg.runner.exp_data_path = f"exp_data/full_trained_model_03/full_{int(args.liquid_volume)}L{args.liquid_type}_{args.liquid_tank}_push.csv"
+    env_cfg.env.use_liquid = args.use_liquid
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
@@ -108,8 +110,8 @@ def play(args):
     
     start_time = time.perf_counter() # Record the start time
 
-    for i in range(10*int(env.max_episode_length)):
-    # for i in range(2*int(env.max_episode_length)):
+    # for i in range(10*int(env.max_episode_length)):
+    for i in range(2*int(env.max_episode_length)):
     # for i in range(50):
         actions = policy(obs.detach(), obs_hist.detach())
         obs, _, obs_hist, rews, dones, infos, grfs = env.step(actions.detach())
@@ -193,6 +195,7 @@ if __name__ == '__main__':
     parser.add_argument('--use_liquid',    type=bool, default='True')
     parser.add_argument('--liquid_type',   type=str, default='water', choices=['water', 'oil', 'gas'])
     parser.add_argument('--liquid_volume', type=float, default=4.0)
+    parser.add_argument('--liquid_tank', type=str, default="default", choices=["default", "wide", "tall", "offset"])
 
     args = parser.parse_args()
     

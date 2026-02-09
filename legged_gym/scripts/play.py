@@ -137,10 +137,10 @@ def play(args):
             logger.print_rewards()
 
 if __name__ == '__main__':
-    EXPORT_POLICY = False
-    RECORD_FRAMES = True  # only record frames in extra camera view
+    EXPORT_POLICY = True
+    RECORD_FRAMES = False  # only record frames in extra camera view
     MOVE_CAMERA   = False
-    FOLLOW_ROBOT  = True
+    FOLLOW_ROBOT  = False
     assert not (MOVE_CAMERA and FOLLOW_ROBOT), "Cannot move camera and follow robot at the same time"
     args = get_args()
     play(args)

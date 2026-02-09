@@ -26,8 +26,8 @@ import torch.nn.functional as F
 from legged_gym.scripts.liquid_payload_configs import *
 
 # Some values that are held constant for the water tank and liquid
-liquid_substeps      = 5
-liquid_particle_size = 0.01
+liquid_substeps      = 15
+liquid_particle_size = 0.005
 
 container_outer_x = 0.20  # X dimension
 container_outer_y = 0.15  # Y dimension
@@ -68,7 +68,7 @@ class LeggedRobotGo1DynamicWater(BaseTask):
         super().__init__(self.cfg, sim_device, headless)
 
         self._init_buffers()
-        self._prepare_reward_function()    
+        self._prepare_reward_function()
                 
         self.init_done = True
 
@@ -92,6 +92,14 @@ class LeggedRobotGo1DynamicWater(BaseTask):
         clip_actions = self.cfg.normalization.clip_actions
         self.actions = torch.clip(
             actions, -clip_actions, clip_actions).to(self.device)
+
+        # if not self.ema_init:
+        #     self.action_ema[:] = self.actions
+        #     self.ema_init = True
+
+        # else:
+        #     self.action_ema = self.ema_alpha * self.actions + (1.0 - self.ema_alpha) * self.action_ema
+
 
         # Perform random control delay if approperiate
         if self.cfg.domain_rand.randomize_ctrl_delay:
@@ -413,7 +421,6 @@ class LeggedRobotGo1DynamicWater(BaseTask):
         #         1) - 0.5 - self.measured_heights, -1, 1.) * self.obs_scales.height_measurements
         #     self.obs_buf = torch.cat((self.obs_buf, heights), dim=-1)
 
-
         # heights = torch.clip(self.base_pos[:, 2].unsqueeze(1) - 0.5 - self.measured_heights, -1, 1.) * self.obs_scales.height_measurements
         # heights += (2.0 * torch.rand_like(heights) - 1.0)*self.height_noise_vec
 
@@ -597,7 +604,8 @@ class LeggedRobotGo1DynamicWater(BaseTask):
             pos=np.array(self.cfg.viewer.pos),
             lookat=np.array(self.cfg.viewer.lookat),
             fov=40,
-            # up=np.array([0, 0, 0]),
+            up=np.array([0.0, 0.0, 1.0]),
+            # up=np.array([0.0, 0.0, 0.0]),
             GUI=True,
         )
 
@@ -653,7 +661,7 @@ class LeggedRobotGo1DynamicWater(BaseTask):
         self.commands[env_ids] = torch.from_numpy(commands).to(self.device).float()
         
 
-    def _compute_torques(self, actions):
+    def _compute_torques(self, actions):   
         # control_type = 'P'
         # Pull out the position control actions
         pos_actions = actions[:,0:12]
@@ -661,11 +669,16 @@ class LeggedRobotGo1DynamicWater(BaseTask):
         tau_actions = actions[:,12:24]
         # Scale the position actions
 
-        repeat_pos_scales = torch.from_numpy(np.array(self.cfg.control.action_scale)).repeat(1,4).to(self.device)
-        # actions_scaled = pos_actions * self.cfg.control.action_scale
-        actions_scaled = pos_actions * repeat_pos_scales + self.default_dof_pos
+        # # control_type = 'P'
+        # # Pull out the position control actions
+        # pos_actions = self.action_ema[:,0:12]
+        # # pull out the torque control actions
+        # tau_actions = self.action_ema[:,12:24]
+        # # Scale the position actions
 
-        # actions_scaled = torch.clamp(actions_scaled, 1.5*self.dof_pos_limits_hard[0,0], 1.5*self.dof_pos_limits_hard[0,1])
+
+        repeat_pos_scales = torch.from_numpy(np.array(self.cfg.control.action_scale)).repeat(1,4).to(self.device)
+        actions_scaled = pos_actions * 0.25 + self.default_dof_pos
 
         # Calculate the feedback-control torques
         #     include PD scaling values 
@@ -682,11 +695,16 @@ class LeggedRobotGo1DynamicWater(BaseTask):
             self.first_loop_feedback = self.feedback_torques.clone()
         
         repeat_torque_scales = torch.from_numpy(np.array(self.cfg.control.torque_scale)).repeat(1,4).to(self.device)
-        
-        self.feedforward_torques = (tau_actions * repeat_torque_scales + self.default_dof_tau)
-        
-        # torques = (self.feedforward_tau_weight) * self.feedforward_torques + 0.0 * (self.feedback_tau_weight)*self.feedback_torques
+        self.feedforward_torques = (tau_actions * 10.0 + self.default_dof_tau)
+
+        # print("self.feedforward_torques: ", self.feedforward_torques.detach().cpu().numpy()[0])
         torques = (self.feedforward_tau_weight) * self.feedforward_torques + (self.feedback_tau_weight)*self.feedback_torques
+
+        # torques = self.feedforward_torques
+
+        # print("torques: ", torques.detach().cpu().numpy()[0])
+
+        # print("------------------------++++++++++++++++++++----------------------\n")
 
         # Have the limit be exceeded a little bit to get reward feedback based on exceeding the limits
         return torch.clip(torques, -1.1*self.torque_limits, 1.1*self.torque_limits)
@@ -768,7 +786,7 @@ class LeggedRobotGo1DynamicWater(BaseTask):
         if self.custom_origins:
             self.base_pos[envs_idx] = self.base_init_pos
             self.base_pos[envs_idx] += self.env_origins[envs_idx]
-            self.base_pos[envs_idx, :2] += gs_rand_float(-1.0, 1.0, (len(envs_idx), 2), self.device)
+            # self.base_pos[envs_idx, :2] += gs_rand_float(-1.0, 1.0, (len(envs_idx), 2), self.device)
         else:
             self.base_pos[envs_idx] = self.base_init_pos
             self.base_pos[envs_idx] += self.env_origins[envs_idx]
@@ -779,10 +797,11 @@ class LeggedRobotGo1DynamicWater(BaseTask):
 
         # base quat
         self.base_quat[envs_idx] = self.base_init_quat.reshape(1, -1)
-        base_euler = gs_rand_float(-0.0, 0.0, (len(envs_idx), 3), self.device)  # roll, pitch [-0.1, 0.1]
-        base_euler[:, 2] = gs_rand_float(*self.cfg.init_state.yaw_angle_range, (len(envs_idx),), self.device)  # yaw angle
-        self.base_quat_offsets = gs_euler2quat(base_euler)
-        self.base_quat[envs_idx] = gs_quat_mul(self.base_quat_offsets, self.base_quat[envs_idx],)
+        # base_euler = gs_rand_float(-0.0, 0.0, (len(envs_idx), 3), self.device)  # roll, pitch [-0.1, 0.1]
+        # base_euler[:, 2] = gs_rand_float(*self.cfg.init_state.yaw_angle_range, (len(envs_idx),), self.device)  # yaw angle
+        # self.base_quat_offsets = gs_euler2quat(base_euler)
+        self.base_quat_offsets = self.base_quat[envs_idx]
+        # self.base_quat[envs_idx] = gs_quat_mul(self.base_quat_offsets, self.base_quat[envs_idx],)
         
         self.robot.set_quat(
             self.base_quat[envs_idx], zero_velocity=True, envs_idx=envs_idx)
@@ -1218,6 +1237,9 @@ class LeggedRobotGo1DynamicWater(BaseTask):
         self.pos_rew_buf = torch.zeros(self.num_envs, device=self.device, dtype=gs.tc_float)
         self.tau_rew_buf = torch.zeros(self.num_envs, device=self.device, dtype=gs.tc_float)
 
+        self.action_ema = torch.zeros_like(self.actions)
+        self.ema_init = False
+
         # randomize action delay
         if self.cfg.domain_rand.randomize_ctrl_delay:
             self.action_queue = torch.zeros(
@@ -1313,7 +1335,7 @@ class LeggedRobotGo1DynamicWater(BaseTask):
 
     def _build_liquid_payloads(self):
         # pull out the liquid properties we are using
-        self.liquid_properties = get_payload_config(self.cfg.liquid.liquid_type, self.cfg.liquid.liquid_volume)
+        self.liquid_properties = get_payload_config(self.cfg.liquid.liquid_type, self.cfg.liquid.liquid_volume, self.cfg.liquid.liquid_tank)
         
         rob_pos = np.array(self.cfg.init_state.pos)
         rob_quat = np.array(self.cfg.init_state.rot)
@@ -1323,6 +1345,10 @@ class LeggedRobotGo1DynamicWater(BaseTask):
         #    this has been found to precent particles from "spilling" out the top due to minor simulation inaccuracies
         lid_offset = (0.1/2.0) + (self.liquid_properties["scale_z"]*container_outer_z)
         
+        mount_xy_pos = [rob_pos[0], rob_pos[1]]
+        if "mount_offset" in self.liquid_properties.keys():
+            mount_xy_pos = [rob_pos[0] + self.liquid_properties["mount_offset"][0], rob_pos[1] + self.liquid_properties["mount_offset"][1]]
+
         # Add the liquid container
         self.bucket = self.scene.add_entity(
             material=gs.materials.Rigid(gravity_compensation=0.0,),
@@ -1331,7 +1357,7 @@ class LeggedRobotGo1DynamicWater(BaseTask):
                 scale=(self.liquid_properties["scale_x"],
                        self.liquid_properties["scale_y"],
                        self.liquid_properties["scale_z"]),    # adjust scale
-                pos= (rob_pos[0], rob_pos[1], bucket_offset),      # position
+                pos= (mount_xy_pos[0], mount_xy_pos[1], bucket_offset),      # position
                 quat=rob_quat, # no rotation; uses w, x, y, z quaternion
             decimate=False,
             convexify=False),
@@ -1345,7 +1371,7 @@ class LeggedRobotGo1DynamicWater(BaseTask):
                 scale=(self.liquid_properties["scale_x"],
                        self.liquid_properties["scale_y"],
                        1.0),    # adjust scale if needed
-            pos= (rob_pos[0], rob_pos[1], lid_offset),      # position
+            pos= (mount_xy_pos[0], mount_xy_pos[1], lid_offset),      # position
             quat=rob_quat, # no rotation; uses w, x, y, z quaternion
             decimate=False,
             convexify=False),
@@ -1364,9 +1390,9 @@ class LeggedRobotGo1DynamicWater(BaseTask):
             material=gs.materials.SPH.Liquid(rho=self.liquid_properties["rho"],
                                              mu=self.liquid_properties["mu"],
                                              gamma=self.liquid_properties["gamma"]),
-            morph=gs.morphs.Box(pos=(rob_pos[0],
-                                     rob_pos[1],
-                                     rob_pos[2] + bucket_offset + 0.5*scaled_height),
+            morph=gs.morphs.Box(pos=(mount_xy_pos[0],
+                                     mount_xy_pos[1],
+                                     rob_pos[2] + bucket_offset + 0.5*scaled_height + self.liquid_properties["scale_z"]*container_bottom_thickness),
                             size=(scaled_width-self.liquid_properties["offset"],
                                   scaled_depth-self.liquid_properties["offset"],
                                   scaled_height-self.liquid_properties["offset"])),
@@ -1420,6 +1446,10 @@ class LeggedRobotGo1DynamicWater(BaseTask):
         self.motors_dof_idx = [self.robot.get_joint(
             name).dof_start for name in self.cfg.asset.dof_names]
         
+        for name in self.cfg.asset.dof_names:
+            print(name)
+            print(self.robot.get_joint(name).dof_start)
+
         # find link indices, termination links, penalized links, and feet, utility function
         def find_link_indices(names):
             link_indices = list()
@@ -1515,7 +1545,9 @@ class LeggedRobotGo1DynamicWater(BaseTask):
 
         self.dof_pos_limits_hard = self.dof_pos_limits.clone()
 
-        print(self.dof_pos_limits_hard.shape)
+        # print(self.dof_pos_limits_hard.shape)
+        # print("Min - ", self.dof_pos_limits_hard[:,0])
+        # print("MAx - ", self.dof_pos_limits_hard[:,1])
 
         for i in range(self.dof_pos_limits.shape[0]):
             # soft limits
@@ -1771,6 +1803,8 @@ class LeggedRobotGo1DynamicWater(BaseTask):
         self.obs_scales = self.cfg.normalization.obs_scales
         self.reward_scales = class_to_dict(self.cfg.rewards.scales)
 
+        self.ema_alpha = 0.01
+
         self.sim_substeps = 1
 
         self.use_liquid = False
@@ -1867,7 +1901,7 @@ class LeggedRobotGo1DynamicWater(BaseTask):
         # self.feedback_tau_weight = 1.0
 
         self.feedforward_tau_weight = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float)
-        self.feedback_tau_weight = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float) * 3.0
+        self.feedback_tau_weight = torch.ones((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float)
         
         # We want to be at the full bounds right away, but we want to skip back sometimes for exploration
         self.tradeoff_step_ctr = torch.zeros((self.cfg.env.num_envs, 1), device=sim_device, dtype=gs.tc_float) * self.tradeoff_num_steps

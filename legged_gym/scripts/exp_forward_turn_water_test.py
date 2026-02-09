@@ -18,7 +18,7 @@ def play(args):
     args.task = "go1_dynamic_watereval"
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
-    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 10)
+    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 1)
     env_cfg.viewer.rendered_envs_idx = list(range(env_cfg.env.num_envs))
     
     for i in range(2):
@@ -36,7 +36,7 @@ def play(args):
     env_cfg.env.debug_viz = False
     env_cfg.env.debug = False
     
-    if RECORD_FRAMES or FOLLOW_ROBOT:
+    if RECORD_FRAMES or FOLLOW_ROBOT or FIXED_CAMERA:
         env_cfg.viewer.add_camera = True  # use a extra camera for moving
     
     # for MOVE_CAMERA
@@ -47,8 +47,8 @@ def play(args):
     
     # for FOLLOW_ROBOT
     if FOLLOW_ROBOT:
-        camera_lookat_follow = np.array(env_cfg.viewer.lookat)
-        camera_deviation_follow = np.array([1., 1.0, -0.5])
+        camera_lookat_follow = np.array([0., 0, 0.5])
+        camera_deviation_follow = np.array([1.5, 1.75, -0.25])
         camera_position_follow = camera_lookat_follow - camera_deviation_follow        
     
     
@@ -67,19 +67,25 @@ def play(args):
     
     env_cfg.env.use_liquid = True
     args.liquid_type = "water"
-    args.liquid_volume = 12.0  # liters
+    args.liquid_volume = 6.0  # liters
+    args.liquid_tank = "default"
     
     env_cfg.liquid.liquid_type = args.liquid_type
     env_cfg.liquid.liquid_volume = args.liquid_volume  # liters
-    train_cfg.runner.exp_data_path = f"exp_data/full_trained_model_03/forward_turn_02/full_{int(args.liquid_volume)}L{args.liquid_type}_push.csv"
+    env_cfg.liquid.liquid_tank = "default"
+    train_cfg.runner.exp_data_path = f"exp_data/full_trained_model_04_deploy/forward_turn_02/full_{int(args.liquid_volume)}L{args.liquid_type}_{args.liquid_tank}_push.csv"
     # env_cfg.env.use_liquid = args.use_liquid
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
 
     ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
-    
     policy = ppo_runner.get_inference_policy(device=env.device)
+
+    # path = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'policies')
+    # export_policy_as_jit(ppo_runner.alg.actor_critic, path)
+    # print('Exported policy as jit script to: ', path)
+    # policy = torch.jit.load("../../logs/rss_go1_dynamic_unimodel_full/exported/policies/pact_policy_2_smooth.pt").to("cuda:0")
 
     _, _ = env.reset()
     
@@ -99,10 +105,11 @@ def play(args):
     total_grfs  = []
 
     if FIXED_CAMERA:
+        env_cfg.viewer.lookat = [0.0, 0.0, 0.5]  # [m]
         env_cfg.viewer.pos = env.base_pos[robot_index, :].cpu().numpy()
-        env_cfg.viewer.pos[0]  += 1.0
-        env_cfg.viewer.pos[1]  += 1.0
-        env_cfg.viewer.pos[2]  = 6
+        env_cfg.viewer.pos[0]  += -3.0
+        env_cfg.viewer.pos[1]  += 0.0
+        env_cfg.viewer.pos[2]  = 0.5
         camera_position = np.array(env_cfg.viewer.pos, dtype=np.float64)
         camera_direction = np.array(env_cfg.viewer.lookat) - np.array(env_cfg.viewer.pos)
 
@@ -117,17 +124,20 @@ def play(args):
     
     start_time = time.perf_counter() # Record the start time
 
-    env.set_commands(np.array([[0]]), np.array([[1.0, 0.0, -1.0]]))  # set initial command to move forward slowly
+    env.set_commands(np.array([[0]]), np.array([[1.0, 0.0, 1.0]]))  # set initial command to move forward slowly
+    # env.set_commands(np.array([[0]]), np.array([[0.0, 0.0, 0.0]]))  # set initial command to move forward slowly
 
-    for i in range(2*int(env.max_episode_length)):
-    # for i in range(1500):
-        env.set_commands(np.array([[0]]), np.array([[1.0, 0.0, -1.0]]))  # set initial command to move forward slowly
+
+    # for i in range(2*int(env.max_episode_length)):
+    for i in range(1000):
+        # env.set_commands(np.array([[0]]), np.array([[1.0, 0.0, -1.0]]))  # set initial command to move forward slowly
 
         # if i*env.dt > 6.10 and i*env.dt < 6.20:
         # env.push_forwards()
         #     print("********** Pushing Forward! **********")
 
         actions = policy(obs.detach(), obs_hist.detach())
+        # actions = policy.act_inference(obs.detach(), obs_hist.detach())
         obs, _, obs_hist, rews, dones, infos, grfs = env.step(actions.detach())
 
 
@@ -151,8 +161,18 @@ def play(args):
             env.set_camera(camera_position, camera_position + camera_direction)
             env.floating_camera.render()
         
-        latent_current_obs = ppo_runner.get_actor_critic().current_obs.detach().clone()
-        grf_pred = ppo_runner.get_decoder().forward(latent_current_obs).detach().clone()[:,57:].cpu().numpy() / 0.01  # unscale
+        # latent_current_obs = ppo_runner.get_actor_critic().current_obs.detach().clone()
+        # grf_pred = ppo_runner.get_decoder().forward(latent_current_obs).detach().clone()[:,57:].cpu().numpy() / 0.01  # unscale
+        
+        temp = env.first_loop_feedback.detach().cpu().numpy()[0] + env.feedforward_torques.detach().cpu().numpy()[0]
+
+        # # print("Obs        - ", obs.detach().cpu().numpy().tolist()[0])
+        # print()
+        # print("Jpose Des  - ", env.get_scaled_pos_actions().detach().cpu().numpy().tolist()[0])
+        # # print("PD Torques - " , env.first_loop_feedback.detach().cpu().numpy().tolist()[0])
+        # print("FF Torques - ", env.feedforward_torques.detach().cpu().numpy().tolist()[0])
+        # # print("Total Torques - ", temp)
+        # print("-------------------------------++++++++++++++++++++++++++++-------------------------------")
         
         logger.log_states(
             {
@@ -171,12 +191,12 @@ def play(args):
                 'tau_ff':env.feedforward_torques.detach().cpu().numpy().tolist(),
                 'tau_pd':env.first_loop_feedback.detach().cpu().numpy().tolist(),
                 'failure':list(map(int, env.get_failure_idx().detach().cpu().numpy().tolist())),
-                'pred_grf':grf_pred.tolist()
+                # 'pred_grf':grf_pred.tolist()
             }
         )
 
 
-    logger.save_log()
+    # logger.save_log()
 
     end_time = time.perf_counter()   # Record the end time
     execution_time = end_time - start_time
@@ -187,7 +207,7 @@ def play(args):
     
     if RECORD_FRAMES:
         try:
-            filename_mp4 = f"PACT_{train_cfg.runner.experiment_name}_{train_cfg.runner.load_run}_forward_turn_12L_topdown.mp4"
+            filename_mp4 = f"PACT_{train_cfg.runner.experiment_name}_{train_cfg.runner.load_run}_forward_turn_6L_follow_03.mp4"
         except:
             from datetime import datetime
             filename_mp4 = f"{datetime.now().timestamp()}"
@@ -197,9 +217,9 @@ def play(args):
 
 if __name__ == '__main__':
     EXPORT_POLICY = False
-    RECORD_FRAMES = False  # only record frames in extra camera view
+    RECORD_FRAMES = True  # only record frames in extra camera view
     MOVE_CAMERA   = False
-    FOLLOW_ROBOT  = False
+    FOLLOW_ROBOT  = True
     FIXED_CAMERA  = False
     assert not (MOVE_CAMERA and FOLLOW_ROBOT), "Cannot move camera and follow robot at the same time"
     
@@ -219,6 +239,7 @@ if __name__ == '__main__':
     parser.add_argument('--use_liquid',    type=bool, default='True')
     parser.add_argument('--liquid_type',   type=str, default='water', choices=['water', 'oil', 'gas'])
     parser.add_argument('--liquid_volume', type=float, default=4.0)
+    parser.add_argument('--liquid_tank', type=str, default="default", choices=["default", "wide", "tall", "offset"])
 
     args = parser.parse_args()
     
