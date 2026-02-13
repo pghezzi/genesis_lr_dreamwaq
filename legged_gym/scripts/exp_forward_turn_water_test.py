@@ -67,7 +67,7 @@ def play(args):
     
     env_cfg.env.use_liquid = True
     args.liquid_type = "water"
-    args.liquid_volume = 6.0  # liters
+    args.liquid_volume = 12.0  # liters
     args.liquid_tank = "default"
     
     env_cfg.liquid.liquid_type = args.liquid_type
@@ -207,7 +207,7 @@ def play(args):
     
     if RECORD_FRAMES:
         try:
-            filename_mp4 = f"PACT_{train_cfg.runner.experiment_name}_{train_cfg.runner.load_run}_forward_turn_6L_follow_03.mp4"
+            filename_mp4 = f"PACT_{train_cfg.runner.experiment_name}_{train_cfg.runner.load_run}_forward_turn_12L_follow_01.mp4"
         except:
             from datetime import datetime
             filename_mp4 = f"{datetime.now().timestamp()}"
