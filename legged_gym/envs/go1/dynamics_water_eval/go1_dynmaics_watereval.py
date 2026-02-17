@@ -1283,7 +1283,7 @@ class LeggedRobotGo1DynamicWater(BaseTask):
 
     def _build_liquid_payloads(self):
         # pull out the liquid properties we are using
-        self.liquid_properties = get_payload_config(self.cfg.liquid.liquid_type, self.cfg.liquid.liquid_volume)
+        self.liquid_properties = get_payload_config(self.cfg.liquid.liquid_type, self.cfg.liquid.liquid_volume, self.cfg.liquid.liquid_tank)
         
         rob_pos = np.array(self.cfg.init_state.pos)
         rob_quat = np.array(self.cfg.init_state.rot)
@@ -1292,6 +1292,10 @@ class LeggedRobotGo1DynamicWater(BaseTask):
         #    effectively "welding" the top of the tank walls and the lid.
         #    this has been found to precent particles from "spilling" out the top due to minor simulation inaccuracies
         lid_offset = (0.1/2.0) + (self.liquid_properties["scale_z"]*container_outer_z)
+
+        mount_xy_pos = [rob_pos[0], rob_pos[1]]
+        if "mount_offset" in self.liquid_properties.keys():
+            mount_xy_pos = [rob_pos[0] + self.liquid_properties["mount_offset"][0], rob_pos[1] + self.liquid_properties["mount_offset"][1]]
         
         # Add the liquid container
         self.bucket = self.scene.add_entity(
@@ -1301,7 +1305,7 @@ class LeggedRobotGo1DynamicWater(BaseTask):
                 scale=(self.liquid_properties["scale_x"],
                        self.liquid_properties["scale_y"],
                        self.liquid_properties["scale_z"]),    # adjust scale
-                pos= (rob_pos[0], rob_pos[1], bucket_offset),      # position
+                pos= (mount_xy_pos[0], mount_xy_pos[1], bucket_offset),      # position
                 quat=rob_quat, # no rotation; uses w, x, y, z quaternion
             decimate=False,
             convexify=False),
@@ -1315,7 +1319,7 @@ class LeggedRobotGo1DynamicWater(BaseTask):
                 scale=(self.liquid_properties["scale_x"],
                        self.liquid_properties["scale_y"],
                        1.0),    # adjust scale if needed
-            pos= (rob_pos[0], rob_pos[1], lid_offset),      # position
+            pos= (mount_xy_pos[0], mount_xy_pos[1], lid_offset),      # position
             quat=rob_quat, # no rotation; uses w, x, y, z quaternion
             decimate=False,
             convexify=False),
@@ -1334,9 +1338,9 @@ class LeggedRobotGo1DynamicWater(BaseTask):
             material=gs.materials.SPH.Liquid(rho=self.liquid_properties["rho"],
                                              mu=self.liquid_properties["mu"],
                                              gamma=self.liquid_properties["gamma"]),
-            morph=gs.morphs.Box(pos=(rob_pos[0],
-                                     rob_pos[1],
-                                     rob_pos[2] + bucket_offset + 0.5*scaled_height),
+            morph=gs.morphs.Box(pos=(mount_xy_pos[0],
+                                     mount_xy_pos[1],
+                                     rob_pos[2] + bucket_offset + 0.5*scaled_height + self.liquid_properties["scale_z"]*container_bottom_thickness),
                             size=(scaled_width-self.liquid_properties["offset"],
                                   scaled_depth-self.liquid_properties["offset"],
                                   scaled_height-self.liquid_properties["offset"])),

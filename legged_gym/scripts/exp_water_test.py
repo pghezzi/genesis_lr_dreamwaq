@@ -66,9 +66,10 @@ def play(args):
     
     env_cfg.liquid.liquid_type = args.liquid_type
     env_cfg.liquid.liquid_volume = args.liquid_volume  # liters
-    train_cfg.runner.exp_data_path = f"exp_data/fullgrf_trained_model/fullgrf_{int(args.liquid_volume)}L{args.liquid_type}_push_01.csv"
-    # env_cfg.env.use_liquid = args.use_liquid
-    env_cfg.env.use_liquid = False
+    env_cfg.liquid.liquid_tank = args.liquid_tank  # liters
+    train_cfg.runner.exp_data_path = f"exp_data/fullgrf_trained_model/fullgrf_{int(args.liquid_volume)}L{args.liquid_type}_{args.liquid_tank}_push_01.csv"
+    env_cfg.env.use_liquid = args.use_liquid
+    # env_cfg.env.use_liquid = False
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
 
@@ -187,6 +188,7 @@ if __name__ == '__main__':
     parser.add_argument('--use_liquid',    type=bool, default='True')
     parser.add_argument('--liquid_type',   type=str, default='water', choices=['water', 'oil', 'gas'])
     parser.add_argument('--liquid_volume', type=float, default=4.0)
+    parser.add_argument('--liquid_tank', type=str, default="default", choices=["default", "wide", "tall", "offset"])
 
     args = parser.parse_args()
     

@@ -90,7 +90,7 @@ class GO1DynamicWaterCfg( LeggedRobotCfg ):
         push_robots = True
         
         push_interval_max = 15.0
-        push_interval_min = 1.0
+        push_interval_min = 1.00
         max_push_vel_xy = 1.00
         min_push_vel_xy = 1.00
 
@@ -233,7 +233,7 @@ class GO1DynamicWaterCfg( LeggedRobotCfg ):
         tradeoff_final_weights = [1.00, 1.00]
         tradeoff_steps = 10
         tradeoff_threshold = 0.60
-        use_tradeoff_curriculum = True
+        use_tradeoff_curriculum = False
 
     class termination:
         termination_terms = ["roll", "pitch", "height_min", "height_max"]
@@ -362,6 +362,7 @@ class GO1DynamicWaterCfg( LeggedRobotCfg ):
     class liquid():
         liquid_type = "water"
         liquid_volume = 6.0  # liters
+        liquid_tank = "default"
 
 class GO1DynamicWaterCfgPPO( LeggedRobotCfgPPO ):
     seed = 1
@@ -425,7 +426,7 @@ class GO1DynamicWaterCfgPPO( LeggedRobotCfgPPO ):
         
         
         load_run = "Jan23_13-31-44_ablation_unimodel_np_grfdec_grfcrit_100hz_posboot_01_finetune_02"
-        checkpoint = 2500
+        checkpoint = 5000
         resume = True
         exp_data_path = "exp_data/fullgrf_trained_model/fullgrf_{}L{}_push_01_debugging_tests.csv"
 
