@@ -51,6 +51,37 @@ ten_liters_water_default = {
     "scale_z":1.6
 }
 
+ten_liters_water_tall = {
+    "rho": 1000.0,
+    "gamma":0.010,
+    "mu":0.005,
+    "offset":0.04,
+    "scale_x":1.6,
+    "scale_y":1.6,
+    "scale_z":2.2
+}
+
+ten_liters_water_wide = {
+    "rho": 1000.0,
+    "gamma":0.010,
+    "mu":0.005,
+    "offset":0.025,
+    "scale_x":1.4,
+    "scale_y":2.6,
+    "scale_z":1.2
+}
+
+ten_liters_water_offset = {
+    "rho": 1000.0,
+    "gamma":0.010,
+    "mu":0.005,
+    "offset":0.015,
+    "mount_offset":[0.05,0.05],
+    "scale_x":1.6,
+    "scale_y":1.6,
+    "scale_z":1.6
+}
+
 twelve_liters_water_default = {
     "rho": 1000.0,
     "gamma":0.010,
@@ -63,7 +94,7 @@ twelve_liters_water_default = {
 
 # Default Container OIL
 two_liters_oil_default = {
-    "rho": 1000.0,
+    "rho": 850.0,
     "gamma":0.003,
     "mu":0.025,
     "offset":0.0875,
@@ -73,7 +104,7 @@ two_liters_oil_default = {
 }
 
 four_liters_oil_default = {
-    "rho": 1000.0,
+    "rho": 850.0,
     "gamma":0.003,
     "mu":0.025,
     "offset":0.0538,
@@ -83,7 +114,7 @@ four_liters_oil_default = {
 }
 
 six_liters_oil_default = {
-    "rho": 1000.0,
+    "rho": 850.0,
     "gamma":0.003,
     "mu":0.025,
     "offset":0.03,
@@ -93,7 +124,7 @@ six_liters_oil_default = {
 }
 
 eight_liters_oil_default = {
-    "rho": 1000.0,
+    "rho": 850.0,
     "gamma":0.003,
     "mu":0.025,
     "offset":0.01,
@@ -102,9 +133,29 @@ eight_liters_oil_default = {
     "scale_z":1.4
 }
 
+ten_liters_oil_default = {
+    "rho": 850.0,
+    "gamma":0.003,
+    "mu":0.025,
+    "offset":0.015,
+    "scale_x":1.6,
+    "scale_y":1.6,
+    "scale_z":1.6
+}
+
+twelve_liters_oil_default = {
+    "rho": 850.0,
+    "gamma":0.003,
+    "mu":0.025,
+    "offset":0.0125,
+    "scale_x":1.8,
+    "scale_y":1.6,
+    "scale_z":1.6
+}
+
 # Default Container GAS
 two_liters_gas_default = {
-    "rho": 1000.0,
+    "rho": 730.0,
     "gamma":0.002,
     "mu":0.002,
     "offset":0.0875,
@@ -114,7 +165,7 @@ two_liters_gas_default = {
 }
 
 four_liters_gas_default = {
-    "rho": 1000.0,
+    "rho": 730.0,
     "gamma":0.002,
     "mu":0.002,
     "offset":0.0538,
@@ -124,7 +175,7 @@ four_liters_gas_default = {
 }
 
 six_liters_gas_default = {
-    "rho": 1000.0,
+    "rho": 730.0,
     "gamma":0.002,
     "mu":0.002,
     "offset":0.03,
@@ -134,7 +185,7 @@ six_liters_gas_default = {
 }
 
 eight_liters_gas_default = {
-    "rho": 1000.0,
+    "rho": 730.0,
     "gamma":0.002,
     "mu":0.002,
     "offset":0.01,
@@ -143,6 +194,25 @@ eight_liters_gas_default = {
     "scale_z":1.4
 }
 
+ten_liters_gas_default = {
+    "rho": 730.0,
+    "gamma":0.002,
+    "mu":0.002,
+    "offset":0.015,
+    "scale_x":1.6,
+    "scale_y":1.6,
+    "scale_z":1.6
+}
+
+twelve_liters_gas_default = {
+    "rho": 730.0,
+    "gamma":0.002,
+    "mu":0.002,
+    "offset":0.0125,
+    "scale_x":1.8,
+    "scale_y":1.6,
+    "scale_z":1.6
+}
 
 def get_payload_config(payload_type: str, volume: int, container_shape: str = "default"):
     """
@@ -158,11 +228,6 @@ def get_payload_config(payload_type: str, volume: int, container_shape: str = "d
         Currently, only the "default" shape is supported.
     """
 
-    if container_shape != "default":
-        raise NotImplementedError(
-            f"container_shape='{container_shape}' is not yet supported"
-        )
-
     if payload_type == "water":
         if volume == 2:
             return two_liters_water_default
@@ -173,7 +238,14 @@ def get_payload_config(payload_type: str, volume: int, container_shape: str = "d
         elif volume == 8:
             return eight_liters_water_default
         elif volume == 10:
-            return ten_liters_water_default
+            if container_shape == "default":
+                return ten_liters_water_default
+            if container_shape == "tall":
+                return ten_liters_water_tall
+            if container_shape == "wide":
+                return ten_liters_water_wide
+            if container_shape == "offset":
+                return ten_liters_water_offset
         elif volume == 12:
             return twelve_liters_water_default
 
@@ -186,6 +258,10 @@ def get_payload_config(payload_type: str, volume: int, container_shape: str = "d
             return six_liters_oil_default
         elif volume == 8:
             return eight_liters_oil_default
+        elif volume == 10:
+            return ten_liters_oil_default
+        elif volume == 12:
+            return twelve_liters_oil_default
 
     elif payload_type == "gas":
         if volume == 2:
@@ -196,6 +272,10 @@ def get_payload_config(payload_type: str, volume: int, container_shape: str = "d
             return six_liters_gas_default
         elif volume == 8:
             return eight_liters_gas_default
+        elif volume == 10:
+            return ten_liters_gas_default
+        elif volume == 12:
+            return twelve_liters_gas_default
 
     else:
         raise ValueError(f"Unsupported payload type: {payload_type}")

@@ -233,7 +233,7 @@ class GO1DynamicWaterCfg( LeggedRobotCfg ):
         tradeoff_final_weights = [1.00, 1.00]
         tradeoff_steps = 10
         tradeoff_threshold = 0.60
-        use_tradeoff_curriculum = True
+        use_tradeoff_curriculum = False
 
     class termination:
         termination_terms = ["roll", "pitch", "height_min", "height_max"]
@@ -362,6 +362,7 @@ class GO1DynamicWaterCfg( LeggedRobotCfg ):
     class liquid():
         liquid_type = "water"
         liquid_volume = 6.0  # liters
+        liquid_tank = "default"
 
 class GO1DynamicWaterCfgPPO( LeggedRobotCfgPPO ):
     seed = 1
