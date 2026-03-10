@@ -16,6 +16,7 @@ class LeggedRobotCfg(BaseConfig):
         debug_draw_height_points_around_feet = False # obtain height measurements around the feet (9 points around each foot, see terrain.measured_points_x/y)
         debug_draw_terrain_height_points = False # draw all height points of the terrain
         debug_draw_key_body_points = False # draw key body points for mimic tasks
+        debug_draw_depth_images = False # draw depth images from the depth camera sensors
         max_projected_gravity = -0.1 # max allowed projected gravity in z axis
         
     class terrain:
@@ -191,7 +192,12 @@ class LeggedRobotCfg(BaseConfig):
         push_links = False
         max_push_force = 10.0 # [N], maximum magnitude of the random push force applied to each link
         push_links_interval_s = 15.0 # time interval between random pushes
-
+        # randomize position of the camera relative to the fixed pos
+        randomize_camera_pos = False
+        camera_com_displacement_range = [0.01, 0.01, 0.01] # [m], random displacement of the camera position along x, y, z axes
+        # randomize orientation of the camera
+        randomize_camera_euler = False
+        camera_euler_range = [0.1, 0.1, 0.1] # [rad], randomize roll, pitch, yaw of the camera
     class normalization:
         class obs_scales:
             lin_vel = 1.0
@@ -199,6 +205,7 @@ class LeggedRobotCfg(BaseConfig):
             dof_pos = 1.0
             dof_vel = 0.05
             height_measurements = 5.0
+            depth_image = 4.0 # scale from [-0.5, 0.5] to [-2, 2]
         clip_observations = 100.
         clip_actions = 100.
 
@@ -230,18 +237,18 @@ class LeggedRobotCfg(BaseConfig):
         add_depth = False
         use_warp = False       # whether to use warp-based model
         class depth_camera_config:
-            num_sensors = 1
-            num_history = 1        # history frames for depth images
-            
-            near_clip = 0.1
-            far_clip = 10.0
-            near_plane = 0.1
-            far_plane = 10.0
-            resolution = (80, 60)
-            horizontal_fov_deg = 75
-            pos =   (0.3, 0.0, 0.1)
-            euler = (0.0, 0.0, 0.0)
-            decimation = 5
+            num_sensors = 1         # number of depth cameras, currently only support 1
+            num_history = 1         # history frames for depth images
+            near_clip = 0.1         # near clip distance of the depth camera
+            far_clip = 5.0          # far clip distance of the depth camera
+            near_plane = 0.1        # near plane of the depth camera
+            far_plane = 10.0        # far plane of the depth camera
+            resolution = (60, 80)   # (height, width)
+            horizontal_fov_deg = 75 # horizontal field of view in degrees
+            pos = (0.3, 0.0, 0.1)
+            euler_gym = (0.0, 0.0, 0.0)  # (roll, pitch, yaw) in radians, for IsaacGym Camera convention
+            euler = (0.0, 1.57, 0.0)     # (roll, pitch, yaw) in radians, for Warp Camera convention
+            decimation = 5           # decimation steps for depth image update, relative to control step
             # Warp only
             calculate_depth = True
             segmentation_camera = False

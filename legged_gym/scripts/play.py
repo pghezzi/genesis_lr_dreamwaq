@@ -20,9 +20,11 @@ def override_configs(env_cfg, args):
     task_name = args.task
     # override some parameters for testing
     # number of environments
-    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 16)
+    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 1)
     if "cts" in task_name:  # cts specific
         env_cfg.env.num_teacher = 1
+    elif "depth" in task_name:  # depth specific
+        env_cfg.env.num_camera_envs = 1
     env_cfg.viewer.rendered_envs_idx = list(range(env_cfg.env.num_envs))
     # adjust parameters according to terrain type
     if env_cfg.terrain.mesh_type in ["heightfield", "trimesh"]:
@@ -104,7 +106,9 @@ def interaction_loop(env, policy, args):
         
     # Get initial observations according to task type
     task_name = args.task
-    if "ts" in task_name or "cat" in task_name:  # teacher-student
+    if "depth" in task_name:  # depth
+        obs_buf, privileged_obs_buf, depth_image, critic_obs = env.get_observations()
+    elif "ts" in task_name or "cat" in task_name:  # teacher-student
         obs_buf, privileged_obs_buf, obs_history, critic_obs = env.get_observations()
     elif "ee" in task_name:  # explicit estimator
         estimator_features, _, _ = env.get_observations()
@@ -136,7 +140,10 @@ def interaction_loop(env, policy, args):
             env.set_viewer_camera(pos, lookat)
         
         # Step the environment according to task type
-        if "ts" in task_name or "cat" in task_name:
+        if "depth" in task_name:
+            actions = policy(obs_buf, privileged_obs_buf)
+            obs_buf, privileged_obs_buf, depth_image, critic_obs, rews, dones, infos = env.step(actions.detach())
+        elif "ts" in task_name or "cat" in task_name:
             actions = policy(obs_buf, obs_history)
             obs_buf, privileged_obs_buf, obs_history, critic_obs, rews, dones, infos = env.step(actions.detach())
         elif "ee" in task_name:
@@ -198,7 +205,9 @@ def export_policy(alg_runner, path: str, args, env_cfg, train_cfg):
         train_cfg: training configuration
     """
     task_name = args.task
-    if "ts" in task_name or "cat" in task_name:
+    if "depth" in task_name:
+        pass
+    elif "ts" in task_name or "cat" in task_name:
         exporter = PolicyExporterTS(alg_runner.alg.actor_critic)
         exporter.export(path, env_cfg, args.export_onnx, train_cfg)
     elif "ee" in task_name:

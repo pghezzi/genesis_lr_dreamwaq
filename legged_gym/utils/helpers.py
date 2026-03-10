@@ -69,36 +69,6 @@ def get_load_path(root, load_run=-1, checkpoint=-1):
     load_path = os.path.join(load_run, model)
     return load_path
 
-def get_load_path_ee(root, load_run=-1, checkpoint=-1):
-    try:
-        runs = os.listdir(root)
-        #TODO sort by date to handle change of month
-        runs.sort()
-        if 'exported' in runs: runs.remove('exported')
-        last_run = os.path.join(root, runs[-1])
-    except:
-        raise ValueError("No runs in this directory: " + root)
-    if load_run==-1:
-        load_run = last_run
-    else:
-        load_run = os.path.join(root, load_run)
-
-    if checkpoint==-1:
-        models = [file for file in os.listdir(load_run) if 'model' in file]
-        models.sort(key=lambda m: '{0:0>15}'.format(m))
-        model = models[-1]
-        # estimator
-        estimators = [file for file in os.listdir(load_run) if 'estimator' in file]
-        estimators.sort(key=lambda m: '{0:0>15}'.format(m))
-        estimator = estimators[-1]
-    else:
-        model = "model_{}.pt".format(checkpoint)
-        estimator = "estimator_{}.pt".format(checkpoint)
-
-    actor_load_path = os.path.join(load_run, model)
-    estimator_load_path = os.path.join(load_run, estimator)
-    return actor_load_path, estimator_load_path
-
 def update_cfg_from_args(env_cfg, cfg_train, args):
     """Override some configuration parameters from command line arguments
        Called in task_registry.py/make_env()
@@ -135,6 +105,10 @@ def update_cfg_from_args(env_cfg, cfg_train, args):
             cfg_train.runner.checkpoint = args.ckpt
         if args.load_run is not None:
             cfg_train.runner.load_run = args.load_run
+        if args.distill:
+            cfg_train.distillation = True
+        if args.teacher_model_path is not None:
+            cfg_train.runner.teacher_model_path = args.teacher_model_path
 
     return env_cfg, cfg_train
 
@@ -161,7 +135,9 @@ def get_args():
     parser.add_argument('--follow_robot',   action='store_true', default=False, help="whether the camera follows the robot during play")
     parser.add_argument('--motion_file',    type=str, 
                         default=None, 
-                        help="motion file to load")
+                        help="motion file to load, under resources/reference_motion")
+    parser.add_argument('--distill',        action='store_true', default=False, help="[Only used in ts_depth] whether to train a student policy with teacher-student framework")
+    parser.add_argument('--teacher_model_path', type=str, default=None, help="[Only used in ts_depth] path to the teacher model for distillation, format load_run/checkpoint.pt")
 
     return parser.parse_args()
 

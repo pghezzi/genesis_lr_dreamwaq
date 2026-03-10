@@ -205,7 +205,7 @@ class LeggedRobotNavCfg(BaseConfig):
             far_clip = 10.0
             near_plane = 0.1
             far_plane = 10.0
-            resolution = (80, 60)
+            resolution = (60, 80)
             fov_horizontal = 75
             pos = (0.3, 0.0, 0.1)
             euler = (0.0, 0.0, 0.0)

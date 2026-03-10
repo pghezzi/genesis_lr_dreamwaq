@@ -6,12 +6,12 @@ class Go2TSCfg( LeggedRobotTSCfg ):
     class env( LeggedRobotTSCfg.env ):
         num_envs = 4096
         num_observations = 45     # num_obs
-        num_privileged_obs = 94
+        num_privileged_obs = 99
         frame_stack = 20          # number of frames to stack for obs_history
         num_history_obs = int(num_observations * frame_stack)
         num_latent_dims = num_privileged_obs
         c_frame_stack = 5
-        single_critic_obs_len = num_observations + 31 + 81 + 12 + 3
+        single_critic_obs_len = num_observations + 31 + 81 + 17 + 3
         num_critic_obs = c_frame_stack * single_critic_obs_len
         # Privileged_obs and critic_obs are seperated here
         # privileged_obs contains information given to privileged encoder

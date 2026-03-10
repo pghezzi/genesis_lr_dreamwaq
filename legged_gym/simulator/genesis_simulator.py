@@ -135,7 +135,7 @@ class GenesisSimulator(Simulator):
     def update_sensors(self):
         # Genesis currently exposes depth update via `update_depth_images`
         if self._cfg.sensor.add_depth:
-            return self._update_depth_images()
+            self._update_depth_images()
 
     def update_terrain_curriculum(self, env_ids, move_up, move_down):
         self._terrain_levels[env_ids] += 1 * move_up - 1 * move_down
@@ -466,8 +466,7 @@ class GenesisSimulator(Simulator):
             self.depth_images = torch.zeros(
                 (self._num_envs, 
                  self._cfg.sensor.depth_camera_config.num_history,
-                 self._cfg.sensor.depth_camera_config.resolution[1], 
-                 self._cfg.sensor.depth_camera_config.resolution[0]), 
+                 *self._cfg.sensor.depth_camera_config.resolution), 
                 device=self._device, 
                 dtype=torch.float
             )
@@ -538,8 +537,14 @@ class GenesisSimulator(Simulator):
                 max_init_level = self._cfg.terrain.num_rows - 1
             self._terrain_levels = torch.randint(
                 0, max_init_level+1, (self._num_envs,), device=self._device)
-            self._terrain_types = torch.div(torch.arange(self._num_envs, device=self._device), (
-                self._num_envs/self._cfg.terrain.num_cols), rounding_mode='floor').to(torch.long)
+            self._terrain_types = torch.zeros(self._num_envs, dtype=torch.long, device=self._device)
+            if hasattr(self._cfg.env, "num_camera_envs"): # split envs with cameras to all terrain types, ensuring the diversity of data collected by cameras
+                self._terrain_types[:self._cfg.env.num_camera_envs] = torch.div(
+                    torch.arange(self._cfg.env.num_camera_envs, device=self._device), (self._cfg.env.num_camera_envs/self._cfg.terrain.num_cols), rounding_mode='floor').to(torch.long)
+                self._terrain_types[self._cfg.env.num_camera_envs:] = torch.div(
+                    torch.arange(self._num_envs - self._cfg.env.num_camera_envs, device=self._device), ((self._num_envs - self._cfg.env.num_camera_envs)/self._cfg.terrain.num_cols), rounding_mode='floor').to(torch.long)
+            else:
+                self._terrain_types = torch.div(torch.arange(self._num_envs, device=self._device), (self._num_envs/self._cfg.terrain.num_cols), rounding_mode='floor').to(torch.long)
             self._max_terrain_level = self._cfg.terrain.num_rows
             self._terrain_origins = torch.from_numpy(
                 self._terrain.env_origins).to(self._device).to(torch.float)

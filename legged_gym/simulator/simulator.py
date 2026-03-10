@@ -112,6 +112,12 @@ class Simulator(ABC):
             target (np.ndarray): The target point the camera is looking at.
         """
         return
+    
+    @abstractmethod
+    def update_sensors(self):
+        """Updates the sensor readings, such as depth image sensors and lidar sensors.
+        """
+        return
 
     #----- Protected methods -----#
     @abstractmethod
@@ -249,6 +255,11 @@ class Simulator(ABC):
         """
         return
     
+    @abstractmethod
+    def _update_depth_camera(self):
+        """Updates the depth camera readings
+        """
+        return
     
     #----- Properties -----#
     @property
@@ -631,3 +642,13 @@ class Simulator(ABC):
             Tensor((num_envs, 3)): Origin positions of all environments.
         """
         return self._env_origins
+    
+    @property
+    def depth_images(self):
+        """Returns the depth images from the depth camera.
+
+        Returns:
+            Tensor((num_envs, num_history, height, width)): Depth images from the depth camera.        
+            The stack history is ordered from the latest(0) to the oldest(-1).
+        """
+        return self._depth_images

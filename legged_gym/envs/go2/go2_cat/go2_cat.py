@@ -126,8 +126,6 @@ class Go2CaT(LeggedRobotTS):
 
         self.llast_actions[:] = self.last_actions[:]
         self.last_actions[:] = self.actions[:]
-        self.simulator.last_dof_vel[:] = self.simulator.dof_vel[:]
-        self.simulator.last_feet_vel[:] = self.simulator.feet_vel[:]
         
         if self.debug:
             self.simulator.draw_debug_vis()

@@ -554,8 +554,14 @@ class IsaacLabSimulator(Simulator):
                 max_init_level = self._cfg.terrain.num_rows - 1
             self._terrain_levels = torch.randint(
                 0, max_init_level+1, (self._num_envs,), device=self._device)
-            self._terrain_types = torch.div(torch.arange(self._num_envs, device=self._device), (
-                self._num_envs/self._cfg.terrain.num_cols), rounding_mode='floor').to(torch.long)
+            self._terrain_types = torch.zeros(self._num_envs, dtype=torch.long, device=self._device)
+            if hasattr(self._cfg.env, "num_camera_envs"): # split envs with cameras to all terrain types, ensuring the diversity of data collected by cameras
+                self._terrain_types[:self._cfg.env.num_camera_envs] = torch.div(
+                    torch.arange(self._cfg.env.num_camera_envs, device=self._device), (self._cfg.env.num_camera_envs/self._cfg.terrain.num_cols), rounding_mode='floor').to(torch.long)
+                self._terrain_types[self._cfg.env.num_camera_envs:] = torch.div(
+                    torch.arange(self._num_envs - self._cfg.env.num_camera_envs, device=self._device), ((self._num_envs - self._cfg.env.num_camera_envs)/self._cfg.terrain.num_cols), rounding_mode='floor').to(torch.long)
+            else:
+                self._terrain_types = torch.div(torch.arange(self._num_envs, device=self._device), (self._num_envs/self._cfg.terrain.num_cols), rounding_mode='floor').to(torch.long)
             self._max_terrain_level = self._cfg.terrain.num_rows
             self._terrain_origins = torch.from_numpy(
                 self._terrain.env_origins).to(self._device).to(torch.float)

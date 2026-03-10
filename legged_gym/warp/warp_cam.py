@@ -13,11 +13,11 @@ class WarpCam:
         self.cfg = config
         self.tensor_dict = tensor_dict
         self.num_envs = num_envs
-        self.num_sensors = self.cfg.num_sensors
+        self.num_sensors = self.cfg.depth_camera_config.num_sensors
         self.mesh_ids_array = mesh_ids_array
 
-        self.width = self.cfg.depth_camera_config.resolution[0]
-        self.height = self.cfg.depth_camera_config.resolution[1]
+        self.width = self.cfg.depth_camera_config.resolution[1]
+        self.height = self.cfg.depth_camera_config.resolution[0]
 
         self.horizontal_fov = math.radians(self.cfg.depth_camera_config.horizontal_fov_deg)
         self.far_plane = self.cfg.depth_camera_config.far_plane

@@ -1,37 +1,29 @@
 from legged_gym import *
-from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
+from legged_gym.envs.base.legged_robot_ts_depth_config import LeggedRobotTSDepthCfg, LeggedRobotTSDepthCfgPPO
+from legged_gym.envs.base.common_cfgs import Go2RoughCommonCfg
 
-class Go2TSDepthCfg( LeggedRobotCfg ):
-    class env( LeggedRobotCfg.env ):
-        num_envs = 50
-        num_observations = 45  # num_obs
-        num_privileged_obs = 97
-        frame_stack = 20    # number of frames to stack for obs_history
-        num_history_obs = int(num_observations * frame_stack)
-        num_latent_dims = num_privileged_obs
+class Go2TSDepthCfg( LeggedRobotTSDepthCfg ):
+    class env( LeggedRobotTSDepthCfg.env ):
+        num_envs = 3000
+        num_camera_envs = 800
+        num_observations = 45
+        num_privileged_obs = 244
+        num_latent_dims = 32
         c_frame_stack = 5
-        single_critic_obs_len = num_observations + 34 + 12 + 3 + 81
+        single_critic_obs_len = num_observations + 34 + 15 + 3 + 48 + 144
         num_critic_obs = c_frame_stack * single_critic_obs_len
         # Privileged_obs and critic_obs are seperated here
         # privileged_obs contains information given to privileged encoder
         # critic_obs contains information given to critic, including some privileged information
         # This operation is to prevent the critic from receiving noisy input from the concatenation of current observation(noisy) and latent vector
         num_actions = 12
-        env_spacing = 0.5
+        debug_draw_depth_images = True
+        debug_draw_height_points_around_base = True
     
-    class terrain( LeggedRobotCfg.terrain ):
-        if SIMULATOR == "genesis":
-            mesh_type = "heightfield" # for genesis
-        else:
-            mesh_type = "trimesh"  # for isaacgym
-        horizontal_scale = 0.1 # [m]
-        vertical_scale = 0.005 # [m]
-        border_size = 5.0 # [m]
-        curriculum = True
+    class terrain( Go2RoughCommonCfg.terrain ):
         # rough terrain only:
-        obtain_terrain_info_around_feet = True
         measure_heights = True
-        measured_points_x = [-0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4] # 9x9=81
+        measured_points_x = [-0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1.0, 1.2, 1.4] # 16x9=144
         measured_points_y = [-0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4]
         terrain_length = 8.0
         terrain_width = 8.0
@@ -40,157 +32,136 @@ class Go2TSDepthCfg( LeggedRobotCfg ):
         # terrain types: [smooth slope, rough slope, stairs up, stairs down, discrete]
         terrain_proportions = [0.2, 0.1, 0.25, 0.25, 0.2]
         
-    class init_state( LeggedRobotCfg.init_state ):
-        pos = [0.0, 0.0, 0.42] # x,y,z [m]
-        default_joint_angles = { # = target angles [rad] when action = 0.0
-            'FL_hip_joint': 0.0,   # [rad]
-            'RL_hip_joint': 0.0,   # [rad]
-            'FR_hip_joint': 0.0 ,  # [rad]
-            'RR_hip_joint': 0.0,   # [rad]
+    class init_state( Go2RoughCommonCfg.init_state ):
+        pass
 
-            'FL_thigh_joint': 0.8,     # [rad]
-            'RL_thigh_joint': 0.8,   # [rad]
-            'FR_thigh_joint': 0.8,     # [rad]
-            'RR_thigh_joint': 0.8,   # [rad]
-
-            'FL_calf_joint': -1.5,   # [rad]
-            'RL_calf_joint': -1.5,    # [rad]
-            'FR_calf_joint': -1.5,  # [rad]
-            'RR_calf_joint': -1.5,    # [rad]
-        }
-
-    class control( LeggedRobotCfg.control ):
+    class control( Go2RoughCommonCfg.control ):
         # PD Drive parameters:
         # control_type = 'P'
-        stiffness = {'joint': 30.}   # [N*m/rad]
-        damping = {'joint': 0.75}     # [N*m*s/rad]
-        action_scale = 0.25 # action scale: target angle = actionScale * action + defaultAngle
-        dt =  0.02  # control frequency 50Hz
-        decimation = 4 # decimation: Number of control action updates @ sim DT per policy DT
+        stiffness = {'joint': 20.}   # [N*m/rad]
+        damping = {'joint': 0.5}     # [N*m*s/rad]
 
-    class asset( LeggedRobotCfg.asset ):
+    class asset( Go2RoughCommonCfg.asset ):
         # Common: 
-        name = "go2"
-        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/go2/urdf/go2.urdf'
-        obtain_link_contact_states = True
-        contact_state_link_names = ["thigh", "calf", "foot"]
-        foot_name = "foot"
+        contact_state_link_names = ["base", "Head", "thigh", "calf", "foot"]
         penalize_contacts_on = ["thigh", "calf", "base", "Head"]
         terminate_after_contacts_on = []
-        # Genesis: 
-        dof_names = [        # specify the sequence of actions
-            'FR_hip_joint',
-            'FR_thigh_joint',
-            'FR_calf_joint',
-            'FL_hip_joint',
-            'FL_thigh_joint',
-            'FL_calf_joint',
-            'RR_hip_joint',
-            'RR_thigh_joint',
-            'RR_calf_joint',
-            'RL_hip_joint',
-            'RL_thigh_joint',
-            'RL_calf_joint',]
-        links_to_keep = ['FL_foot', 'FR_foot', 'RL_foot', 'RR_foot']
-  
-    class rewards( LeggedRobotCfg.rewards ):
+
+    class rewards( Go2RoughCommonCfg.rewards ):
         soft_dof_pos_limit = 0.9
         base_height_target = 0.4
-        foot_clearance_target = 0.09 # desired foot clearance above ground [m]
+        foot_clearance_target = 0.06 # desired foot clearance above ground [m]
         foot_height_offset = 0.022   # height of the foot coordinate origin above ground [m]
         foot_clearance_tracking_sigma = 0.01
         only_positive_rewards = True
-        class scales( LeggedRobotCfg.rewards.scales ):
+        class scales( Go2RoughCommonCfg.rewards.scales ):
             # limitation
             dof_pos_limits = -2.0
-            collision = -1.0
+            collision = -5.0
             # command tracking
             tracking_lin_vel = 1.0
             tracking_ang_vel = 0.5
             # smooth
-            lin_vel_z = -2.0
-            base_height = -1.0
+            lin_vel_z = -1.0
             ang_vel_xy = -0.05
-            dof_power = -2.e-4
+            orientation = -1.0
+            dof_power = -2.e-5
             dof_acc = -2.e-7
             action_rate = -0.01
             action_smoothness = -0.01
             # gait
             feet_air_time = 1.0
+            hip_pos = -0.15
             foot_clearance = 0.2
-            stand_still = -0.5
+            feet_contact_stand_still = 0.1
 
-    class commands( LeggedRobotCfg.commands ):
+    class commands( Go2RoughCommonCfg.commands ):
         curriculum = True
         max_curriculum = 1.0
         num_commands = 4 # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         resampling_time = 10.  # time before command are changed[s]
         heading_command = True # if true: compute ang vel command from heading error
-        class ranges( LeggedRobotCfg.commands.ranges ):
-            lin_vel_x = [-0.5, 0.5] # min max [m/s]
-            lin_vel_y = [-1.0, 1.0]   # min max [m/s]
+        class ranges( Go2RoughCommonCfg.commands.ranges ):
+            lin_vel_x = [0.0, 0.5] # min max [m/s]
+            lin_vel_y = [0.0, 0.0]   # min max [m/s]
             ang_vel_yaw = [-1, 1]    # min max [rad/s]
             heading = [-3.14, 3.14]
             
-    class domain_rand(LeggedRobotCfg.domain_rand):
+    class domain_rand(Go2RoughCommonCfg.domain_rand):
         randomize_friction = True
         friction_range = [0.2, 1.7]
         randomize_base_mass = True
-        added_mass_range = [-1., 1.]
+        added_mass_range = [-1., 2.]
         push_robots = True
-        push_interval_s = 15
-        max_push_vel_xy = 1.
+        push_interval_s = 3
+        max_push_vel_xy = 0.5
         randomize_com_displacement = True
-        com_displacement_range = [-0.03, 0.03]
+        com_pos_x_range = [-0.03, 0.03]
+        com_pos_y_range = [-0.03, 0.03]
+        com_pos_z_range = [-0.03, 0.03]
         randomize_pd_gain = True
         kp_range = [0.8, 1.2]
         kd_range = [0.8, 1.2]
         randomize_joint_armature = True
-        joint_armature_range = [0.015, 0.025]  # [N*m*s/rad]
+        joint_armature_range = [0.015, 0.025]
         randomize_joint_friction = True
         joint_friction_range = [0.01, 0.02]
         randomize_joint_damping = True
         joint_damping_range = [0.25, 0.3]
     
-    class sensor( LeggedRobotCfg.sensor ):
+    class normalization( LeggedRobotTSDepthCfg.normalization):
+        pass
+        class obs_scales( LeggedRobotTSDepthCfg.normalization.obs_scales ):
+            pass
+    
+    class sensor( LeggedRobotTSDepthCfg.sensor ):
         add_depth = True
-        class depth_camera_config( LeggedRobotCfg.sensor.depth_camera_config ):
-            near_clip = 0.0
-            far_clip = 5.0
+        use_warp = True       # whether to use warp-based model
+        class depth_camera_config( LeggedRobotTSDepthCfg.sensor.depth_camera_config ):
+            num_sensors = 1
+            num_history = 1        # history frames for depth images
+            near_clip = 0.1
+            far_clip = 2.0
             near_plane = 0.1
-            far_plane = 5.0
-            resolution = (80, 60)
-            fov_horizontal = 75
-            pos = (0.3, 0.0, 0.1)
+            far_plane = 10.0
+            resolution = (60, 80)
+            horizontal_fov_deg = 75
+            pos =   (0.3, 0.0, 0.1)
+            euler_gym = (0.0, 0.0, 0.0)
             euler = (0.0, 1.57, 0.0)
+            decimation = 5
             # Warp only
-            calculate_depth = False
+            calculate_depth = True
             segmentation_camera = False
-            return_pointcloud = True
-            pointcloud_in_world_frame = True
+            return_pointcloud = False
+            pointcloud_in_world_frame = False
 
-class Go2TSDepthCfgPPO( LeggedRobotCfgPPO ):
-    seed = 1
-    runner_class_name = "TSRunner" # Teacher-Student Runner
-    class policy( LeggedRobotCfgPPO.policy ):
+class Go2TSDepthCfgPPO( LeggedRobotTSDepthCfgPPO ):
+    seed = 42
+    distillation = False
+    class policy( LeggedRobotTSDepthCfgPPO.policy ):
+        clip_actions = Go2TSDepthCfg.normalization.clip_actions
         critic_hidden_dims = [1024, 256, 128]
+        actor_hidden_dims = [512, 256, 128]
         privilege_encoder_hidden_dims = [256, 128]
-        history_encoder_type = "MLP" # "MLP" or "TCN"
-        history_encoder_hidden_dims = [256, 128]       # for MLP
-        history_encoder_channel_dims = [1, 1, 1, 1]    # for TCN
-        history_encoder_dilation = [1, 1, 2, 1]        # for TCN
-        history_encoder_stride = [1, 2, 1, 2]          # for TCN
-        history_encoder_final_layer_dim = 128          # for TCN
-        kernel_size = 5
-    class algorithm( LeggedRobotCfgPPO.algorithm ):
-        encoder_lr = 1e-3
-        num_encoder_epochs = 2
-    class runner( LeggedRobotCfgPPO.runner ):
-        policy_class_name = "ActorCriticTS"
-        algorithm_class_name = "PPO_TS"
+        cnn_input_channel = Go2TSDepthCfg.sensor.depth_camera_config.num_history
+        cnn_channel_dims = [4, 8]
+        cnn_strides = [2, 1]
+        cnn_fc_layer_dims = [128]
+        combination_mlp_dims = [128, 32]
+        cnn_kernel_sizes = [5, 3]
+        rnn_type = 'gru'
+        rnn_hidden_size = 256
+        rnn_num_layers = 1
+    
+    class algorithm( LeggedRobotTSDepthCfgPPO.algorithm ):
+        encoder_lr = 2.e-4
+        
+    class runner( LeggedRobotTSDepthCfgPPO.runner ):
+        teacher_model_path = "Mar09_17-57-51_/model_4500.pt"
         run_name = ''
         experiment_name = 'go2_depth'
         save_interval = 500
-        load_run = "Jan14_10-22-04_"
+        load_run = "Mar10_11-26-01_"
         checkpoint = -1
-        max_iterations = 2500
+        max_iterations = 10000

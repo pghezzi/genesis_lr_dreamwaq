@@ -38,14 +38,11 @@ class TRON1PF_EE(LeggedRobotEE):
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
         self.reset_idx(env_ids)
         self._calc_periodic_reward_obs()
-        if self.cfg.sensor.add_depth:
-            self.simulator.update_depth_images()
+        self.simulator.update_sensors()
         self.compute_observations()  # in some cases a simulation step might be required to refresh some obs (for example body positions)
 
         self.llast_actions[:] = self.last_actions[:]
         self.last_actions[:] = self.actions[:]
-        self.simulator.last_dof_vel[:] = self.simulator.dof_vel[:]
-        self.simulator.last_feet_vel[:] = self.simulator.feet_vel[:]
         
         if self.debug:
             self.simulator.draw_debug_vis()

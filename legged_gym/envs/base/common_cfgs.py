@@ -13,7 +13,7 @@ class Go2FlatCommonCfg(LeggedRobotCfg):
         mesh_type = "plane"
     
     class init_state(LeggedRobotCfg.init_state):
-        pos = [0.0, 0.0, 0.42] # x,y,z [m]
+        pos = [0.0, 0.0, 0.4] # x,y,z [m]
         default_joint_angles = { # = target angles [rad] when action = 0.0
             'FL_hip_joint': 0.0,   # [rad]
             'RL_hip_joint': 0.0,   # [rad]

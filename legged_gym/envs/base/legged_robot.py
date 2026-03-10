@@ -68,8 +68,7 @@ class LeggedRobot(BaseTask):
         self.compute_reward()
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
         self.reset_idx(env_ids)
-        if self.cfg.sensor.add_depth:
-            self.simulator.update_depth_images()
+        self.simulator.update_sensors()
         self.compute_observations()  # in some cases a simulation step might be required to refresh some obs (for example body positions)
         
         if self.debug:
@@ -459,6 +458,8 @@ class LeggedRobot(BaseTask):
                                 self.cfg.domain_rand.kp_range[1]) / 2  # mean value
         self.kd_scale_offset = (self.cfg.domain_rand.kd_range[0] +
                                 self.cfg.domain_rand.kd_range[1]) / 2  # mean value
+        self.add_base_mass_offset = (self.cfg.domain_rand.added_mass_range[0] +
+                                      self.cfg.domain_rand.added_mass_range[1]) / 2  # mean value
         
         self.cfg.domain_rand.push_interval = np.ceil(self.cfg.domain_rand.push_interval_s / self.dt)
         self.cfg.domain_rand.push_links_interval = np.ceil(self.cfg.domain_rand.push_links_interval_s / self.dt)

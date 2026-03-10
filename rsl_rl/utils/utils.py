@@ -46,6 +46,7 @@ def split_and_pad_trajectories(tensor, dones):
                 ]                  | ]    
             
     Assumes that the inputy has the following dimension order: [time, number of envs, additional dimensions]
+    Output has the same dimension order, but with time dimension equal to the longest trajectory and an additional mask of shape [time, num_traj] where num_traj is the total number of trajectories across all envs (i.e. num_envs * num_transitions_per_env / average_trajectory_length)
     """
     dones = dones.clone()
     dones[-1] = 1

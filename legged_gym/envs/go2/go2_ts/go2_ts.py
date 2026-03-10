@@ -28,14 +28,14 @@ class Go2TS(LeggedRobotTS):
         # Critic observation
         critic_obs = torch.cat((
             self.obs_buf,                 # num_observations
-            domain_randomization_info,    # 34
+            domain_randomization_info,    # 31
             self.simulator.base_lin_vel * self.obs_scales.lin_vel,     # 3
         ), dim=-1)
         if self.cfg.asset.obtain_link_contact_states:
             critic_obs = torch.cat(
                 (
                     critic_obs,                         # previous
-                    self.simulator.link_contact_states,  # contact states of thighs, calfs and feet (4+4+4)=12
+                    self.simulator.link_contact_states,  # contact states of thighs, calfs, hips, feet and base (4+4+4+4+1)=17
                 ),
                 dim=-1,
             )
@@ -67,7 +67,7 @@ class Go2TS(LeggedRobotTS):
         if self.num_privileged_obs is not None:
             self.privileged_obs_buf = torch.cat(
                 (
-                    domain_randomization_info,                       # 34
+                    domain_randomization_info,                       # 31
                     (self.simulator.feet_pos[:, :, 2].unsqueeze(-1) - self.simulator.height_around_feet).flatten(1,2).clip(-1.0, 1.0),  # 9*number of feet
                     self.simulator.normal_vector_around_feet,        # 3*number of feet
                     self.simulator.base_lin_vel * self.obs_scales.lin_vel,     # 3
@@ -78,7 +78,7 @@ class Go2TS(LeggedRobotTS):
                 self.privileged_obs_buf = torch.cat(
                     (
                         self.privileged_obs_buf,                   # previous
-                        self.simulator.link_contact_states,        # contact states of thighs, calfs and feet (4+4+4)=12
+                        self.simulator.link_contact_states,        # contact states of thighs, calfs, hips, feet and base (4+4+4+4+1)=17
                     ),
                     dim=-1,
                 )

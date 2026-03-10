@@ -8,7 +8,7 @@ GO2_ACTUATOR_CFG = {
         velocity_limit=30.1,
         stiffness=0.0, # use self defined stiffness and damping
         damping=0.0,
-        friction=0.0
+        armature=0.01
     ),
     "calf": DCMotorCfg(
         joint_names_expr=[".*_calf_joint"],
@@ -17,6 +17,6 @@ GO2_ACTUATOR_CFG = {
         velocity_limit=15.7,
         stiffness=0.0, # use self defined stiffness and damping
         damping=0.0,
-        friction=0.0
+        armature=0.01
     )
 }

@@ -4,10 +4,11 @@ from legged_gym.envs.base.common_cfgs import Go2RoughCommonCfg
 
 class Go2DreamwaqCfg( LeggedRobotDreamwaqCfg ):
     class env( LeggedRobotDreamwaqCfg.env ):
-        num_envs = 3000
+        num_camera_envs = 1 # number of envs with depth camera, starting from the first env
+        num_envs = 3200
         num_actions = 12
         num_observations = 45  # num_obs
-        frame_stack = 20    # number of frames to stack for obs_history
+        frame_stack = 5    # number of frames to stack for obs_history
         num_history_obs = int(num_observations * frame_stack)
         num_latent_dims = 16
         num_explicit_dims = 24  # base linear velocity
@@ -19,7 +20,8 @@ class Go2DreamwaqCfg( LeggedRobotDreamwaqCfg ):
         # privileged_obs contains information given to privileged encoder
         # critic_obs contains information given to critic, including some privileged information
         # This operation is to prevent the critic from receiving noisy input from the concatenation of current observation(noisy) and latent vector
-    
+        debug_draw_depth_images = True
+        
     class terrain( Go2RoughCommonCfg.terrain ):
         pass
     class init_state( Go2RoughCommonCfg.init_state ):
@@ -59,7 +61,7 @@ class Go2DreamwaqCfg( LeggedRobotDreamwaqCfg ):
         randomize_pd_gain = True
         kp_range = [0.8, 1.2]
         kd_range = [0.8, 1.2]
-        randomize_joint_armature = False
+        randomize_joint_armature = True
         joint_armature_range = [0.015, 0.025]  # [N*m*s/rad]
         randomize_joint_friction = False
         joint_friction_range = [0.01, 0.02]

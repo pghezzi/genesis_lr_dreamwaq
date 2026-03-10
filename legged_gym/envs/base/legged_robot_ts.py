@@ -119,6 +119,8 @@ class LeggedRobotTS(LeggedRobot):
         
     def reset_idx(self, env_ids):
         super().reset_idx(env_ids)
+        if len(env_ids) == 0:
+            return
         # clear obs history for the envs that are reset
         for i in range(self.obs_history_deque.maxlen):
             self.obs_history_deque[i][env_ids] *= 0
