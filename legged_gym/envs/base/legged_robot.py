@@ -94,7 +94,7 @@ class LeggedRobot(BaseTask):
     def reset_idx(self, env_ids):
         """ Reset some environments.
             Calls self._reset_dofs(env_ids), self._reset_root_states(env_ids), and self._resample_commands(env_ids)
-            [Optional] calls self._update_terrain_curriculum(env_ids), self.update_command_curriculum(env_ids) and
+            [Optional] calls self._update_terrain_curriculum(env_ids), self._update_command_curriculum(env_ids) and
             Logs episode info
             Resets some buffers
 

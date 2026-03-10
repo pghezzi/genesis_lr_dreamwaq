@@ -123,7 +123,7 @@ class TRON1SF(LeggedRobot):
     def reset_idx(self, env_ids):
         """ Reset some environments.
             Calls self._reset_dofs(env_ids), self._reset_root_states(env_ids), and self._resample_commands(env_ids)
-            [Optional] calls self._update_terrain_curriculum(env_ids), self.update_command_curriculum(env_ids) and
+            [Optional] calls self._update_terrain_curriculum(env_ids), self._update_command_curriculum(env_ids) and
             Logs episode info
             Resets some buffers
 
@@ -137,7 +137,7 @@ class TRON1SF(LeggedRobot):
             self._update_terrain_curriculum(env_ids)
         # avoid updating command curriculum at each step since the maximum command is common to all envs
         if self.cfg.commands.curriculum and (self.common_step_counter % self.max_episode_length ==0):
-            self.update_command_curriculum(env_ids)
+            self._update_command_curriculum(env_ids)
 
         self._resample_commands(env_ids)
         _ = np.random.random() # initialize the env at sit pose randomly
