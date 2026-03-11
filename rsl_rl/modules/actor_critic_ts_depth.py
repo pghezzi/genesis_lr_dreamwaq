@@ -67,7 +67,7 @@ class ActorCriticTSDepth(nn.Module):
         privilege_encoder_layers = []
         privilege_encoder_layers.append(
             nn.Linear(num_privilege_encoder_input, privilege_encoder_hidden_dims[0]))
-        privilege_encoder_layers.append(activation)
+        privilege_encoder_layers.append(activation_fn)
         for l in range(len(privilege_encoder_hidden_dims)):
             if l == len(privilege_encoder_hidden_dims) - 1:
                 privilege_encoder_layers.append(
@@ -75,7 +75,7 @@ class ActorCriticTSDepth(nn.Module):
             else:
                 privilege_encoder_layers.append(nn.Linear(
                     privilege_encoder_hidden_dims[l], privilege_encoder_hidden_dims[l + 1]))
-                privilege_encoder_layers.append(activation)
+                privilege_encoder_layers.append(activation_fn)
         self.privilege_encoder = nn.Sequential(*privilege_encoder_layers)
 
         # Policy
@@ -164,6 +164,9 @@ class ActorCriticTSDepth(nn.Module):
 
     def get_actions_log_prob(self, actions):
         return self.distribution.log_prob(actions).sum(dim=-1)
+    
+    def act_inference(self, observations, depth_image_features, **kwargs):
+        return self.act_student(observations, depth_image_features, **kwargs)
 
     def act_student(self, observations, depth_image_features, **kwargs):
         latent = self.depth_history_encoder(observations, depth_image_features)

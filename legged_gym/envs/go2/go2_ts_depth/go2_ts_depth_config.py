@@ -5,7 +5,7 @@ from legged_gym.envs.base.common_cfgs import Go2RoughCommonCfg
 class Go2TSDepthCfg( LeggedRobotTSDepthCfg ):
     class env( LeggedRobotTSDepthCfg.env ):
         num_envs = 3000
-        num_camera_envs = 800
+        num_camera_envs = 1000
         num_observations = 45
         num_privileged_obs = 244
         num_latent_dims = 32
@@ -29,7 +29,8 @@ class Go2TSDepthCfg( LeggedRobotTSDepthCfg ):
         terrain_width = 8.0
         num_rows = 10  # number of terrain rows (levels)
         num_cols = 10  # number of terrain cols (types)
-        # terrain types: [smooth slope, rough slope, stairs up, stairs down, discrete]
+        # terrain types: [slope, random uniform, stairs up, stairs down, discrete,
+        #                 stepping stones, gaps, pit, parkour blocks]
         terrain_proportions = [0.2, 0.1, 0.25, 0.25, 0.2]
         
     class init_state( Go2RoughCommonCfg.init_state ):
@@ -162,6 +163,6 @@ class Go2TSDepthCfgPPO( LeggedRobotTSDepthCfgPPO ):
         run_name = ''
         experiment_name = 'go2_depth'
         save_interval = 500
-        load_run = "Mar10_11-26-01_"
+        load_run = "Mar10_21-21-51_"
         checkpoint = -1
         max_iterations = 10000

@@ -156,6 +156,9 @@ class GenesisSimulator(Simulator):
         self._rand_push_vels[:, :2] = push_vel.detach().clone()
         dofs_vel[:, :2] += push_vel
         self._robot.set_dofs_velocity(dofs_vel)
+        self._last_base_lin_vel[:] = self._base_lin_vel[:]
+        self._base_lin_vel[:] = quat_rotate_inverse(
+            self._base_quat, self._robot.get_vel())
     
     def push_links(self):
         max_force = self._cfg.domain_rand.max_push_force

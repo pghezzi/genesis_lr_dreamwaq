@@ -141,7 +141,7 @@ def interaction_loop(env, policy, args):
         
         # Step the environment according to task type
         if "depth" in task_name:
-            actions = policy(obs_buf, privileged_obs_buf)
+            actions = policy(obs_buf, depth_image)
             obs_buf, privileged_obs_buf, depth_image, critic_obs, rews, dones, infos = env.step(actions.detach())
         elif "ts" in task_name or "cat" in task_name:
             actions = policy(obs_buf, obs_history)

@@ -47,18 +47,18 @@ class TSDepthRunner(OnPolicyRunner):
                                                     **self.policy_cfg).to(self.device)
         if self.distillation:
             print(f"Loading teacher model from {teacher_model_path}")
-            loaded_dict = torch.load(teacher_model_path)
-            loaded_actor_critic = ActorCriticTSDepth(self.env.num_obs,
-                                                    self.env.num_actions,
-                                                    self.env.num_privileged_obs,
-                                                    self.env.num_latent_dims,
-                                                    self.env.num_critic_obs,
-                                                    self.env.depth_image_resolution,
-                                                    **self.policy_cfg).to(self.device)
-            loaded_actor_critic.load_state_dict(loaded_dict['model_state_dict'])
-            # copy actor, critic
-            actor_critic.actor.load_state_dict(loaded_actor_critic.teacher_ac.actor.state_dict())
-            actor_critic.critic.load_state_dict(loaded_actor_critic.teacher_ac.critic.state_dict())
+            # loaded_dict = torch.load(teacher_model_path)
+            # loaded_actor_critic = ActorCriticTSDepth(self.env.num_obs,
+            #                                         self.env.num_actions,
+            #                                         self.env.num_privileged_obs,
+            #                                         self.env.num_latent_dims,
+            #                                         self.env.num_critic_obs,
+            #                                         self.env.depth_image_resolution,
+            #                                         **self.policy_cfg).to(self.device)
+            # loaded_actor_critic.load_state_dict(loaded_dict['model_state_dict'])
+            # # copy actor, critic
+            # actor_critic.actor.load_state_dict(loaded_actor_critic.teacher_ac.actor.state_dict())
+            # actor_critic.critic.load_state_dict(loaded_actor_critic.teacher_ac.critic.state_dict())
         
         alg_class = eval(self.cfg["algorithm_class_name"]) # PPO_TSDepth
         self.alg: PPO_TSDepth = alg_class(actor_critic, device=self.device, 
@@ -149,10 +149,7 @@ class TSDepthRunner(OnPolicyRunner):
                 value = torch.mean(infotensor)
                 self.writer.add_scalar('Episode/' + key, value, locs['it'])
                 ep_string += f"""{f'Mean episode {key}:':>{pad}} {value:.4f}\n"""
-        if self.distillation:
-            mean_std = self.alg.actor_critic.std.mean()
-        else:
-            mean_std = self.alg.actor_critic.teacher_ac.std.mean()
+        mean_std = self.alg.actor_critic.std.mean()
         fps = int(self.num_steps_per_env * self.env.num_envs / (locs['collection_time'] + locs['learn_time']))
 
         self.writer.add_scalar('Loss/value_function', locs['mean_value_loss'], locs['it'])

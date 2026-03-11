@@ -162,8 +162,11 @@ class IsaacGymSimulator(Simulator):
     def push_robots(self):
         max_vel = self._cfg.domain_rand.max_push_vel_xy
         self._rand_push_vels[:, :2] = torch_rand_float(-max_vel, max_vel, (self._num_envs, 2), device=self._device)
-        self._root_states[:, 7:9] = self._rand_push_vels[:, :2] # set random base velocity in xy plane
+        self._root_states[:, 7:9] += self._rand_push_vels[:, :2] # set random base velocity in xy plane
         self._gym.set_actor_root_state_tensor(self._sim, gymtorch.unwrap_tensor(self._root_states))
+        self._last_base_lin_vel[:] = self._base_lin_vel[:]
+        self._base_lin_vel[:] = quat_rotate_inverse(
+            self._base_quat, self._root_states[:, 7:10])
     
     def push_links(self):
         max_force = self._cfg.domain_rand.max_push_force

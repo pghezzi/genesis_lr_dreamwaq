@@ -153,6 +153,8 @@ class IsaacLabSimulator(Simulator):
         cur_root_vel[:, :2] += push_vel
         root_vel = torch.cat([cur_root_vel, self._robot.data.root_link_vel_w[:, 3:6]], dim=-1)
         self._robot.write_root_link_velocity_to_sim(root_vel)
+        self._last_base_lin_vel[:] = self._base_lin_vel[:]
+        self._base_lin_vel[:] = quat_rotate_inverse(self._base_quat, self._robot.data.root_link_lin_vel_w)[:]
     
     def push_links(self):
         max_force = self._cfg.domain_rand.max_push_force
