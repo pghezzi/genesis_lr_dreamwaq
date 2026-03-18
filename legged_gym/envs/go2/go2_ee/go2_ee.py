@@ -33,11 +33,11 @@ class Go2EE(LeggedRobotEE):
         # Critic observation
         single_critic_obs = torch.cat((
             obs_buf,                 # num_observations
-            domain_randomization_info,    # 34
+            domain_randomization_info,    # 31
         ), dim=-1)
         if self.cfg.asset.obtain_link_contact_states:
             single_critic_obs = torch.cat(
-                (single_critic_obs, self.simulator.link_contact_states,  # contact states of thighs, calfs and feet (4+4+4)=12
+                (single_critic_obs, self.simulator.link_contact_states,  # 17
                     ),
                 dim=-1,
             )

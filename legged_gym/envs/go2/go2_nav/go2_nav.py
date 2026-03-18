@@ -1,16 +1,9 @@
 from legged_gym import *
-from time import time
-import numpy as np
-import os
 
 import torch
-from torch import Tensor
-from typing import Tuple, Dict
 
-from legged_gym import LEGGED_GYM_ROOT_DIR
 from legged_gym.envs.base.legged_robot_nav import LeggedRobotNav
 from legged_gym.utils.math_utils import torch_rand_float, quat_from_euler_xyz
-from legged_gym.utils.helpers import class_to_dict
 
 class GO2Nav(LeggedRobotNav):
     
@@ -37,10 +30,10 @@ class GO2Nav(LeggedRobotNav):
                 (
                     self.obs_buf,
                     self.last_actions,
-                    self.simulator._friction_values,        # 1
-                    self.simulator._added_base_mass,        # 1
-                    self.simulator._base_com_bias,          # 3
-                    self.simulator._rand_push_vels[:, :2],  # 2
+                    self.simulator.dr_friction_values,        # 1
+                    self.simulator.dr_added_base_mass,        # 1
+                    self.simulator.dr_base_com_bias,          # 3
+                    self.simulator.dr_rand_push_vels[:, :2],  # 2
                 ),
                 dim=-1,
             )
@@ -55,37 +48,11 @@ class GO2Nav(LeggedRobotNav):
             calls self._post_physics_step_callback() for common computations 
             calls self.simulator.draw_debug_vis() if needed
         """
-        self.episode_length_buf += 1
-        self.common_step_counter += 1
-
-        self.simulator.post_physics_step()
-        self._post_physics_step_callback()
-
-        # compute observations, rewards, resets, ...
-        self.check_termination()
-        self.compute_reward()
-        env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
-        self.reset_idx(env_ids)
-        self.simulator.update_sensors()
-        self.compute_observations()  # in some cases a simulation step might be required to refresh some obs (for example body positions)
-
-        self.llast_actions[:] = self.last_actions[:]
-        self.last_actions[:] = self.actions[:]
-        self.simulator.last_base_lin_vel[:] = self.simulator.base_lin_vel[:]
-        self.simulator.last_base_ang_vel[:] = self.simulator.base_ang_vel[:]
-        
+        super().post_physics_step()
         if self.debug:
-            # self.simulator.draw_debug_vis()
             self.simulator.draw_debug_boxes(self.target_pos_world, quat_from_euler_xyz(torch.zeros_like(self.target_orientation_world), 
                                                                                        torch.zeros_like(self.target_orientation_world), 
                                                                                        self.target_orientation_world))
-
-    def _init_buffers(self):
-        super()._init_buffers()
-        self.commands_scale = torch.tensor([self.obs_scales.base_pos, self.obs_scales.base_pos,
-                                            self.obs_scales.base_orientation, self.obs_scales.time_to_target],
-                                           device=self.device, dtype=torch.float,
-                                           requires_grad=False)
     
     def _get_noise_scale_vec(self):
         """ Sets a vector used to scale the noise added to the observations.

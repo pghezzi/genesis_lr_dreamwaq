@@ -36,19 +36,19 @@ class TRON1SF(LeggedRobot):
                     self.simulator.base_lin_vel * self.obs_scales.lin_vel, # 3
                     obs_buf,
                     self.last_actions,                      # num_actions
-                    (self.simulator._friction_values - 
+                    (self.simulator.dr_friction_values - 
                     self.friction_value_offset),            # 1
-                    self.simulator._added_base_mass,        # 1
-                    self.simulator._base_com_bias,          # 3
-                    self.simulator._rand_push_vels[:, :2],  # 2
+                    self.simulator.dr_added_base_mass,        # 1
+                    self.simulator.dr_base_com_bias,          # 3
+                    self.simulator.dr_rand_push_vels[:, :2],  # 2
                     self.feet_air_time,                     # 2
-                    (self.simulator._kp_scale - 
+                    (self.simulator.dr_kp_scale - 
                      self.kp_scale_offset),                 # num_actions
-                    (self.simulator._kd_scale - 
+                    (self.simulator.dr_kd_scale - 
                      self.kd_scale_offset),                 # num_actions
-                    self.simulator._joint_armature,
-                    self.simulator._joint_friction,
-                    self.simulator._joint_damping,
+                    self.simulator.dr_joint_armature,
+                    self.simulator.dr_joint_friction,
+                    self.simulator.dr_joint_damping,
                 ),
                 dim=-1,
             )
@@ -115,7 +115,7 @@ class TRON1SF(LeggedRobot):
         self.sit_pos = torch.tensor(self.cfg.init_state.sit_pos, dtype=torch.float, device=self.device, requires_grad=False)
         self.sit_joint_angles = torch.tensor(
             [self.cfg.init_state.sit_joint_angles[name]
-                for name in self.simulator.dof_names],
+                for name in self.cfg.asset.dof_names],
             device=self.device,
             dtype=torch.float,
         )
@@ -300,7 +300,7 @@ class TRON1SF(LeggedRobot):
     def _reward_foot_flat(self):
         """Encourage foot to be flat
         """
-        foot_quat = self.simulator.rigid_body_states[:, self.simulator.feet_indices, 3:7]
+        foot_quat = self.simulator.feet_quat
         # calculate world z axis in foot frame
         z_axis_world = torch.tensor([0., 0., 1.], device=self.device).repeat(foot_quat.shape[0], foot_quat.shape[1], 1)
         foot_z_axis = quat_rotate_inverse(foot_quat, z_axis_world)

@@ -40,15 +40,7 @@ class LeggedRobotNav(BaseTask):
         Args:
             actions (torch.Tensor): Tensor of shape (num_envs, num_actions_per_env)
         """
-        clip_actions = self.cfg.normalization.clip_actions
-        actions = torch.clip(
-            actions, -clip_actions, clip_actions).to(self.device)
-        self.actions[:] = actions[:]
-        if self.cfg.domain_rand.randomize_ctrl_delay:
-            self.action_queue[:, 1:] = self.action_queue[:, :-1].clone()
-            self.action_queue[:, 0] = actions.clone()
-            actions = self.action_queue[torch.arange(
-                self.num_envs), self.action_delay].clone()
+        actions = self._pre_sim_step(actions)
         self.simulator.step(actions)
         self.post_physics_step()
 
@@ -78,11 +70,6 @@ class LeggedRobotNav(BaseTask):
         self.reset_idx(env_ids)
         self.simulator.update_sensors()
         self.compute_observations()  # in some cases a simulation step might be required to refresh some obs (for example body positions)
-
-        self.llast_actions[:] = self.last_actions[:]
-        self.last_actions[:] = self.actions[:]
-        self.simulator.last_base_lin_vel[:] = self.simulator.base_lin_vel[:]
-        self.simulator.last_base_ang_vel[:] = self.simulator.base_ang_vel[:]
         
         if self.debug:
             self.simulator.draw_debug_vis()
@@ -235,7 +222,31 @@ class LeggedRobotNav(BaseTask):
         """
         self.simulator.set_viewer_camera(eye=pos, target=lookat)
 
-    # ------------- Callbacks --------------
+    # ------------- Callbacks (Protected Function) --------------
+    
+    def _pre_sim_step(self, actions):
+        """ Callback called at the beginning of the step function, before stepping the simulation
+        """
+        clip_actions = self.cfg.normalization.clip_actions
+        actions = torch.clip(
+            actions, -clip_actions, clip_actions).to(self.device)
+        # update history of actions
+        self.llast_actions[:] = self.last_actions[:]
+        self.last_actions[:] = self.actions[:]
+        self.actions[:] = actions[:]
+        # apply action delay by using an action queue
+        if self.cfg.domain_rand.randomize_ctrl_delay:
+            self.action_queue[:, 1:] = self.action_queue[:, :-1].clone()
+            self.action_queue[:, 0] = actions.clone()
+            actions = self.action_queue[torch.arange(
+                self.num_envs), self.action_delay].clone()
+        # during training, the camera follows the first environment
+        if not self.debug and not self.headless:
+            pos = self.simulator.base_pos[0].cpu().numpy() + np.array(self.cfg.viewer.pos)
+            lookat = self.simulator.base_pos[0].cpu().numpy() + np.array(self.cfg.viewer.lookat)
+            self.set_viewer_camera(pos, lookat)
+        
+        return actions
     
     def _update_terrain_curriculum(self, env_ids):
         """ Implements the game-inspired curriculum.
@@ -250,18 +261,12 @@ class LeggedRobotNav(BaseTask):
         distance = torch.norm(
             self.simulator.base_pos[env_ids, :2] - self.simulator.env_origins[env_ids, :2], dim=1)
         # robots that walked far enough progress to harder terains
-        move_up = distance > self.simulator.terrain.env_length / 2
+        move_up = distance > self.simulator._terrain.env_length / 2
         # robots that walked less than half of their required distance go to simpler terrains
         distance_to_target = torch.norm(self.target_pos_world[env_ids, :2] - self.simulator.env_origins[env_ids, :2], dim=1)
         move_down = (distance < distance_to_target * 0.5) * ~move_up
-        self.simulator.terrain_levels[env_ids] += 1 * move_up - 1 * move_down
-        # Robots that solve the last level are sent to a random one
-        self.simulator.terrain_levels[env_ids] = torch.where(self.simulator.terrain_levels[env_ids] >=self.simulator.max_terrain_level,
-                                                   torch.randint_like(
-                                                       self.simulator.terrain_levels[env_ids], self.simulator.max_terrain_level),
-                                                   torch.clip(self.simulator.terrain_levels[env_ids], 0))  # (the minumum level is zero)
-        self.simulator.env_origins[env_ids] = self.simulator.terrain_origins[self.simulator.terrain_levels[env_ids],
-            self.simulator.terrain_types[env_ids]]
+        
+        self.simulator.update_terrain_curriculum(env_ids, move_up, move_down)
     
     def _reset_dofs(self, env_ids):
         dof_pos = torch.zeros((len(env_ids), self.num_actions), dtype=torch.float, 
@@ -287,7 +292,11 @@ class LeggedRobotNav(BaseTask):
         base_lin_vel = torch_rand_float(-0.5, 0.5, (len(env_ids), 3), self.device)
         # base ang vel
         base_ang_vel = torch_rand_float(-0.5, 0.5, (len(env_ids), 3), self.device)
-        self.simulator.reset_root_states(env_ids, base_pos, base_quat, base_lin_vel, base_ang_vel)
+        self.simulator.reset_root_states(env_ids, 
+                                         base_pos, 
+                                         base_quat, 
+                                         base_lin_vel, 
+                                         base_ang_vel)
 
     def _post_physics_step_callback(self):
         """ Callback called before computing terminations, rewards, and observations
@@ -303,10 +312,8 @@ class LeggedRobotNav(BaseTask):
         self.commands[:, 3] -= self.dt
         self.commands[:, 3] = torch.clamp(self.commands[:, 3], min=0.)
 
-        if self.cfg.terrain.measure_heights:
-            self.simulator.update_surrounding_heights()
         if self.cfg.domain_rand.push_robots and (self.common_step_counter % self.cfg.domain_rand.push_interval == 0):
-            self.simulator._push_robots()
+            self.simulator.push_robots()
 
     def _resample_commands(self, env_ids):
         """ Randommly select commands of some environments
@@ -411,7 +418,7 @@ class LeggedRobotNav(BaseTask):
             (self.num_envs,), device=self.device, dtype=torch.float)
         self.commands = torch.zeros(
             (self.num_envs, self.cfg.commands.num_commands), device=self.device, dtype=torch.float)
-        self.commands_scale = torch.tensor([self.obs_scales.base_pos, self.obs_scales.base_pos, self.obs_scales.base_pos,
+        self.commands_scale = torch.tensor([self.obs_scales.base_pos, self.obs_scales.base_pos,
                                             self.obs_scales.base_orientation, self.obs_scales.time_to_target],
                                            device=self.device, dtype=torch.float,
                                            requires_grad=False)
@@ -422,10 +429,6 @@ class LeggedRobotNav(BaseTask):
         self.feet_air_time = torch.zeros(
             (self.num_envs, len(self.simulator.feet_indices)), device=self.device, dtype=torch.float)
         self.last_contacts = torch.zeros((self.num_envs, len(self.simulator.feet_indices)), device=self.device, dtype=torch.int)
-        
-        if self.cfg.terrain.measure_heights:
-            self.simulator._init_height_points()
-        self.simulator.measured_heights = 0
 
         # randomize action delay
         if self.cfg.domain_rand.randomize_ctrl_delay:
@@ -479,7 +482,7 @@ class LeggedRobotNav(BaseTask):
                                 self.cfg.domain_rand.kd_range[1]) / 2  # mean value
         
         self.cfg.domain_rand.push_interval = np.ceil(self.cfg.domain_rand.push_interval_s / self.dt)
-
+        self.cfg.domain_rand.push_links_interval = np.ceil(self.cfg.domain_rand.push_links_interval_s / self.dt)
     # ------------ reward functions----------------
     def _reward_lin_vel_z(self):
         # Penalize z axis base linear velocity

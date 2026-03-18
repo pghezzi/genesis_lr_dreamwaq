@@ -11,49 +11,55 @@ class LeggedRobotNavCfg(BaseConfig):
         debug = False # if debugging, visualize contacts, etc.
         env_spacing = 1.0
         fail_to_terminal_time_s = 0.1 # time before a fail state leads to environment reset, refer to https://github.com/limxdynamics/tron1-rl-isaacgym/tree/master
-        max_projected_gravity = -0.1
+        debug_draw_height_points_around_base = False # obtain height measurements around the base
+        debug_draw_height_points_around_feet = False # obtain height measurements around the feet (9 points around each foot, see terrain.measured_points_x/y)
+        debug_draw_terrain_height_points = False # draw all height points of the terrain
+        debug_draw_key_body_points = False # draw key body points for mimic tasks
+        max_projected_gravity = -0.1 # max allowed projected gravity in z axis
+        
         
     class terrain:
+        
+        # heightfield uses a grid of height samples to represent the terrain, creating enormous points
+        # trimesh creates terrain mesh directly, reducing the number of triangles compared with heightfield
         mesh_type = 'plane'    # "heightfield" # none, plane, heightfield
         plane_length = 200.0   # [m]. plane size is 200x200x10 by default
         horizontal_scale = 0.1 # [m]
         vertical_scale = 0.005 # [m]
         border_size = 5 # [m]
+        border_height = 1.0 # [m] height of the border surrounding the terrain
         curriculum = False
         static_friction = 1.0
         dynamic_friction = 1.0
         restitution = 0.
         # rough terrain only:
+        # obtain terrain height information around feet (default: 9 points around feet), measure_
+        # x  x   x
+        # x F(x) x
+        # x  x   x (x: height point, F: foot position)
         obtain_terrain_info_around_feet = False
         measure_heights = False
+        # positions of the sampling height around the base (relative to the base of the robot)
         measured_points_x = [-0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8] # 1mx1.6m rectangle (without center line)
         measured_points_y = [-0.5, -0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5]
         selected = False # select a unique terrain type and pass all arguments
         terrain_kwargs = None # Dict of arguments for selected terrain
-        max_init_terrain_level = 1 # starting curriculum state
+        max_init_terrain_level = 1 # starting curriculum level
         terrain_length = 6.0
         terrain_width = 6.0
-        platform_size = 2.5
+        platform_size = 3.0
         num_rows = 4  # number of terrain rows (levels)
         num_cols = 4  # number of terrain cols (types)
+        num_subterrains = num_rows * num_cols
         # terrain types: [smooth slope, rough slope, stairs up, stairs down, discrete]
         terrain_proportions = [0.1, 0.1, 0.35, 0.25, 0.2]
         # trimesh only:
         slope_treshold = 0.75 # slopes above this threshold will be corrected to vertical surfaces
 
-    class commands:
-        curriculum = False
-        max_curriculum = 1.
-        num_commands = 5      # default: position of the target point(x, y, z) in base frame, heading, time left to target
-        default_pos_z = 0.34  # base height relative to the ground
-        class ranges:
-            pos_x = [-6.0, 6.0]     # m, relative to the robot's base
-            pos_y = [-6.0, 6.0]     # m
-            pos_z = [-0.06, 0.01]   # m
-            heading = [-3.14, 3.14] # rad
-
     class init_state:
         pos = [0.0, 0.0, 1.]           # x,y,z [m]
+        # [Convention] When calling reset_root_states() of simulator, the input quaternion is in gym format [x,y,z,w]
+        #  simulators will convert it to compatible format if needed.
         rot = [0.0, 0.0, 0.0, 1.0] # x,y,z,w [quat], quaternion sequence definitions are different in gym and genesis
         lin_vel = [0.0, 0.0, 0.0]  # x,y,z [m/s]
         ang_vel = [0.0, 0.0, 0.0]  # x,y,z [rad/s]
@@ -83,20 +89,21 @@ class LeggedRobotNavCfg(BaseConfig):
         foot_name = "None"     # name of the feet bodies, used to index body state and contact force tensors
         penalize_contacts_on = []
         terminate_after_contacts_on = []
+        key_bodies = [] # list of important bodies to be tracked in mimic tasks
         fix_base_link = False    # fix base link to the world
         obtain_link_contact_states = False
         contact_state_link_names = ["thigh", "calf", "foot"]
+        self_collisions = 0      # 1 to disable, 0 to enable...bitwise filter
+        dof_names = ["joint_a", "joint_b"] # specify the sequence of dofs in the actions and observations
+        dof_armature = [0.0] # armature of each dof
         # For Genesis
         links_to_keep = []          # links that are not merged because of fixed joints
-        dof_names = ["joint_a", "joint_b"]
         dof_vel_limits = [20.0, 20.0] # [rad/s], corresponds to dof_names order
-        self_collisions_gs = True   # enable self collisions by default
-        # For IsaacGym
+        # For IsaacGym and IsaacLab
         disable_gravity = False
         collapse_fixed_joints = True # merge bodies connected by fixed joints. Specific fixed joints can be kept by adding " <... dont_collapse="true">
         default_dof_drive_mode = 3   # see GymDofDriveModeFlags (0 is none, 1 is pos tgt, 2 is vel tgt, 3 effort)
-        self_collisions_gym = 0      # 1 to disable, 0 to enable...bitwise filter
-        replace_cylinder_with_capsule = True # replace collision cylinders with capsules, leads to faster/more stable simulation
+        replace_cylinder_with_capsule = False # replace collision cylinders with capsules, leads to faster/more stable simulation
         flip_visual_attachments = False # Some .obj meshes must be flipped from y-up to z-up
         density = 0.001
         angular_damping = 0.
@@ -105,30 +112,6 @@ class LeggedRobotNavCfg(BaseConfig):
         max_linear_velocity = 1000.
         armature = 0.
         thickness = 0.01
-        
-    class domain_rand:
-        randomize_friction = True
-        friction_range = [0.5, 1.25]
-        randomize_base_mass = True
-        added_mass_range = [-1., 1.]
-        push_robots = True
-        push_interval_s = 15
-        max_push_vel_xy = 1.
-        randomize_com_displacement = True
-        com_pos_x_range = [-0.01, 0.01]
-        com_pos_y_range = [-0.01, 0.01]
-        com_pos_z_range = [-0.01, 0.01]
-        randomize_ctrl_delay = False
-        ctrl_delay_step_range = [0, 1]
-        randomize_joint_armature = False
-        joint_armature_range = [0.0, 0.05]  # [N*m*s/rad]
-        randomize_joint_friction = False
-        joint_friction_range = [0.0, 0.1]
-        randomize_joint_damping = False
-        joint_damping_range = [0.0, 1.0]
-        randomize_pd_gain = False
-        kp_range = [0.8, 1.2]
-        kd_range = [0.8, 1.2]
 
     class rewards:
         class scales:
@@ -162,6 +145,54 @@ class LeggedRobotNavCfg(BaseConfig):
         foot_clearance_target = 0.04 # desired foot clearance above ground [m]
         foot_height_offset = 0.0     # height of the foot coordinate origin above ground [m]
         foot_clearance_tracking_sigma = 0.01
+    class commands:
+        curriculum = False
+        max_curriculum = 1.
+        num_commands = 4      # default: position of the target point(x, y) in base frame, heading, time left to target
+        default_pos_z = 0.34  # base height relative to the ground
+        class ranges:
+            pos_x = [-6.0, 6.0]     # m, relative to the robot's base
+            pos_y = [-6.0, 6.0]     # m
+            pos_z = [-0.06, 0.01]   # m
+            heading = [-3.14, 3.14] # rad
+    
+    class domain_rand:
+        # randomize rigid body friction
+        randomize_friction = True
+        friction_range = [0.5, 1.25]
+        # randomize base link mass
+        randomize_base_mass = True
+        added_mass_range = [-1., 1.]
+        # apply random velocity perturbations to the base link
+        push_robots = True
+        push_interval_s = 15
+        max_push_vel_xy = 1.
+        # randomize the position of Center of Mass (CoM) to simulate modeling errors
+        randomize_com_displacement = True
+        com_pos_x_range = [-0.01, 0.01]
+        com_pos_y_range = [-0.01, 0.01]
+        com_pos_z_range = [-0.01, 0.01]
+        # apply random delay to the actions to simulate latency in the control loop
+        randomize_ctrl_delay = False
+        ctrl_delay_step_range = [0, 1]
+        # randomize PD gains by a scale factor
+        randomize_pd_gain = False
+        kp_range = [0.8, 1.2]
+        kd_range = [0.8, 1.2]
+        # ! Randomizing joint armature/friction/damping in Genesis require batching dofs/links info, 
+        # ! which will slow the simulation greatly.
+        # ! It is recommended to keep them false. If needed, please use it in IsaacGym and IsaacLab.
+        randomize_joint_armature = False
+        joint_armature_range = [0.0, 0.05]  # [N*m*s/rad]
+        randomize_joint_friction = False
+        joint_friction_range = [0.0, 0.1]
+        randomize_joint_damping = False
+        joint_damping_range = [0.0, 1.0]
+        # Apply random push forces to the links of the robot
+        push_links = False
+        max_push_force = 10.0 # [N], maximum magnitude of the random push force applied to each link
+        push_links_interval_s = 15.0 # time interval between random pushes
+
 
     class normalization:
         class obs_scales:
@@ -194,23 +225,32 @@ class LeggedRobotNavCfg(BaseConfig):
     # viewer camera:
     class viewer:
         ref_env = 0
-        pos = [2, 2, 2]       # [m]
-        lookat = [0., 0, 1.]  # [m]
+        pos = [4.0, 4.0, 2.0]       # [m]
+        lookat = [0., 0, 0.]  # [m]
         rendered_envs_idx = [i for i in range(5)]  # number of environments to be rendered
     
+    # sensor configuration:
     class sensor:
         add_depth = False
+        use_warp = False       # whether to use warp-based model
         class depth_camera_config:
+            num_sensors = 1
+            num_history = 1        # history frames for depth images
+            
             near_clip = 0.1
             far_clip = 10.0
             near_plane = 0.1
             far_plane = 10.0
-            resolution = (60, 80)
-            fov_horizontal = 75
-            pos = (0.3, 0.0, 0.1)
+            resolution = (80, 60)
+            horizontal_fov_deg = 75
+            pos =   (0.3, 0.0, 0.1)
             euler = (0.0, 0.0, 0.0)
             decimation = 5
-
+            # Warp only
+            calculate_depth = True
+            segmentation_camera = False
+            return_pointcloud = False
+            pointcloud_in_world_frame = False
     class sim:
         # Common
         dt =  0.005
@@ -223,6 +263,7 @@ class LeggedRobotNavCfg(BaseConfig):
         up_axis = 1  # 0 is y, 1 is z
         use_gpu_pipeline = True
 
+        # PhysX engine parameters, for IsaacGym only
         class physx:
             use_gpu = True
             num_subscenes = 0
@@ -242,6 +283,7 @@ class LeggedRobotNavCfgPPO(BaseConfig):
     seed = 1
     runner_class_name = 'OnPolicyRunner'
     class policy:
+        clip_actions = LeggedRobotNavCfg.normalization.clip_actions
         init_noise_std = 1.0
         actor_hidden_dims = [512, 256, 128]
         critic_hidden_dims = [512, 256, 128]
@@ -265,6 +307,11 @@ class LeggedRobotNavCfgPPO(BaseConfig):
         lam = 0.95
         desired_kl = 0.01
         max_grad_norm = 1.
+        
+        # Whether to use SPO(Simple Policy Optimization), refer to refer to https://arxiv.org/abs/2401.16025
+        # SPO may collapse with default param settings for PPO, especially with high learning rate
+        # learning_rate=2.5e-4, schedule='fixed' are validated
+        use_spo = False 
 
     class runner:
         policy_class_name = 'ActorCritic'

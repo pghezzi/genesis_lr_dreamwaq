@@ -51,7 +51,6 @@ class LeggedRobotCfg(BaseConfig):
         platform_size = 3.0 # [m] size of the flat platform at the center of each subterrain
         num_rows = 4  # number of terrain rows (levels), X direction
         num_cols = 4  # number of terrain cols (types), Y direction
-        num_subterrains = num_rows * num_cols
         # terrain types: [smooth slope, rough slope, stairs up, stairs down, discrete]
         terrain_proportions = [0.1, 0.1, 0.35, 0.25, 0.2]
         # trimesh only:
@@ -151,7 +150,7 @@ class LeggedRobotCfg(BaseConfig):
         resampling_time = 10. # time before command are changed[s]
         heading_command = True # if true: compute ang vel command from heading error
         curriculum_threshold = 0.8 # threshold for curriculum learning, if the tracking reward is above this threshold, increase the command range
-        zero_cmd_prob = 0.4    # probability of sampling zero command when resampling commands, to encourage the robot to learn standing still behavior
+        zero_cmd_prob = 0.0    # probability of sampling zero command when resampling commands, to encourage the robot to learn standing still behavior
         class ranges:
             lin_vel_x = [-1.0, 1.0] # min max [m/s]
             lin_vel_y = [-1.0, 1.0]   # min max [m/s]

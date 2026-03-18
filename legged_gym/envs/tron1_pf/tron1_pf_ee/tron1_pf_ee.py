@@ -9,43 +9,6 @@ from collections import deque
 from scipy.stats import vonmises
 
 class TRON1PF_EE(LeggedRobotEE):
-    def post_physics_step(self):
-        """ check terminations, compute observations and rewards
-            calls self._post_physics_step_callback() for common computations 
-            calls self.simulator.draw_debug_vis() if needed
-        """
-        self.episode_length_buf += 1
-        self.common_step_counter += 1
-
-        self.simulator.post_physics_step()
-        self._post_physics_step_callback()
-
-        # compute observations, rewards, resets, ...
-        self.check_termination()
-        self.compute_reward()
-        
-        #----- above is the same as parent class function -----#
-        # Periodic Reward Framework phi cycle
-        # step after computing reward but before resetting the env
-        self.gait_time += self.dt
-        # +self.dt/2 in case of float precision errors
-        is_over_limit = (self.gait_time >= (self.gait_period - self.dt / 2))
-        over_limit_indices = is_over_limit.nonzero(as_tuple=False).flatten()
-        self.gait_time[over_limit_indices] = 0.0
-        self.phi = self.gait_time / self.gait_period
-        #----- below is the same as parent class function -----#
-        
-        env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
-        self.reset_idx(env_ids)
-        self._calc_periodic_reward_obs()
-        self.simulator.update_sensors()
-        self.compute_observations()  # in some cases a simulation step might be required to refresh some obs (for example body positions)
-
-        self.llast_actions[:] = self.last_actions[:]
-        self.last_actions[:] = self.actions[:]
-        
-        if self.debug:
-            self.simulator.draw_debug_vis()
             
     def compute_observations(self):
         obs_buf = torch.cat((
@@ -60,18 +23,18 @@ class TRON1PF_EE(LeggedRobotEE):
         ), dim=-1)
         
         domain_randomization_info = torch.cat((
-                    (self.simulator._friction_values - 
+                    (self.simulator.dr_friction_values - 
                     self.friction_value_offset),            # 1
-                    self.simulator._added_base_mass,        # 1
-                    self.simulator._base_com_bias,          # 3
-                    self.simulator._rand_push_vels[:, :2],  # 2
-                    (self.simulator._kp_scale - 
+                    self.simulator.dr_added_base_mass,        # 1
+                    self.simulator.dr_base_com_bias,          # 3
+                    self.simulator.dr_rand_push_vels[:, :2],  # 2
+                    (self.simulator.dr_kp_scale - 
                      self.kp_scale_offset),                 # num_actions
-                    (self.simulator._kd_scale - 
+                    (self.simulator.dr_kd_scale - 
                      self.kd_scale_offset),                 # num_actions
-                    self.simulator._joint_armature,
-                    self.simulator._joint_friction,
-                    self.simulator._joint_damping,
+                    self.simulator.dr_joint_armature,       # 1
+                    self.simulator.dr_joint_friction,       # 1
+                    self.simulator.dr_joint_damping,        # 1
             ), dim=-1)
         
         gait_info = torch.cat((
@@ -165,7 +128,7 @@ class TRON1PF_EE(LeggedRobotEE):
         self.sit_pos = torch.tensor(self.cfg.init_state.sit_pos, dtype=torch.float, device=self.device, requires_grad=False)
         self.sit_joint_angles = torch.tensor(
             [self.cfg.init_state.sit_joint_angles[name]
-                for name in self.simulator.dof_names],
+                for name in self.cfg.asset.dof_names],
             device=self.device,
             dtype=torch.float,
         )
@@ -188,6 +151,18 @@ class TRON1PF_EE(LeggedRobotEE):
         self.b_swing[:] = self.cfg.rewards.periodic_reward_framework.b_swing * 2 * torch.pi
 
     def reset_idx(self, env_ids):
+        
+        #----- above is the same as parent class function -----#
+        # Periodic Reward Framework phi cycle
+        # step after computing reward but before resetting the env
+        self.gait_time += self.dt
+        # +self.dt/2 in case of float precision errors
+        is_over_limit = (self.gait_time >= (self.gait_period - self.dt / 2))
+        over_limit_indices = is_over_limit.nonzero(as_tuple=False).flatten()
+        self.gait_time[over_limit_indices] = 0.0
+        self.phi = self.gait_time / self.gait_period
+        #----- below is the same as parent class function -----#
+        
         if len(env_ids) == 0:
             return
         # update curriculum

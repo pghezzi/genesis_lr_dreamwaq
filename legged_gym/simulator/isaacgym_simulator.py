@@ -14,6 +14,8 @@ if SIMULATOR == "isaacgym":
     import trimesh
     from legged_gym.warp.warp_cam import WarpCam
 
+import warnings
+
 """ ********** Isaac Gym Simulator ********** """
 class IsaacGymSimulator(Simulator):
     def __init__(self, cfg : LeggedRobotCfg, sim_params: dict, sim_device: str = "cuda:0", headless: bool = False):
@@ -59,7 +61,6 @@ class IsaacGymSimulator(Simulator):
             if (self._device == "cpu"):
                 self._gym.fetch_results(self._sim, True)
             self._gym.refresh_dof_state_tensor(self._sim)
-            self._dof_vel_sim = (self._dof_pos - self._last_dof_pos) / self._sim_params.dt
             
     def post_physics_step(self):
         self._gym.refresh_actor_root_state_tensor(self._sim)
@@ -494,7 +495,6 @@ class IsaacGymSimulator(Simulator):
         self._base_pos = self._root_states[:, 0:3]
         self._base_quat = self._root_states[:, 3:7]
         self._last_dof_pos = torch.zeros_like(self._dof_pos)
-        self._dof_vel_sim = torch.zeros_like(self._dof_vel) # the dof velocity calculated from finite difference of positions
         self._base_euler = get_euler_xyz(self._base_quat)
         self._link_contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(self._num_envs, -1, 3) # shape: num_envs, num_bodies, xyz axis
         self._last_feet_vel = torch.zeros_like(self._rigid_body_states[:, self._feet_indices, 7:10])
@@ -1163,7 +1163,7 @@ class IsaacGymSimulator(Simulator):
                     armature, dtype=torch.float, device=self._device)
         else:
             if len(self._cfg.asset.dof_armature) != self._num_dof:
-                Warning("Use default armature 0.01 for all dofs. To specify dof armatures, please see dof_armature in legged_robot_config.py")
+                warnings.warn("Use default armature 0.01 for all dofs. To specify dof armatures, please see dof_armature in legged_robot_config.py")
                 for j in range(self._num_dof):
                     props["armature"][j] = torch.tensor(
                         0.01, dtype=torch.float, device=self._device)
@@ -1296,8 +1296,7 @@ class IsaacGymSimulator(Simulator):
     
     @property
     def dof_vel(self):
-        # return self._dof_vel[:, self._dof_indices]
-        return self._dof_vel_sim[:, self._dof_indices]
+        return self._dof_vel[:, self._dof_indices]
     
     @property
     def last_dof_vel(self):
@@ -1313,15 +1312,15 @@ class IsaacGymSimulator(Simulator):
     
     @property
     def dr_joint_armature(self):
-        return self._joint_armature[:, self._dof_indices]
+        return self._joint_armature
     
     @property
     def dr_joint_friction(self):
-        return self._joint_friction[:, self._dof_indices]
+        return self._joint_friction
     
     @property
     def dr_joint_damping(self):
-        return self._joint_damping[:, self._dof_indices]
+        return self._joint_damping
     
     @property
     def dr_kp_scale(self):

@@ -43,7 +43,7 @@ class Go2FlatCommonCfg(LeggedRobotCfg):
     class asset(LeggedRobotCfg.asset):
         # Common
         name = "go2"
-        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/go2/urdf/go2.urdf'
+        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/unitree_robotics/go2/urdf/go2.urdf'
         foot_name = "foot"
         penalize_contacts_on = ["thigh", "calf"]
         terminate_after_contacts_on = ["base", "Head"]
@@ -63,6 +63,8 @@ class Go2FlatCommonCfg(LeggedRobotCfg):
             "RL_thigh_joint",
             "RL_calf_joint"
         ]
+        # use a small armature for go2
+        dof_armature = [0.01] * 12
         # For Genesis
         links_to_keep = ['FL_foot', 'FR_foot', 'RL_foot', 'RR_foot']
         dof_vel_limits = [30.1, 30.1, 15.7, 
@@ -130,7 +132,7 @@ class Go2RoughCommonCfg(Go2FlatCommonCfg):
 
 
 #----- Common configuration for Unitree G1 on flat terrain (12DOF) -----#
-class G1FlatCommonCfg(LeggedRobotCfg):
+class G1Flat12DofCommonCfg(LeggedRobotCfg):
     class terrain(LeggedRobotCfg.terrain):
         mesh_type = "plane"
 
@@ -160,7 +162,7 @@ class G1FlatCommonCfg(LeggedRobotCfg):
 
     class asset(LeggedRobotCfg.asset):
         name = "g1"
-        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/g1_description/g1_12dof.urdf'
+        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/unitree_robotics/g1_description/g1_12dof.urdf'
         foot_name = "ankle_roll"
         penalize_contacts_on = ["hip", "knee"]
         terminate_after_contacts_on = ["pelvis"]
@@ -172,6 +174,13 @@ class G1FlatCommonCfg(LeggedRobotCfg):
             "left_knee_joint", "left_ankle_pitch_joint", "left_ankle_roll_joint",
             "right_hip_pitch_joint", "right_hip_roll_joint", "right_hip_yaw_joint",
             "right_knee_joint", "right_ankle_pitch_joint", "right_ankle_roll_joint"
+        ]
+        dof_armature = [ # same sequence as dof_names
+            # refer to https://github.com/unitreerobotics/unitree_rl_lab/tree/main/source/unitree_rl_lab/unitree_rl_lab/assets/robots
+            0.010177520, 0.025101925, 0.010177520,
+            0.025101925, 2*0.003609725, 2*0.003609725,
+            0.010177520, 0.025101925, 0.010177520,
+            0.025101925, 2*0.003609725, 2*0.003609725
         ]
 
 
@@ -241,7 +250,7 @@ class G1MimicCommonCfg(LeggedRobotCfg):
 
     class asset(LeggedRobotCfg.asset):
         name = "g1"
-        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/g1_description/g1_29dof.urdf'
+        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/unitree_robotics/g1_description/g1_29dof.urdf'
         foot_name = "ankle_roll"
         key_bodies = ["ankle_roll", "knee", "hip", 
                       "torso", "wrist_yaw", "shoulder_roll",
@@ -259,10 +268,21 @@ class G1MimicCommonCfg(LeggedRobotCfg):
             "right_knee_joint", "right_ankle_pitch_joint", "right_ankle_roll_joint",
             'waist_yaw_joint', 'waist_roll_joint', 'waist_pitch_joint',
             'left_shoulder_pitch_joint', 'left_shoulder_roll_joint', 'left_shoulder_yaw_joint',
-            'left_elbow_joint', 'left_wrist_roll_joint', 'left_wrist_pitch_joint',
-            'left_wrist_yaw_joint', 'right_shoulder_pitch_joint', 'right_shoulder_roll_joint',
-            'right_shoulder_yaw_joint', 'right_elbow_joint',
-            'right_wrist_roll_joint', 'right_wrist_pitch_joint', 'right_wrist_yaw_joint',
+            'left_elbow_joint', 'left_wrist_roll_joint', 'left_wrist_pitch_joint', 'left_wrist_yaw_joint', 
+            'right_shoulder_pitch_joint', 'right_shoulder_roll_joint', 'right_shoulder_yaw_joint', 
+            'right_elbow_joint', 'right_wrist_roll_joint', 'right_wrist_pitch_joint', 'right_wrist_yaw_joint',
+        ]
+        dof_armature = [ # same sequence as dof_names
+            # refer to https://github.com/unitreerobotics/unitree_rl_lab/tree/main/source/unitree_rl_lab/unitree_rl_lab/assets/robots
+            0.010177520, 0.025101925, 0.010177520,
+            0.025101925, 2*0.003609725, 2*0.003609725,
+            0.010177520, 0.025101925, 0.010177520,
+            0.025101925, 2*0.003609725, 2*0.003609725,
+            0.010177520, 2*0.003609725, 2*0.003609725,
+            0.003609725, 0.003609725, 0.003609725,
+            0.003609725, 0.003609725, 0.00425, 0.00425, 
+            0.003609725, 0.003609725, 0.003609725,
+            0.003609725, 0.003609725, 0.00425, 0.00425,
         ]
 
 # ----- Common configuration for Booster K1 on flat terrain (22DOF) -----#

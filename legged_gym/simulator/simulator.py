@@ -365,6 +365,15 @@ class Simulator(ABC):
         return self._base_lin_vel
     
     @property
+    def last_base_lin_vel(self):
+        """Returns the base linear velocity of the robot (respective to the base frame) in the last control step.
+
+        Returns:
+            Tensor((num_envs, 3)): Base linear velocity of the robot in the last control step.
+        """
+        return self._last_base_lin_vel
+    
+    @property
     def base_ang_vel(self):
         """Returns the base angular velocity of the robot (respective to the base frame).
 
@@ -372,6 +381,15 @@ class Simulator(ABC):
             Tensor((num_envs, 3)): Base angular velocity of the robot.
         """
         return self._base_ang_vel
+    
+    @property
+    def last_base_ang_vel(self):
+        """Returns the base angular velocity of the robot (respective to the base frame) in the last control step
+
+        Returns:
+            Tensor((num_envs, 3)): Base angular velocity of the robot.
+        """
+        return self._last_base_ang_vel
     
     @property
     def projected_gravity(self):

@@ -1,5 +1,6 @@
 from legged_gym import *
 from legged_gym.envs.base.legged_robot_nav_config import LeggedRobotNavCfg, LeggedRobotNavCfgPPO
+from legged_gym.envs.base.common_cfgs import Go2RoughCommonCfg
 
 class GO2NavCfg( LeggedRobotNavCfg ):
     
@@ -11,81 +12,22 @@ class GO2NavCfg( LeggedRobotNavCfg ):
         env_spacing = 2.0
         episode_length_s = 8.0
 
-    class terrain( LeggedRobotNavCfg.terrain ):
-        if SIMULATOR == "genesis":
-            mesh_type = "heightfield" # for genesis
-        else:
-            mesh_type = "trimesh"  # for isaacgym
-        border_size = 5.0 # [m]
-        curriculum = True
-        measure_heights = True
+    class terrain( Go2RoughCommonCfg.terrain):
         measured_points_x = [-0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8] # 1mx1.6m rectangle (without center line)
         measured_points_y = [-0.5, -0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5] # 17x11 = 187 points
-        terrain_width = 8.0
-        terrain_length = 8.0
-        platform_size = 3.0
-        num_rows = 10  # number of terrain rows (levels)
-        num_cols = 20  # number of terrain cols (types)
         # terrain types: [smooth slope, rough slope, stairs up, stairs down, discrete, stepping stones, gap, pit]
         terrain_proportions = [0.2, 0.2, 0.2, 0.2, 0.1, 0.1]
 
-    class init_state( LeggedRobotNavCfg.init_state ):
-        pos = [0.0, 0.0, 0.42] # x,y,z [m]
-        default_joint_angles = { # = target angles [rad] when action = 0.0
-            'FL_hip_joint': 0.0,   # [rad]
-            'RL_hip_joint': 0.0,   # [rad]
-            'FR_hip_joint': 0.0 ,  # [rad]
-            'RR_hip_joint': 0.0,   # [rad]
-
-            'FL_thigh_joint': 0.8,     # [rad]
-            'RL_thigh_joint': 0.8,   # [rad]
-            'FR_thigh_joint': 0.8,     # [rad]
-            'RR_thigh_joint': 0.8,   # [rad]
-
-            'FL_calf_joint': -1.5,   # [rad]
-            'RL_calf_joint': -1.5,    # [rad]
-            'FR_calf_joint': -1.5,  # [rad]
-            'RR_calf_joint': -1.5,    # [rad]
-        }
+    class init_state( Go2RoughCommonCfg.init_state ):
         roll_random_scale = 0.1
         pitch_random_scale = 0.1
         yaw_random_scale = 3.14
 
-    class control( LeggedRobotNavCfg.control ):
-        # PD Drive parameters:
-        # control_type = 'P'
-        stiffness = {'joint': 20.}   # [N*m/rad]
-        damping = {'joint': 0.5}     # [N*m*s/rad]
-        action_scale = 0.25 # action scale: target angle = actionScale * action + defaultAngle
-        decimation = 4 # decimation: Number of control action updates @ sim DT per policy DT
+    class control( Go2RoughCommonCfg.control ):
+        pass
 
-    class asset( LeggedRobotNavCfg.asset ):
-        # Common
-        name = "go2"
-        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/go2/urdf/go2.urdf'
-        foot_name = "foot"
-        penalize_contacts_on = ["thigh", "calf", "hip"]
-        terminate_after_contacts_on = ["base"]
-        # For Genesis
-        dof_names = [           # align with the real robot
-            "FR_hip_joint",
-            "FR_thigh_joint",
-            "FR_calf_joint",
-            "FL_hip_joint",
-            "FL_thigh_joint",
-            "FL_calf_joint",
-            "RR_hip_joint",
-            "RR_thigh_joint",
-            "RR_calf_joint",
-            "RL_hip_joint",
-            "RL_thigh_joint",
-            "RL_calf_joint"
-        ]
-        dof_vel_limits = [30.1, 30.1, 15.7, 
-                          30.1, 30.1, 15.7, 
-                          30.1, 30.1, 15.7, 
-                          30.1, 30.1, 15.7] # [rad/s], corresponds to dof_names order, values from urdf
-        links_to_keep = ['FL_foot', 'FR_foot', 'RL_foot', 'RR_foot']
+    class asset( Go2RoughCommonCfg.asset ):
+        pass
 
     class rewards( LeggedRobotNavCfg.rewards ):
         soft_dof_pos_limit = 0.9

@@ -44,6 +44,7 @@ Please refer to the [doc of this repo](https://genesis-lr-doc.readthedocs.io/en/
 | TRON1_PF | ![](https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/tron1_pf_ee_demo.gif?raw=true) | [video](https://www.bilibili.com/video/BV1MdePzcEvk/?spm_id_from=333.1387.homepage.video_card.click&vd_source=50fc92fb0e7291031bbb72e3c05b2edc) |
 | TRON1_SF | ![](https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/tron1_sf_demo.gif?raw=true) | |
 | Unitree G1 DeepMimic | ![](https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/g1_mimic_demo.gif?raw=true) | |
+| Booster K1 | ![](https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/booster_k1_demo.gif?raw=true) | |
 
 
 ## 🙏 Acknowledgements
@@ -58,14 +59,10 @@ Please refer to the [doc of this repo](https://genesis-lr-doc.readthedocs.io/en/
 
 ## TODO
 
-- [x] Add go2 deploy demos and instructions (2025/07/25)
-- [x] Add explicit estimator support (2025/09/29)
-- [x] Add teacher-student implementation (2025/08/02)
-- [x] Add Constraints as Terminations implementation (2025/10/23)
-- [x] Add support for TRON1_PF (flat and rough)
-- [x] Add DreamWaQ implementation (2025/11/27)
 - [x] Add support for TRON1_SF (2026/02/13)
 - [x] Add support for IsaacSim simulator (2026/02/15)
 - [x] Add support for DeepMimic Implementation (2026/02/28)
-- [ ] Add support for TRON1_WF
+- [x] Add support for Booster K1 Robot (2026/03/18)
 - [ ] Add support for warp-based depth camera
+- [ ] Add support for AMP Implementation
+- [ ] Add support for TRON1_WF

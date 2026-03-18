@@ -1,15 +1,15 @@
 from legged_gym import *
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
-from legged_gym.envs.base.common_cfgs import G1FlatCommonCfg
+from legged_gym.envs.base.common_cfgs import G1Flat12DofCommonCfg
 
 
-class G1RoughCfg(G1FlatCommonCfg):
+class G1RoughCfg(G1Flat12DofCommonCfg):
     class env(LeggedRobotCfg.env):
         num_observations = 47
         num_privileged_obs = 50
         num_actions = 12
 
-    class domain_rand(G1FlatCommonCfg.domain_rand):
+    class domain_rand(G1Flat12DofCommonCfg.domain_rand):
         randomize_friction = True
         friction_range = [0.1, 1.25]
         randomize_base_mass = True
@@ -18,10 +18,10 @@ class G1RoughCfg(G1FlatCommonCfg):
         push_interval_s = 5
         max_push_vel_xy = 1.5
 
-    class control(G1FlatCommonCfg.control):
+    class control(G1Flat12DofCommonCfg.control):
         pass
 
-    class asset(G1FlatCommonCfg.asset):
+    class asset(G1Flat12DofCommonCfg.asset):
         pass
 
     class rewards(LeggedRobotCfg.rewards):

@@ -42,7 +42,7 @@ class Go2CTS(LeggedRobotCTS):
             critic_obs = torch.cat(
                 (
                     critic_obs,                         # previous
-                    self.simulator.link_contact_states,  # contact states of thighs, calfs and feet (4+4+4)=12
+                    self.simulator.link_contact_states,  # 17
                 ),
                 dim=-1,
             )
