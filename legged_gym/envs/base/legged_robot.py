@@ -560,23 +560,23 @@ class LeggedRobot(BaseTask):
         first_contact = (self.feet_air_time > 0.) * contact_filt
         self.feet_air_time += self.dt
         rew_airTime = torch.sum((self.feet_air_time - 0.3) * first_contact, dim=1)  # reward only on first contact with the ground
-        rew_airTime *= torch.norm(self.commands[:, :2], dim=1) > 0.1  # no reward for zero command
+        rew_airTime *= torch.norm(self.commands[:, :2], dim=1) > 0.2  # no reward for zero command
         self.feet_air_time *= ~contact_filt
         return rew_airTime
 
     def _reward_dof_vel_stand_still(self):
         # Penalize motion at zero commands
-        return torch.sum(torch.abs(self.simulator.dof_vel), dim=1) * (torch.norm(self.commands[:, :3], dim=1) < 0.1)
+        return torch.sum(torch.abs(self.simulator.dof_vel), dim=1) * (torch.norm(self.commands[:, :3], dim=1) < 0.2)
 
     def _reward_dof_pos_stand_still(self):
         # Penalize position deviation at zero commands
-        return torch.sum(torch.square(self.simulator.dof_pos - self.simulator.default_dof_pos), dim=1) * (torch.norm(self.commands[:, :3], dim=1) < 0.1)
+        return torch.sum(torch.square(self.simulator.dof_pos - self.simulator.default_dof_pos), dim=1) * (torch.norm(self.commands[:, :3], dim=1) < 0.2)
     
     def _reward_feet_contact_stand_still(self):
         # Encourage feet contact with the ground at zero commands
         contacts = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2] > 0.1
         full_contact = torch.sum(1.*contacts, dim=1)==len(self.simulator.feet_contact_indices)
-        return 1.0*full_contact * (torch.norm(self.commands[:, :3], dim=1) < 0.1)
+        return 1.0 * full_contact * (torch.norm(self.commands[:, :3], dim=1) < 0.2)
     
     def _reward_dof_close_to_default(self):
         # Penalize dof position deviation from default

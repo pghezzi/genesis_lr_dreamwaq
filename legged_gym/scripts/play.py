@@ -85,7 +85,8 @@ def print_debug_info(env, robot_index):
     # print("base yaw angle: ", env.simulator.base_euler[robot_index, 2].item())
     # print("base height: ", env.simulator.base_pos[robot_index, 2].cpu().numpy())
     # print("foot_height: ", env.simulator.feet_pos[robot_index, :, 2].cpu().numpy())
-    # print(f"ankle pitch: {env.simulator.dof_pos[robot_index, [3,7]].cpu().numpy()}")
+    # print(f"knee pitch: {env.simulator.dof_pos[robot_index, [13,19]].cpu().numpy()}")
+    # print(f"feet distance: {torch.norm(env.simulator.feet_pos[robot_index, 0, [0, 1]] - env.simulator.feet_pos[robot_index, 1, [0, 1]]).item()}")
     # print(f"actions: {env.simulator.dof_pos[robot_index].cpu().numpy()}")
     pass
 

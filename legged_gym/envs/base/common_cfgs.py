@@ -264,3 +264,54 @@ class G1MimicCommonCfg(LeggedRobotCfg):
             'right_shoulder_yaw_joint', 'right_elbow_joint',
             'right_wrist_roll_joint', 'right_wrist_pitch_joint', 'right_wrist_yaw_joint',
         ]
+
+# ----- Common configuration for Booster K1 on flat terrain (22DOF) -----#
+class K1FlatCommonCfg(LeggedRobotCfg):
+    class terrain(LeggedRobotCfg.terrain):
+        mesh_type = "plane"
+
+    class init_state(LeggedRobotCfg.init_state):
+        pos = [0.0, 0.0, 0.55]  # x,y,z [m]
+        default_joint_angles = {
+            'AAHead_yaw': 0., "Head_pitch": 0., 
+            "ALeft_Shoulder_Pitch": 0., 'Left_Shoulder_Roll': -1.3, "Left_Elbow_Pitch": 0., "Left_Elbow_Yaw": -0.5, 
+            "ARight_Shoulder_Pitch": 0., 'Right_Shoulder_Roll': 1.3, "Right_Elbow_Pitch": 0., "Right_Elbow_Yaw": 0.5, 
+            "Left_Hip_Pitch": -0.15, "Left_Hip_Roll": 0., "Left_Hip_Yaw": 0., "Left_Knee_Pitch": 0.3, "Left_Ankle_Pitch": -0.15, "Left_Ankle_Roll": 0.,
+            "Right_Hip_Pitch": -0.15, "Right_Hip_Roll": 0., "Right_Hip_Yaw": 0., "Right_Knee_Pitch": 0.3, "Right_Ankle_Pitch": -0.15, "Right_Ankle_Roll": 0.
+        }
+
+    class control(LeggedRobotCfg.control):
+        control_type = 'P'
+        stiffness = {
+            'Hip': 80., 'Knee_Pitch': 80., 'Ankle': 30.0, 
+            'Shoulder': 4.0, 'Elbow': 4.0, 'Head': 4.0}
+        damping = {
+            'Hip': 2.0, 'Knee_Pitch': 2.0, 'Ankle': 2.0,
+            'Shoulder': 1.0, 'Elbow': 1.0, 'Head': 1.0}
+        action_scale = 0.25
+        decimation = 4
+
+    class asset(LeggedRobotCfg.asset):
+        name = "k1"
+        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/booster_robotics/K1/K1_22dof.urdf'
+        foot_name = "foot"
+        penalize_contacts_on = ["Trunk", "Shank", "Hip", "Arm", "Head"]
+        terminate_after_contacts_on = []
+        base_link_name = "Trunk"
+        self_collisions = 0
+        flip_visual_attachments = False
+        dof_names = [
+            "AAHead_yaw", "Head_pitch", 
+            "ALeft_Shoulder_Pitch", "Left_Shoulder_Roll", "Left_Elbow_Pitch", "Left_Elbow_Yaw", 
+            "ARight_Shoulder_Pitch", "Right_Shoulder_Roll", "Right_Elbow_Pitch", "Right_Elbow_Yaw", 
+            "Left_Hip_Pitch", "Left_Hip_Roll", "Left_Hip_Yaw", "Left_Knee_Pitch", "Left_Ankle_Pitch", "Left_Ankle_Roll",
+            "Right_Hip_Pitch", "Right_Hip_Roll", "Right_Hip_Yaw", "Right_Knee_Pitch", "Right_Ankle_Pitch", "Right_Ankle_Roll"
+        ]
+        dof_armature = [ # same sequence as dof_names
+            # refer to https://github.com/BoosterRobotics/booster_train/blob/main/source/booster_train/booster_train/assets/robots/booster.py
+            0.001, 0.001, 
+            0.001, 0.001, 0.001, 0.001, 
+            0.001, 0.001, 0.001, 0.001, 
+            0.0478125, 0.0339552, 0.0282528, 0.095625, 0.0282528*2, 0.0282528*2,
+            0.0478125, 0.0339552, 0.0282528, 0.095625, 0.0282528*2, 0.0282528*2
+        ]

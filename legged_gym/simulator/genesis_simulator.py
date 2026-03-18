@@ -862,3 +862,7 @@ class GenesisSimulator(Simulator):
             list[int]: Indices of the feet links in the contact sensors.
         """
         return self._feet_indices
+    
+    @property
+    def feet_quat(self):
+        return self._robot.get_links_quat()[:, self._feet_indices, :]

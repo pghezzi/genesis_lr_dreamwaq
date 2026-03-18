@@ -437,6 +437,15 @@ class Simulator(ABC):
         return self._feet_vel
     
     @property
+    def feet_quat(self):
+        """Returns the orientations (quaternions) of the feet in the world frame (xyzw sequence).
+
+        Returns:
+            Tensor((num_envs, num_feet, 4)): Orientations (quaternions) of the feet in the world frame (xyzw sequence).
+        """
+        return self._feet_quat
+    
+    @property
     def last_feet_vel(self):
         """Returns the velocities of the feet in the world frame in the last simulation step.
 

@@ -98,6 +98,7 @@ class LeggedRobotCfg(BaseConfig):
         base_link_name = "" # full name of the base link
         self_collisions = 0 # 1 to disable, 0 to enable...bitwise filter
         dof_names = ["joint_a", "joint_b"] # specify the sequence of dofs in the actions and observations
+        dof_armature = [0.0] # armature of each dof, 
         # For Genesis
         links_to_keep = []  # links that are not merged because of fixed joints
         dof_vel_limits = [] # rad/s, obtain from urdf
@@ -150,6 +151,7 @@ class LeggedRobotCfg(BaseConfig):
         resampling_time = 10. # time before command are changed[s]
         heading_command = True # if true: compute ang vel command from heading error
         curriculum_threshold = 0.8 # threshold for curriculum learning, if the tracking reward is above this threshold, increase the command range
+        zero_cmd_prob = 0.4    # probability of sampling zero command when resampling commands, to encourage the robot to learn standing still behavior
         class ranges:
             lin_vel_x = [-1.0, 1.0] # min max [m/s]
             lin_vel_y = [-1.0, 1.0]   # min max [m/s]

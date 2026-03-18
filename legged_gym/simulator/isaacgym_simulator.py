@@ -1161,10 +1161,16 @@ class IsaacGymSimulator(Simulator):
             for j in range(self._num_dof):
                 props["armature"][j] = torch.tensor(
                     armature, dtype=torch.float, device=self._device)
-        else: # default to a small armature to improve stability
-            for j in range(self._num_dof):
-                props["armature"][j] = torch.tensor(
-                    0.01, dtype=torch.float, device=self._device)
+        else:
+            if len(self._cfg.asset.dof_armature) != self._num_dof:
+                Warning("Use default armature 0.01 for all dofs. To specify dof armatures, please see dof_armature in legged_robot_config.py")
+                for j in range(self._num_dof):
+                    props["armature"][j] = torch.tensor(
+                        0.01, dtype=torch.float, device=self._device)
+            else: # use dof_armature in asset config
+                for j in range(self._num_dof):
+                    props["armature"][self._dof_indices[j]] = torch.tensor(
+                        self._cfg.asset.dof_armature[j], dtype=torch.float, device=self._device)
         
         return props
 
@@ -1267,6 +1273,10 @@ class IsaacGymSimulator(Simulator):
     @property
     def feet_vel(self):
         return self._rigid_body_states[:, self._feet_indices, 7:10]
+    
+    @property
+    def feet_quat(self):
+        return self._rigid_body_states[:, self._feet_indices, 3:7]
     
     @property
     def key_body_pos(self):

@@ -163,7 +163,7 @@ class PolicyExporter(torch.nn.Module):
     
     def export(self, path, env_cfg, export_onnx=False, train_cfg=None):
         os.makedirs(path, exist_ok=True)
-        filename = train_cfg.runner.load_run + "_ite" + str(train_cfg.runner.checkpoint) + ".pt"
+        filename = train_cfg.runner.load_run + "ite" + str(train_cfg.runner.checkpoint) + ".pt"
         path_pt = os.path.join(path, filename)
         self.to('cpu')
         traced_script_module = torch.jit.script(self)
@@ -171,7 +171,7 @@ class PolicyExporter(torch.nn.Module):
         
         # export onnx model if needed
         if export_onnx:
-            filename = train_cfg.runner.load_run + "_ite" + str(train_cfg.runner.checkpoint) + ".onnx"
+            filename = train_cfg.runner.load_run + "ite" + str(train_cfg.runner.checkpoint) + ".onnx"
             path_onnx = os.path.join(path, filename)
             input_names = ["nn_input"]
             output_names = ["nn_output"]
@@ -201,7 +201,7 @@ class PolicyExporterTS(torch.nn.Module):
  
     def export(self, path, env_cfg, export_onnx=False, train_cfg=None):
         os.makedirs(path, exist_ok=True)
-        filename = train_cfg.runner.load_run + "_ite" + str(train_cfg.runner.checkpoint) + ".pt"
+        filename = train_cfg.runner.load_run + "ite" + str(train_cfg.runner.checkpoint) + ".pt"
         path = os.path.join(path, filename)
         self.to('cpu')
         traced_script_module = torch.jit.script(self)
@@ -209,7 +209,7 @@ class PolicyExporterTS(torch.nn.Module):
         
         # export onnx model if needed
         if export_onnx:
-            filename = train_cfg.runner.load_run + "_ite" + str(train_cfg.runner.checkpoint) + ".onnx"
+            filename = train_cfg.runner.load_run + "ite" + str(train_cfg.runner.checkpoint) + ".onnx"
             path_onnx = os.path.join(path, filename)
             input_names = ["obs_input", "obs_history_input"]
             output_names = ["nn_output"]
@@ -240,7 +240,7 @@ class PolicyExporterEE(torch.nn.Module):
  
     def export(self, path, env_cfg, export_onnx=False, train_cfg=None):
         os.makedirs(path, exist_ok=True)
-        filename = train_cfg.runner.load_run + "_ite" + str(train_cfg.runner.checkpoint) + ".pt"
+        filename = train_cfg.runner.load_run + "ite" + str(train_cfg.runner.checkpoint) + ".pt"
         pt_path = os.path.join(path, filename)
         self.to('cpu')
         traced_script_module = torch.jit.script(self)
@@ -248,7 +248,7 @@ class PolicyExporterEE(torch.nn.Module):
         
         # export onnx model if needed
         if export_onnx:
-            filename = train_cfg.runner.load_run + "_ite" + str(train_cfg.runner.checkpoint) + ".onnx"
+            filename = train_cfg.runner.load_run + "ite" + str(train_cfg.runner.checkpoint) + ".onnx"
             onnx_path = os.path.join(path, filename)
             input_names = ["nn_input"]
             output_names = ["nn_output"]
@@ -278,7 +278,7 @@ class PolicyExporterWaQ(torch.nn.Module):
  
     def export(self, path, env_cfg, export_onnx=False, train_cfg=None):
         os.makedirs(path, exist_ok=True)
-        filename = train_cfg.runner.load_run + "_ite" + str(train_cfg.runner.checkpoint) + ".pt"
+        filename = train_cfg.runner.load_run + "ite" + str(train_cfg.runner.checkpoint) + ".pt"
         path = os.path.join(path, filename)
         self.to('cpu')
         traced_script_module = torch.jit.script(self)
@@ -286,7 +286,7 @@ class PolicyExporterWaQ(torch.nn.Module):
         
         # export onnx model if needed
         if export_onnx:
-            filename = train_cfg.runner.load_run + "_ite" + str(train_cfg.runner.checkpoint) + ".onnx"
+            filename = train_cfg.runner.load_run + "ite" + str(train_cfg.runner.checkpoint) + ".onnx"
             path_onnx = os.path.join(path, filename)
             input_names = ["obs_input", "obs_history_input"]
             output_names = ["nn_output"]
@@ -306,19 +306,17 @@ class PolicyExporterLSTM(torch.nn.Module):
         self.is_recurrent = actor_critic.is_recurrent
         self.memory = copy.deepcopy(actor_critic.memory_a.rnn)
         self.memory.cpu()
-        self.register_buffer(f'hidden_state', torch.zeros(self.memory.num_layers, 1, self.memory.hidden_size))
-        self.register_buffer(f'cell_state', torch.zeros(self.memory.num_layers, 1, self.memory.hidden_size))
+        # self.register_buffer(f'hidden_state', torch.zeros(self.memory.num_layers, 1, self.memory.hidden_size))
+        # self.register_buffer(f'cell_state', torch.zeros(self.memory.num_layers, 1, self.memory.hidden_size))
 
-    def forward(self, x):
-        out, (h, c) = self.memory(x.unsqueeze(0), (self.hidden_state, self.cell_state))
-        self.hidden_state[:] = h
-        self.cell_state[:] = c
-        return self.actor(out.squeeze(0))
+    def forward(self, x, hidden_state, cell_state):
+        out, (h, c) = self.memory(x.unsqueeze(0), (hidden_state, cell_state))
+        return self.actor(out.squeeze(0)), h, c
 
-    @torch.jit.export
-    def reset_memory(self):
-        self.hidden_state[:] = 0.
-        self.cell_state[:] = 0.
+    # @torch.jit.export
+    # def reset_memory(self):
+    #     self.hidden_state[:] = 0.
+    #     self.cell_state[:] = 0.
  
     def export(self, path):
         os.makedirs(path, exist_ok=True)

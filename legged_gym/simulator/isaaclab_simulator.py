@@ -297,14 +297,17 @@ class IsaacLabSimulator(Simulator):
         
         # specify actuator config based on the robot
         if self._cfg.asset.name == "go2":
-            from resources.robots.go2.go2_lab_cfg import GO2_ACTUATOR_CFG
+            from resources.robots.unitree_robotics.go2.go2_lab_cfg import GO2_ACTUATOR_CFG
             actuator_cfg = GO2_ACTUATOR_CFG
         elif self._cfg.asset.name == "g1":
-            from resources.robots.g1_description.g1_lab_cfg import G1_12DOF_ACTUATOR_CFG, G1_29DOF_ACTUATOR_CFG
+            from resources.robots.unitree_robotics.g1_description.g1_lab_cfg import G1_12DOF_ACTUATOR_CFG, G1_29DOF_ACTUATOR_CFG
             if len(self._cfg.asset.dof_names) == 12:
                 actuator_cfg = G1_12DOF_ACTUATOR_CFG
             elif len(self._cfg.asset.dof_names) == 29:
                 actuator_cfg = G1_29DOF_ACTUATOR_CFG
+        elif self._cfg.asset.name == "k1":
+            from resources.robots.booster_robotics.K1.k1_lab_cfg import K1_ACTUATOR_CFG
+            actuator_cfg = K1_ACTUATOR_CFG
         else:
             raise NameError(f"Unknown robot name: {self._cfg.asset.name}")
         
@@ -979,6 +982,10 @@ class IsaacLabSimulator(Simulator):
         """
         # return self._contact_sensors.data.force_matrix_w.sum(dim=-2)
         return self._contact_sensors.data.net_forces_w
+    
+    @property
+    def feet_quat(self):
+        return self._robot.data.body_link_quat_w[:, self._feet_indices, :]
     
     @property
     def torques(self):

@@ -30,6 +30,8 @@
 
 from legged_gym import *
 from .base.legged_robot import LeggedRobot
+from legged_gym.envs.k1.k1 import K1Robot
+from legged_gym.envs.k1.k1_config import K1Cfg, K1CfgPPO
 # g1
 from legged_gym.envs.g1.g1 import G1Robot
 from legged_gym.envs.g1.g1_config import G1RoughCfg, G1RoughCfgPPO
@@ -83,6 +85,7 @@ from legged_gym.envs.bipedal_walker.bipedal_walker import BipedalWalker
 
 from legged_gym.utils.task_registry import task_registry
 
+task_registry.register("k1", K1Robot, K1Cfg(), K1CfgPPO())
 task_registry.register("g1", G1Robot, G1RoughCfg(), G1RoughCfgPPO())
 task_registry.register("g1_mimic", G1Mimic, G1MimicCfg(), G1MimicCfgPPO())
 task_registry.register( "go2", GO2, GO2Cfg(), GO2CfgPPO())
