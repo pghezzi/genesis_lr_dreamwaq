@@ -83,7 +83,6 @@ class K1Cfg(K1FlatCommonCfg):
         max_curriculum = 1.
         resampling_time = 5.0
         heading_command = False
-        zero_cmd_prob = 0.4    # probability of sampling zero command when resampling commands
         class ranges:
             lin_vel_x = [-0.5, 0.5] # min max [m/s]
             lin_vel_y = [-0.5, 0.5]   # min max [m/s]

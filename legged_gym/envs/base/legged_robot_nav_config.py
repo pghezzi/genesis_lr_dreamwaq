@@ -51,7 +51,7 @@ class LeggedRobotNavCfg(BaseConfig):
         num_rows = 4  # number of terrain rows (levels)
         num_cols = 4  # number of terrain cols (types)
         num_subterrains = num_rows * num_cols
-        # terrain types: [smooth slope, rough slope, stairs up, stairs down, discrete]
+        # terrain types: [smooth slope, random uniform, stairs up, stairs down, discrete]
         terrain_proportions = [0.1, 0.1, 0.35, 0.25, 0.2]
         # trimesh only:
         slope_treshold = 0.75 # slopes above this threshold will be corrected to vertical surfaces
@@ -241,7 +241,7 @@ class LeggedRobotNavCfg(BaseConfig):
             far_clip = 10.0
             near_plane = 0.1
             far_plane = 10.0
-            resolution = (80, 60)
+            resolution = (60, 80)
             horizontal_fov_deg = 75
             pos =   (0.3, 0.0, 0.1)
             euler = (0.0, 0.0, 0.0)

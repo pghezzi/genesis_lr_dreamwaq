@@ -7,10 +7,10 @@ class Go2TSDepthCfg( LeggedRobotTSDepthCfg ):
         num_envs = 3000
         num_camera_envs = 1000
         num_observations = 45
-        num_privileged_obs = 244
+        num_privileged_obs = 241
         num_latent_dims = 32
         c_frame_stack = 5
-        single_critic_obs_len = num_observations + 34 + 15 + 3 + 48 + 144
+        single_critic_obs_len = num_observations + 31 + 15 + 3 + 48 + 144
         num_critic_obs = c_frame_stack * single_critic_obs_len
         # Privileged_obs and critic_obs are seperated here
         # privileged_obs contains information given to privileged encoder
@@ -25,13 +25,24 @@ class Go2TSDepthCfg( LeggedRobotTSDepthCfg ):
         measure_heights = True
         measured_points_x = [-0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1.0, 1.2, 1.4] # 16x9=144
         measured_points_y = [-0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4]
-        terrain_length = 8.0
+        terrain_length = 10.0
         terrain_width = 8.0
+        platform_size = 4.0
         num_rows = 10  # number of terrain rows (levels)
         num_cols = 10  # number of terrain cols (types)
         # terrain types: [slope, random uniform, stairs up, stairs down, discrete,
-        #                 stepping stones, gaps, pit, parkour blocks]
-        terrain_proportions = [0.2, 0.1, 0.25, 0.25, 0.2]
+        #                 stepping stones, gaps, pit]
+        terrain_proportions = [0.1, 0.0, 0.2, 0.2, 0.2,
+                               0.1, 0.1, 0.1]
+        terrain_curriculum_difficulty = {
+            "slope": "difficulty * 0.4", # max slope in radians, will be multiplied by curriculum difficulty
+            "step_height": "0.05 + 0.15 * difficulty", 
+            "discrete_height": "0.05 + 0.15 * difficulty",
+            "stepping_stones_size": "1.5",
+            "stone_distance": "0.1 + difficulty * 0.8",
+            "gap_size": "0.1 + difficulty * 0.8",
+            "pit_depth": "0.1 + 0.6 * difficulty"
+        }
         
     class init_state( Go2RoughCommonCfg.init_state ):
         pass
@@ -39,8 +50,8 @@ class Go2TSDepthCfg( LeggedRobotTSDepthCfg ):
     class control( Go2RoughCommonCfg.control ):
         # PD Drive parameters:
         # control_type = 'P'
-        stiffness = {'joint': 20.}   # [N*m/rad]
-        damping = {'joint': 0.5}     # [N*m*s/rad]
+        stiffness = {'joint': 30.}   # [N*m/rad]
+        damping = {'joint': 0.75}     # [N*m*s/rad]
 
     class asset( Go2RoughCommonCfg.asset ):
         # Common: 
@@ -71,14 +82,12 @@ class Go2TSDepthCfg( LeggedRobotTSDepthCfg ):
             action_rate = -0.01
             action_smoothness = -0.01
             # gait
-            feet_air_time = 1.0
             hip_pos = -0.15
             foot_clearance = 0.2
-            feet_contact_stand_still = 0.1
 
     class commands( Go2RoughCommonCfg.commands ):
         curriculum = True
-        max_curriculum = 1.0
+        max_curriculum = 1.5
         num_commands = 4 # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         resampling_time = 10.  # time before command are changed[s]
         heading_command = True # if true: compute ang vel command from heading error
@@ -103,15 +112,9 @@ class Go2TSDepthCfg( LeggedRobotTSDepthCfg ):
         randomize_pd_gain = True
         kp_range = [0.8, 1.2]
         kd_range = [0.8, 1.2]
-        randomize_joint_armature = True
-        joint_armature_range = [0.015, 0.025]
-        randomize_joint_friction = True
-        joint_friction_range = [0.01, 0.02]
-        randomize_joint_damping = True
-        joint_damping_range = [0.25, 0.3]
     
     class normalization( LeggedRobotTSDepthCfg.normalization):
-        pass
+        clip_actions = 20.0
         class obs_scales( LeggedRobotTSDepthCfg.normalization.obs_scales ):
             pass
     
@@ -128,8 +131,8 @@ class Go2TSDepthCfg( LeggedRobotTSDepthCfg ):
             resolution = (60, 80)
             horizontal_fov_deg = 75
             pos =   (0.3, 0.0, 0.1)
-            euler_gym = (0.0, 0.0, 0.0)
-            euler = (0.0, 1.57, 0.0)
+            euler_gym = (0.0, 0.3, 0.0)
+            euler = (0.0, 1.57 + 0.3, 0.0)
             decimation = 5
             # Warp only
             calculate_depth = True
@@ -163,6 +166,6 @@ class Go2TSDepthCfgPPO( LeggedRobotTSDepthCfgPPO ):
         run_name = ''
         experiment_name = 'go2_depth'
         save_interval = 500
-        load_run = "Mar10_21-21-51_"
+        load_run = "Mar18_18-01-46_"
         checkpoint = -1
         max_iterations = 10000

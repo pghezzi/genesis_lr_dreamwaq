@@ -33,7 +33,7 @@ class TRON1PF_EECfg( LeggedRobotEECfg ):
         platform_size = 4.0
         num_rows = 10  # number of terrain rows (levels)
         num_cols = 10  # number of terrain cols (types)
-        # terrain types: [smooth slope, rough slope, stairs up, stairs down, discrete]
+        # terrain types: [smooth slope, random uniform, stairs up, stairs down, discrete]
         terrain_proportions = [0.2, 0.2, 0.2, 0.2, 0.2]
         
     class init_state( LeggedRobotEECfg.init_state ):

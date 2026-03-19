@@ -26,16 +26,13 @@ class Go2TSDepth(LeggedRobotTSDepth):
                     (self.simulator._kp_scale - 
                      self.kp_scale_offset),                 # num_actions
                     (self.simulator._kd_scale - 
-                     self.kd_scale_offset),                 # num_actions
-                    self.simulator._joint_armature,         # 1
-                    self.simulator._joint_friction,         # 1
-                    self.simulator._joint_damping,          # 1
+                     self.kd_scale_offset)                  # num_actions
             ), dim=-1)
         
         # Critic observation
         critic_obs = torch.cat((
             self.obs_buf,                 # num_observations
-            domain_randomization_info,    # 32
+            domain_randomization_info,    # 31
             self.simulator.base_lin_vel * self.obs_scales.lin_vel,     # 3
         ), dim=-1)
         if self.cfg.asset.obtain_link_contact_states:
@@ -155,17 +152,12 @@ class Go2TSDepth(LeggedRobotTSDepth):
         #     noise_vec[48:235] = noise_scales.height_measurements * noise_level * self.obs_scales.height_measurements
         return noise_vec
     
-    def _reward_feet_air_time(self):
-        # Reward long steps
-        contact = self.simulator.link_contact_forces[:, self.simulator.feet_indices, 2] > 1.
-        contact_filt = torch.logical_or(contact, self.last_contacts)
-        self.last_contacts = contact
-        first_contact = (self.feet_air_time > 0.) * contact_filt
-        self.feet_air_time += self.dt
-        rew_airTime = torch.sum((self.feet_air_time - 0.25) * first_contact, dim=1)  # reward only on first contact with the ground
-        rew_airTime *= torch.norm(self.commands[:, :2], dim=1) > 0.1  # no reward for zero command
-        self.feet_air_time *= ~contact_filt
-        return rew_airTime
+    def _reward_tracking_lin_vel(self):
+        # Tracking of linear velocity commands (xy axes)
+        heading_error = self.heading - self.commands[:, 3]
+        lin_vel_error = torch.sum(torch.square(
+            self.commands[:, :2] - self.simulator.base_lin_vel[:, :2]), dim=1)
+        return torch.exp(-lin_vel_error/self.cfg.rewards.tracking_sigma)
     
     def _reward_foot_clearance(self):
         """

@@ -15,7 +15,7 @@ class GO2NavCfg( LeggedRobotNavCfg ):
     class terrain( Go2RoughCommonCfg.terrain):
         measured_points_x = [-0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8] # 1mx1.6m rectangle (without center line)
         measured_points_y = [-0.5, -0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5] # 17x11 = 187 points
-        # terrain types: [smooth slope, rough slope, stairs up, stairs down, discrete, stepping stones, gap, pit]
+        # terrain types: [smooth slope, random uniform, stairs up, stairs down, discrete, stepping stones, gap, pit]
         terrain_proportions = [0.2, 0.2, 0.2, 0.2, 0.1, 0.1]
 
     class init_state( Go2RoughCommonCfg.init_state ):

@@ -63,8 +63,7 @@ class Go2FlatCommonCfg(LeggedRobotCfg):
             "RL_thigh_joint",
             "RL_calf_joint"
         ]
-        # use a small armature for go2
-        dof_armature = [0.01] * 12
+        dof_armature = [0.01] * 12 # use a small armature for go2
         # For Genesis
         links_to_keep = ['FL_foot', 'FR_foot', 'RL_foot', 'RR_foot']
         dof_vel_limits = [30.1, 30.1, 15.7, 
@@ -91,7 +90,7 @@ class Go2RoughCommonCfg(Go2FlatCommonCfg):
         platform_size = 4.0
         num_rows = 10  # number of terrain rows (levels)
         num_cols = 10  # number of terrain cols (types)
-        # terrain types: [smooth slope, rough slope, stairs up, stairs down, discrete]
+        # terrain types: [smooth slope, random uniform, stairs up, stairs down, discrete]
         terrain_proportions = [0.2, 0.1, 0.25, 0.25, 0.2]
         
     class init_state( Go2FlatCommonCfg.init_state ):
@@ -127,8 +126,8 @@ class Go2RoughCommonCfg(Go2FlatCommonCfg):
             # gait
             feet_air_time = 1.0
             foot_clearance = 0.2
-            hip_pos = -0.05
             feet_contact_stand_still = 0.5
+            dof_close_to_default_stand_still = -0.5
 
 
 #----- Common configuration for Unitree G1 on flat terrain (12DOF) -----#

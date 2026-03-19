@@ -163,7 +163,7 @@ class PolicyExporter(torch.nn.Module):
     
     def export(self, path, env_cfg, export_onnx=False, train_cfg=None):
         os.makedirs(path, exist_ok=True)
-        filename = train_cfg.runner.load_run + "ite" + str(train_cfg.runner.checkpoint) + ".pt"
+        filename = train_cfg.runner.load_run + "_ite" + str(train_cfg.runner.checkpoint) + ".pt"
         path_pt = os.path.join(path, filename)
         self.to('cpu')
         traced_script_module = torch.jit.script(self)
@@ -171,7 +171,7 @@ class PolicyExporter(torch.nn.Module):
         
         # export onnx model if needed
         if export_onnx:
-            filename = train_cfg.runner.load_run + "ite" + str(train_cfg.runner.checkpoint) + ".onnx"
+            filename = train_cfg.runner.load_run + "_ite" + str(train_cfg.runner.checkpoint) + ".onnx"
             path_onnx = os.path.join(path, filename)
             input_names = ["nn_input"]
             output_names = ["nn_output"]
@@ -201,7 +201,7 @@ class PolicyExporterTS(torch.nn.Module):
  
     def export(self, path, env_cfg, export_onnx=False, train_cfg=None):
         os.makedirs(path, exist_ok=True)
-        filename = train_cfg.runner.load_run + "ite" + str(train_cfg.runner.checkpoint) + ".pt"
+        filename = train_cfg.runner.load_run + "_ite" + str(train_cfg.runner.checkpoint) + ".pt"
         path = os.path.join(path, filename)
         self.to('cpu')
         traced_script_module = torch.jit.script(self)
@@ -209,7 +209,7 @@ class PolicyExporterTS(torch.nn.Module):
         
         # export onnx model if needed
         if export_onnx:
-            filename = train_cfg.runner.load_run + "ite" + str(train_cfg.runner.checkpoint) + ".onnx"
+            filename = train_cfg.runner.load_run + "_ite" + str(train_cfg.runner.checkpoint) + ".onnx"
             path_onnx = os.path.join(path, filename)
             input_names = ["obs_input", "obs_history_input"]
             output_names = ["nn_output"]
@@ -240,7 +240,7 @@ class PolicyExporterEE(torch.nn.Module):
  
     def export(self, path, env_cfg, export_onnx=False, train_cfg=None):
         os.makedirs(path, exist_ok=True)
-        filename = train_cfg.runner.load_run + "ite" + str(train_cfg.runner.checkpoint) + ".pt"
+        filename = train_cfg.runner.load_run + "_ite" + str(train_cfg.runner.checkpoint) + ".pt"
         pt_path = os.path.join(path, filename)
         self.to('cpu')
         traced_script_module = torch.jit.script(self)
@@ -248,7 +248,7 @@ class PolicyExporterEE(torch.nn.Module):
         
         # export onnx model if needed
         if export_onnx:
-            filename = train_cfg.runner.load_run + "ite" + str(train_cfg.runner.checkpoint) + ".onnx"
+            filename = train_cfg.runner.load_run + "_ite" + str(train_cfg.runner.checkpoint) + ".onnx"
             onnx_path = os.path.join(path, filename)
             input_names = ["nn_input"]
             output_names = ["nn_output"]
@@ -278,7 +278,7 @@ class PolicyExporterWaQ(torch.nn.Module):
  
     def export(self, path, env_cfg, export_onnx=False, train_cfg=None):
         os.makedirs(path, exist_ok=True)
-        filename = train_cfg.runner.load_run + "ite" + str(train_cfg.runner.checkpoint) + ".pt"
+        filename = train_cfg.runner.load_run + "_ite" + str(train_cfg.runner.checkpoint) + ".pt"
         path = os.path.join(path, filename)
         self.to('cpu')
         traced_script_module = torch.jit.script(self)
@@ -286,7 +286,7 @@ class PolicyExporterWaQ(torch.nn.Module):
         
         # export onnx model if needed
         if export_onnx:
-            filename = train_cfg.runner.load_run + "ite" + str(train_cfg.runner.checkpoint) + ".onnx"
+            filename = train_cfg.runner.load_run + "_ite" + str(train_cfg.runner.checkpoint) + ".onnx"
             path_onnx = os.path.join(path, filename)
             input_names = ["obs_input", "obs_history_input"]
             output_names = ["nn_output"]

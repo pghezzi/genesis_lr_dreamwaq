@@ -64,6 +64,7 @@ class Terrain:
             raise ValueError("Curriculum and selected terrain cannot be both True.")
         if cfg.curriculum:
             print("Generating curriculum terrain...")
+            self.terrain_curriculum_difficulty = cfg.terrain_curriculum_difficulty
             self.curiculum()
         elif cfg.selected:
             print("Generating selected terrain...")
@@ -122,13 +123,13 @@ class Terrain:
                                 length=self.width_per_env_pixels,
                                 vertical_scale=self.cfg.vertical_scale,
                                 horizontal_scale=self.cfg.horizontal_scale)
-        slope = difficulty * 0.4
-        step_height = 0.05 + 0.15 * difficulty
-        discrete_obstacles_height = 0.05 + difficulty * 0.15
-        stepping_stones_size = 1.5 * (1.05 - difficulty)
-        stone_distance = 0.05 if difficulty==0 else 0.1
-        gap_size = 1. * difficulty
-        pit_depth = 0.3 * difficulty
+        slope = eval(self.terrain_curriculum_difficulty["slope"])
+        step_height = eval(self.terrain_curriculum_difficulty["step_height"])
+        discrete_obstacles_height = eval(self.terrain_curriculum_difficulty["discrete_height"])
+        stepping_stones_size = eval(self.terrain_curriculum_difficulty["stepping_stones_size"])
+        stone_distance = eval(self.terrain_curriculum_difficulty["stone_distance"])
+        gap_size = eval(self.terrain_curriculum_difficulty["gap_size"])
+        pit_depth = eval(self.terrain_curriculum_difficulty["pit_depth"])
         if choice < self.proportions[0]:
             if choice < self.proportions[0]/ 2: # slope
                 slope *= -1

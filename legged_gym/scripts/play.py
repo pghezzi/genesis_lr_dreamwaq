@@ -62,7 +62,7 @@ def override_configs(env_cfg, args):
         #                                   "stone_distance": 0.3, "platform_size": 3.0}
         # gap terrain
         # env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.gap_terrain", 
-        #                                   "gap_size": 0.2, "platform_size": 3.0}
+        #                                   "gap_size": 0.6, "platform_size": 3.0}
         # pit terrain
         # env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.pit_terrain", 
         #                                   "depth": 0.2, "platform_size": 3.0}

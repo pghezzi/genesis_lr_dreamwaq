@@ -309,9 +309,9 @@ class LeggedRobot(BaseTask):
         self._resample_commands(env_ids)
         if self.cfg.commands.heading_command:
             forward = quat_apply(self.simulator.base_quat, self.forward_vec)
-            heading = torch.atan2(forward[:, 1], forward[:, 0])
+            self.heading = torch.atan2(forward[:, 1], forward[:, 0])
             self.commands[:, 2] = torch.clip(
-                0.5 * wrap_to_pi(self.commands[:, 3] - heading), self.cfg.commands.ranges.ang_vel_yaw[0], 
+                0.5 * wrap_to_pi(self.commands[:, 3] - self.heading), self.cfg.commands.ranges.ang_vel_yaw[0], 
                                                                  self.cfg.commands.ranges.ang_vel_yaw[1])
 
         if self.cfg.domain_rand.push_robots and (self.common_step_counter % self.cfg.domain_rand.push_interval == 0):
@@ -584,6 +584,11 @@ class LeggedRobot(BaseTask):
     def _reward_dof_close_to_default(self):
         # Penalize dof position deviation from default
         return torch.sum(torch.square(self.simulator.dof_pos - self.simulator.default_dof_pos), dim=1)
+    
+    def _reward_dof_close_to_default_stand_still(self):
+        # Penalize dof position deviation from default at zero commands
+        return torch.sum(torch.square(self.simulator.dof_pos - self.simulator.default_dof_pos), dim=1) \
+                * (torch.norm(self.commands[:, :3], dim=1) < 0.2)
 
     def _reward_foot_clearance(self):
         """
