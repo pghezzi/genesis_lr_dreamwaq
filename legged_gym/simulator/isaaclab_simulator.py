@@ -846,6 +846,9 @@ class IsaacLabSimulator(Simulator):
         self._kd_scale[env_ids] = torch_rand_float(
                 self._cfg.domain_rand.kd_range[0], self._cfg.domain_rand.kd_range[1], (len(env_ids), self._num_actions), device=self._device)
     
+    def _update_depth_camera(self):
+        pass
+    
     def _create_ground_plane(self):
         import isaaclab.sim as sim_utils
         from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
