@@ -31,6 +31,7 @@ A [legged_gym](https://github.com/leggedrobotics/legged_gym) based framework for
   | DreamWaQ | [DreamWaQ: Learning Robust Quadrupedal Locomotion With Implicit Terrain Imagination via Deep Reinforcement Learning](https://arxiv.org/abs/2301.10602) | [go2_dreamwaq](https://github.com/lupinjia/LeggedGym-Ex/tree/main/legged_gym/envs/go2/go2_dreamwaq) |
   | SPO (Simple Policy Optimization) | [Simple Policy Optimization](https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://github.com/MyRepositories-hub/Simple-Policy-Optimization&ved=2ahUKEwjL9vLX7auSAxVZlFYBHWkFBkIQFnoECBgQAQ&usg=AOvVaw1nGHIXtdYwpu3WV9lUgRWN) | [`legged_robot_config.py`](https://github.com/lupinjia/LeggedGym-Ex/tree/main/legged_gym/envs/base/legged_robot_config.py) |
   | CTS (Concurrent Teacher Student) | [CTS: Concurrent Teacher-Student Reinforcement Learning for Legged Locomotion](https://clearlab-sustech.github.io/concurrentTS/) | [go2_cts](https://github.com/lupinjia/LeggedGym-Ex/tree/main/legged_gym/envs/go2/go2_cts) |
+  | DeepMimic | [DeepMimic: Example-Guided Deep Reinforcement Learning of Physics-Based Character Skills](https://arxiv.org/abs/1804.02717) | [g1_mimic](https://github.com/lupinjia/LeggedGym-Ex/tree/main/legged_gym/envs/g1/g1_mimic) |
 
 ## 🛠 Installation and Usage
 
@@ -40,11 +41,11 @@ Please refer to the [doc of this repo](https://genesis-lr-doc.readthedocs.io/en/
 
 | Robot | Sim | Real |
 |--- | --- | --- |
-| Unitree Go2 | ![](https://raw.githubusercontent.com/lupinjia/demo_imgs/refs/heads/master/ee_demo.gif) | [video](https://www.bilibili.com/video/BV1FPedzZEdi/) |
-| TRON1_PF | ![](https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/tron1_pf_ee_demo.gif?raw=true) | [video](https://www.bilibili.com/video/BV1MdePzcEvk/?spm_id_from=333.1387.homepage.video_card.click&vd_source=50fc92fb0e7291031bbb72e3c05b2edc) |
-| TRON1_SF | ![](https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/tron1_sf_demo.gif?raw=true) | |
-| Unitree G1 DeepMimic | ![](https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/g1_mimic_demo.gif?raw=true) | |
-| Booster K1 | ![](https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/booster_k1_demo.gif?raw=true) | |
+| Unitree Go2 | <img src="https://raw.githubusercontent.com/lupinjia/demo_imgs/refs/heads/master/ee_demo.gif" width="428"> | [video](https://www.bilibili.com/video/BV1FPedzZEdi/) |
+| TRON1_PF | <img src="https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/tron1_pf_ee_demo.gif?raw=true" width="428"> | [video](https://www.bilibili.com/video/BV1MdePzcEvk/?spm_id_from=333.1387.homepage.video_card.click&vd_source=50fc92fb0e7291031bbb72e3c05b2edc) |
+| TRON1_SF | <img src="https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/tron1_sf_demo.gif?raw=true" width="428"> | |
+| Unitree G1 DeepMimic | <img src="https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/g1_mimic_demo.gif?raw=true" width="428"> | |
+| Booster K1 | <img src="https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/booster_k1_demo.gif?raw=true" width="428"> | |
 
 
 ## 🙏 Acknowledgements
@@ -66,3 +67,9 @@ Please refer to the [doc of this repo](https://genesis-lr-doc.readthedocs.io/en/
 - [ ] Add support for warp-based depth camera
 - [ ] Add support for AMP Implementation
 - [ ] Add support for TRON1_WF
+
+## Contacts
+
+You can add our Feishu group to get latest update or ask questions:
+
+<img src="https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/feishu_group_qrcode.jpeg?raw=true" width="350">
