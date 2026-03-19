@@ -72,4 +72,4 @@ Please refer to the [doc of this repo](https://genesis-lr-doc.readthedocs.io/en/
 
 You can add our Feishu group to get latest update or ask questions:
 
-<img src="https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/feishu_group_qrcode.jpeg?raw=true" width="350">
+<img src="https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/feishu_group_qrcode.png?raw=true" width="350">
