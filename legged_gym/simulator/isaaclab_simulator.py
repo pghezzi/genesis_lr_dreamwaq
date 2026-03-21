@@ -41,19 +41,25 @@ class IsaacLabSimulator(Simulator):
             self._sim.render()
 
     def post_physics_step(self):
-        self._base_pos[:] = self._robot.data.root_link_pos_w[:]
+        # Cache robot data reference to avoid repeated attribute lookups
+        robot_data = self._robot.data
+        self._base_pos[:] = robot_data.root_link_pos_w[:]
         self._check_base_pos_out_of_bound()       # check if the pos of the robot is out of terrain bounds
-        self._base_pos[:] = self._robot.data.root_link_pos_w[:]
+        self._base_pos[:] = robot_data.root_link_pos_w[:]
         # convert wxyz to xyzw
-        self._base_quat[:, -1] = self._robot.data.root_link_quat_w[:, 0]
-        self._base_quat[:, :3] = self._robot.data.root_link_quat_w[:, 1:]
+        root_quat = robot_data.root_link_quat_w
+        self._base_quat[:, -1] = root_quat[:, 0]
+        self._base_quat[:, :3] = root_quat[:, 1:]
         self._base_euler[:] = get_euler_xyz(self._base_quat)
         self._projected_gravity[:] = quat_rotate_inverse(self._base_quat, self._global_gravity)[:]
-        self._base_lin_vel[:] = quat_rotate_inverse(self._base_quat, self._robot.data.root_link_lin_vel_w)[:]
-        self._base_ang_vel[:] = quat_rotate_inverse(self._base_quat, self._robot.data.root_link_ang_vel_w)[:]
-        self._key_body_pos[:] = self._robot.data.body_link_pos_w[:, self._key_body_indices, :]
-        self._feet_pos[:] = self._robot.data.body_link_pos_w[:, self._feet_indices, :]
-        self._feet_vel[:] = self._robot.data.body_link_vel_w[:, self._feet_indices, :3]
+        self._base_lin_vel[:] = quat_rotate_inverse(self._base_quat, robot_data.root_link_lin_vel_w)[:]
+        self._base_ang_vel[:] = quat_rotate_inverse(self._base_quat, robot_data.root_link_ang_vel_w)[:]
+        # Cache body link data to avoid multiple accesses
+        body_link_pos = robot_data.body_link_pos_w
+        body_link_vel = robot_data.body_link_vel_w
+        self._key_body_pos[:] = body_link_pos[:, self._key_body_indices, :]
+        self._feet_pos[:] = body_link_pos[:, self._feet_indices, :]
+        self._feet_vel[:] = body_link_vel[:, self._feet_indices, :3]
         # Link contact state
         if self._cfg.asset.obtain_link_contact_states:
             self._link_contact_states = 1. * (torch.norm(
@@ -65,13 +71,6 @@ class IsaacLabSimulator(Simulator):
                 self._calc_terrain_info_around_feet()
     
     def reset_idx(self, env_ids):
-        # domain randomization
-        if self._cfg.domain_rand.randomize_friction:
-            self._randomize_friction(env_ids)
-        if self._cfg.domain_rand.randomize_base_mass:
-            self._randomize_base_mass(env_ids)
-        if self._cfg.domain_rand.randomize_com_displacement:
-            self._randomize_com_displacement(env_ids)
         if self._cfg.domain_rand.randomize_joint_armature:
             self._randomize_joint_armature(env_ids)
         if self._cfg.domain_rand.randomize_joint_friction:
@@ -447,13 +446,16 @@ class IsaacLabSimulator(Simulator):
             )
             )
         self._init_domain_params()
-        # randomize friction
+        # randomize friction (only at startup; doing it on reset slows down training)
         if self._cfg.domain_rand.randomize_friction:
             self._randomize_friction(torch.arange(self._num_envs))
-        # randomize base mass
+        # randomize restitution (only at startup; doing it on reset slows down training)
+        if self._cfg.domain_rand.randomize_restitution:
+            self._randomize_restitution(torch.arange(self._num_envs))
+        # randomize base mass (only at startup; doing it on reset slows down training)
         if self._cfg.domain_rand.randomize_base_mass:
             self._randomize_base_mass(torch.arange(self._num_envs))
-        # randomize COM displacement
+        # randomize COM displacement (only at startup; doing it on reset slows down training)
         if self._cfg.domain_rand.randomize_com_displacement:
             self._randomize_com_displacement(torch.arange(self._num_envs))
         # randomize joint armature
@@ -704,6 +706,8 @@ class IsaacLabSimulator(Simulator):
     def _init_domain_params(self):
         self._friction_values = torch.zeros(
             self._num_envs, 1, dtype=torch.float, device=self._device, requires_grad=False)
+        self._restitution_values = torch.zeros(
+            self._num_envs, 1, dtype=torch.float, device=self._device, requires_grad=False)
         self._added_base_mass = torch.ones(
             self._num_envs, 1, dtype=torch.float, device=self._device, requires_grad=False)
         self._rand_push_vels = torch.zeros(
@@ -748,7 +752,26 @@ class IsaacLabSimulator(Simulator):
         self._robot.root_physx_view.set_material_properties(
             target_material_props.to('cpu'), all_indices
         )
-    
+
+    def _randomize_restitution(self, env_ids):
+        if len(env_ids) == 0:
+            return
+        min_restitution, max_restitution = self._cfg.domain_rand.restitution_range
+
+        restitution_ratios = torch.rand((len(env_ids), 1, 1),
+                            dtype=torch.float,
+                            device=self._device).repeat(1, self._robot.root_physx_view.max_shapes, 1) \
+                            * (max_restitution - min_restitution) + min_restitution
+        self._restitution_values[env_ids] = restitution_ratios[:, 0, 0].unsqueeze(1).detach().clone()
+
+        raw_material_props = self._robot.root_physx_view.get_material_properties().to(self._device)
+        target_material_props = raw_material_props.clone()
+        target_material_props[env_ids, :, 2:3] = restitution_ratios[:]
+        all_indices = torch.arange(self._robot.root_physx_view.count, device="cpu")
+        self._robot.root_physx_view.set_material_properties(
+            target_material_props.to('cpu'), all_indices
+        )
+
     def _randomize_base_mass(self, env_ids):
         if len(env_ids) == 0:
             return
