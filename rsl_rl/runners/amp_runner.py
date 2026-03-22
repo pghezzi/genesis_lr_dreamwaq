@@ -96,9 +96,8 @@ class AMPRunner(OnPolicyRunner):
                     if self.log_dir is not None:
                         # Book keeping
                         if 'episode' in infos:
+                            infos['episode']['rew_amp'] = amp_reward / self.env.dt
                             ep_infos.append(infos['episode'])
-                        # add amp reward to ep_infos
-                        ep_infos.append({'rew_amp': amp_reward})
                         cur_reward_sum += rewards
                         cur_episode_length += 1
                         new_ids = (dones > 0).nonzero(as_tuple=False)
@@ -135,7 +134,7 @@ class AMPRunner(OnPolicyRunner):
 
         ep_string = f''
         if locs['ep_infos']:
-            for key in locs['ep_infos']:
+            for key in locs['ep_infos'][0]:
                 infotensor = torch.tensor([], device=self.device)
                 for ep_info in locs['ep_infos']:
                     # handle scalar and zero dimensional tensor infos
