@@ -740,6 +740,8 @@ class IsaacGymSimulator(Simulator):
         """ Initializes domain randomization parameters, which are used to randomize the environment."""
         self._friction_values = torch.zeros(
             self._num_envs, 1, dtype=torch.float, device=self._device, requires_grad=False)
+        self._restitution_values = torch.zeros(
+            self._num_envs, 1, dtype=torch.float, device=self._device, requires_grad=False)
         self._added_base_mass = torch.ones(
             self._num_envs, 1, dtype=torch.float, device=self._device, requires_grad=False)
         self._rand_push_vels = torch.zeros(
@@ -764,7 +766,10 @@ class IsaacGymSimulator(Simulator):
         
     def _randomize_friction(self, env_ids):
         return super()._randomize_friction(env_ids)
-    
+
+    def _randomize_restitution(self, env_ids):
+        return super()._randomize_restitution(env_ids)
+
     def _randomize_base_mass(self, env_ids):
         return super()._randomize_base_mass(env_ids)
     
@@ -1102,7 +1107,19 @@ class IsaacGymSimulator(Simulator):
             for s in range(len(props)):
                 props[s].friction = self.friction_coeffs[env_id]
             self._friction_values[env_id, :] = self.friction_coeffs[env_id]
-        
+
+        if self._cfg.domain_rand.randomize_restitution:
+            if env_id == 0:
+                restitution_range = self._cfg.domain_rand.restitution_range
+                num_buckets = 64
+                bucket_ids = torch.randint(0, num_buckets, (self._num_envs, 1))
+                restitution_buckets = torch_rand_float(restitution_range[0], restitution_range[1], (num_buckets, 1), device='cpu')
+                self.restitution_coeffs = restitution_buckets[bucket_ids]
+
+            for s in range(len(props)):
+                props[s].restitution = self.restitution_coeffs[env_id]
+            self._restitution_values[env_id, :] = self.restitution_coeffs[env_id]
+
         return props
     
     def _process_dof_props(self, props, env_id):

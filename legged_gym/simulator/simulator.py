@@ -200,7 +200,16 @@ class Simulator(ABC):
             env_ids (Tensor): Environment IDs to randomize friction for. If None, randomizes friction for all environments. Defaults to None.
         """
         return
-    
+
+    @abstractmethod
+    def _randomize_restitution(self, env_ids: Tensor):
+        """Randomizes the restitution of all links for the given environment IDs.
+
+        Args:
+            env_ids (Tensor): Environment IDs to randomize restitution for.
+        """
+        return
+
     @abstractmethod
     def _randomize_base_mass(self, env_ids: Tensor):
         """Randomizes the base mass of the robot for the given environment IDs.
@@ -597,6 +606,15 @@ class Simulator(ABC):
             Tensor((num_envs, 1)): Friction values for domain randomization.
         """
         return self._friction_values
+
+    @property
+    def dr_restitution_values(self):
+        """Returns the restitution values for domain randomization.
+
+        Returns:
+            Tensor((num_envs, 1)): Restitution values for domain randomization.
+        """
+        return self._restitution_values
     
     @property
     def dr_added_base_mass(self):
