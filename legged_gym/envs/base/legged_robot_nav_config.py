@@ -160,6 +160,9 @@ class LeggedRobotNavCfg(BaseConfig):
         # randomize rigid body friction
         randomize_friction = True
         friction_range = [0.5, 1.25]
+        # randomize restitution
+        randomize_restitution = False
+        restitution_range = [0.0, 0.5]
         # randomize base link mass
         randomize_base_mass = True
         added_mass_range = [-1., 1.]
