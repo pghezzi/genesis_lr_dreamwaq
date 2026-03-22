@@ -135,7 +135,7 @@ class GenesisSimulator(Simulator):
     def update_sensors(self):
         # Genesis currently exposes depth update via `update_depth_images`
         if self._cfg.sensor.add_depth:
-            self._update_depth_images()
+            self._update_depth_camera()
 
     def update_terrain_curriculum(self, env_ids, move_up, move_down):
         self._terrain_levels[env_ids] += 1 * move_up - 1 * move_down
@@ -764,7 +764,7 @@ class GenesisSimulator(Simulator):
         self._kd_scale[env_ids] = torch_rand_float(
                 self._cfg.domain_rand.kd_range[0], self._cfg.domain_rand.kd_range[1], (len(env_ids), self._num_actions), device=self._device)
     
-    def _update_depth_images(self):
+    def _update_depth_camera(self):
         """ Renders the depth camera and retrieves the depth images
         """
         self.depth_images[:] = self.depth_camera.read_image()[:]

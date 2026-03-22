@@ -47,7 +47,7 @@ class K1Robot(LeggedRobot):
         )
         
         if self.add_noise:
-            self.obs_buf += (2 * torch.rand_like(self.obs_buf) - 1) * self.noise_scale_vec
+            obs_buf += (2 * torch.rand_like(obs_buf) - 1) * self.noise_scale_vec
         
         # push obs_buf to obs_history
         self.obs_history_deque.append(obs_buf)
@@ -116,17 +116,16 @@ class K1Robot(LeggedRobot):
             self.clock_input[:, i + 2] = torch.cos(2 * torch.pi * (self.phi + self.theta[:, i].unsqueeze(1))).squeeze(-1)
 
     def _get_noise_scale_vec(self):
-        noise_vec = torch.zeros_like(self.obs_buf[0])
+        noise_vec = torch.zeros_like(self.cfg.env.num_single_obs)
         self.add_noise = self.cfg.noise.add_noise
         noise_scales = self.cfg.noise.noise_scales
         noise_level = self.cfg.noise.noise_level
-        noise_vec[:3] = noise_scales.ang_vel * noise_level * self.obs_scales.ang_vel
+        noise_vec[0:3] = 0.  # commands
         noise_vec[3:6] = noise_scales.gravity * noise_level
-        noise_vec[6:9] = 0.  # commands
+        noise_vec[6:9] = noise_scales.ang_vel * noise_level * self.obs_scales.ang_vel
         noise_vec[9:9 + self.num_actions] = noise_scales.dof_pos * noise_level * self.obs_scales.dof_pos
         noise_vec[9 + self.num_actions:9 + 2 * self.num_actions] = noise_scales.dof_vel * noise_level * self.obs_scales.dof_vel
         noise_vec[9 + 2 * self.num_actions:9 + 3 * self.num_actions] = 0.  # previous actions
-        noise_vec[9 + 3 * self.num_actions:9 + 3 * self.num_actions + 1] = 0.  # command mask
         return noise_vec
     
     def _init_buffers(self):
@@ -295,8 +294,3 @@ class K1Robot(LeggedRobot):
         foot_tilt = torch.abs(foot_z_axis[:, :, 0]) + torch.abs(foot_z_axis[:, :, 1])  # x and y components
         rew_foot_flat = torch.exp(-foot_tilt / 0.1)
         return torch.sum(rew_foot_flat * foot_contact, dim=1)
-    
-    def _reward_dof_close_to_default_stand_still(self):
-        # Penalize dof position deviation from default at zero commands
-        return torch.sum(torch.square(self.simulator.dof_pos - self.simulator.default_dof_pos), dim=1) \
-                * (torch.norm(self.commands[:, :3], dim=1) < 0.2)

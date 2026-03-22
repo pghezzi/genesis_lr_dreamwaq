@@ -10,20 +10,20 @@ import numpy as np
 import torch
 from legged_gym.scripts.joystick import Joystick
     
-def override_configs(env_cfg, args):
+def override_configs(env_cfg, args, task_type):
     """Override some environment configuration parameters for testing
 
     Args:
         env_cfg: environment configuration
         args: command line arguments
+        task_type: type of the task
     """
-    task_name = args.task
     # override some parameters for testing
     # number of environments
-    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 1)
-    if "cts" in task_name:  # cts specific
+    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 16)
+    if task_type == "cts": # concurrent teacher-student specific
         env_cfg.env.num_teacher = 1
-    elif "depth" in task_name:  # depth specific
+    elif "depth" in task_type:  # depth specific
         env_cfg.env.num_camera_envs = 1
     env_cfg.viewer.rendered_envs_idx = list(range(env_cfg.env.num_envs))
     # adjust parameters according to terrain type
@@ -90,7 +90,7 @@ def print_debug_info(env, robot_index):
     # print(f"actions: {env.simulator.dof_pos[robot_index].cpu().numpy()}")
     pass
 
-def interaction_loop(env, policy, args):
+def interaction_loop(env, policy, args, task_type):
     """Run interaction loop between environment and policy
 
     Args:
@@ -106,17 +106,16 @@ def interaction_loop(env, policy, args):
     stop_rew_log = env.max_episode_length + 1 # number of steps before print average episode rewards
         
     # Get initial observations according to task type
-    task_name = args.task
-    if "depth" in task_name:  # depth
+    if task_type == "depth_ts":
         obs_buf, privileged_obs_buf, depth_image, critic_obs = env.get_observations()
-    elif "ts" in task_name or "cat" in task_name:  # teacher-student
+    elif task_type == "ts" or task_type == "cat" or task_type == "cts":
         obs_buf, privileged_obs_buf, obs_history, critic_obs = env.get_observations()
-    elif "ee" in task_name:  # explicit estimator
+    elif task_type == "ee":
         estimator_features, _, _ = env.get_observations()
-    elif "dreamwaq" in task_name:  # dreamwaq
+    elif task_type == "dreamwaq":  # dreamwaq
         obs_buf, privileged_obs_buf, obs_history, explicit_labels, next_states = env.get_observations()
     else: # vanilla
-        obs = env.get_observations()
+        obs_buf = env.get_observations()
     
     # Setup joystick if needed
     if args.use_joystick:
@@ -139,23 +138,26 @@ def interaction_loop(env, policy, args):
             pos = env.simulator.base_pos[robot_index].cpu().numpy() + np.array(env.cfg.viewer.pos, dtype=np.float32)
             lookat = env.simulator.base_pos[robot_index].cpu().numpy() + np.array(env.cfg.viewer.lookat, dtype=np.float32)
             env.set_viewer_camera(pos, lookat)
-        
+            
         # Step the environment according to task type
-        if "depth" in task_name:
+        if task_type == "depth_ts":
             actions = policy(obs_buf, depth_image)
             obs_buf, privileged_obs_buf, depth_image, critic_obs, rews, dones, infos = env.step(actions.detach())
-        elif "ts" in task_name or "cat" in task_name:
+        elif task_type == "ts" or task_type == "cat" or task_type == "cts":
             actions = policy(obs_buf, obs_history)
             obs_buf, privileged_obs_buf, obs_history, critic_obs, rews, dones, infos = env.step(actions.detach())
-        elif "ee" in task_name:
+        elif task_type == "ee":
             actions = policy(estimator_features.detach())
             estimator_features, estimator_labels, _, rews, dones, infos = env.step(actions.detach())
-        elif "waq" in task_name:
+        elif task_type == "dreamwaq":
             actions = policy(obs_buf, obs_history)
             obs_buf, privileged_obs_buf, obs_history, explicit_labels, next_states, rews, dones, infos = env.step(actions.detach())
+        elif task_type == "amp":
+            actions = policy(obs_buf.detach())
+            obs_buf, _, rews, dones, infos, _, _ = env.step(actions.detach())
         else:
-            actions = policy(obs.detach())
-            obs, _, rews, dones, infos = env.step(actions.detach())
+            actions = policy(obs_buf.detach())
+            obs_buf, _, rews, dones, infos = env.step(actions.detach())
         
         # print debug info
         print_debug_info(env, robot_index)
@@ -195,7 +197,7 @@ def interaction_loop(env, policy, args):
         if remaining > 0:
             time.sleep(remaining)
 
-def export_policy(alg_runner, path: str, args, env_cfg, train_cfg):
+def export_policy(alg_runner, path: str, args, env_cfg, train_cfg, task_type):
     """export the policy as jit script according to different task types
 
     Args:
@@ -205,16 +207,15 @@ def export_policy(alg_runner, path: str, args, env_cfg, train_cfg):
         env_cfg: environment configuration
         train_cfg: training configuration
     """
-    task_name = args.task
-    if "depth" in task_name:
+    if task_type == "depth_ts":
         pass
-    elif "ts" in task_name or "cat" in task_name:
+    elif task_type == "ts" or task_type == "cat" or task_type == "cts":
         exporter = PolicyExporterTS(alg_runner.alg.actor_critic)
         exporter.export(path, env_cfg, args.export_onnx, train_cfg)
-    elif "ee" in task_name:
+    elif task_type == "ee":
         exporter = PolicyExporterEE(alg_runner.alg.actor_critic)
         exporter.export(path, env_cfg, args.export_onnx, train_cfg)
-    elif "dreamwaq" in task_name:
+    elif task_type == "dreamwaq":
         exporter = PolicyExporterWaQ(alg_runner.alg.actor_critic)
         exporter.export(path, env_cfg, args.export_onnx, train_cfg)
     else:
@@ -238,7 +239,12 @@ def play(args):
             logging_level='warning',
         )
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
-    override_configs(env_cfg, args)
+    splitted = args.task.split("_")
+    # by default, the first part of the task name is robot name, and the second part is task type, e.g. go2_ts, go2_cat, go2_ee, go2_cts, go2_dreamwaq, go2_ts_depth
+    # concatenate the parts after the first part to get the task type, e.g. ts, cat, ee, cts, dreamwaq, ts_depth
+    task_type = "_".join(splitted[1:])
+    print("Task type: ", task_type)
+    override_configs(env_cfg, args, task_type)
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
@@ -250,9 +256,9 @@ def play(args):
     # export policy as a jit module (used to run it from C++ or python)
     path = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 
                             train_cfg.runner.load_run, 'exported')
-    export_policy(ppo_runner, path, args, env_cfg, train_cfg)
+    export_policy(ppo_runner, path, args, env_cfg, train_cfg, task_type)
 
-    interaction_loop(env, policy, args)
+    interaction_loop(env, policy, args, task_type)
     
     
 if __name__ == '__main__':

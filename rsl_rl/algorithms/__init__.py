@@ -34,3 +34,4 @@ from .ppo_ee import PPO_EE
 from .ppo_cts import PPO_CTS
 from .ppo_dreamwaq import PPO_DreamWaQ
 from .ppo_ts_depth import PPO_TSDepth
+from .ppo_amp import PPO_AMP

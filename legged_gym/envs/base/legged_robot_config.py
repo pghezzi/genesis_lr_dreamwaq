@@ -239,7 +239,7 @@ class LeggedRobotCfg(BaseConfig):
     # viewer camera:
     class viewer:
         ref_env = 0
-        pos = [4.0, 4.0, 2.0]       # [m], relative to the robot position
+        pos = [2.0, 2.0, 1.0]       # [m], relative to the robot position
         lookat = [0., 0, 0.]  # [m], relative to the robot position
         rendered_envs_idx = [i for i in range(5)]  # [Genesis] number of environments to be rendered, if not headless
     

@@ -30,14 +30,21 @@
 
 from legged_gym import *
 from .base.legged_robot import LeggedRobot
+# k1
 from legged_gym.envs.k1.k1 import K1Robot
 from legged_gym.envs.k1.k1_config import K1Cfg, K1CfgPPO
+# k1 DeepMimic
+from legged_gym.envs.k1.k1_deepmimic.k1_deepmimic import K1DeepMimic
+from legged_gym.envs.k1.k1_deepmimic.k1_deepmimic_config import K1DeepMimicCfg, K1DeepMimicCfgPPO
+# k1 AMP
+from legged_gym.envs.k1.k1_amp.k1_amp import K1AMP
+from legged_gym.envs.k1.k1_amp.k1_amp_config import K1AMPCfg, K1AMPCfgPPO
 # g1
 from legged_gym.envs.g1.g1 import G1Robot
 from legged_gym.envs.g1.g1_config import G1RoughCfg, G1RoughCfgPPO
 # g1 DeepMimic
-from legged_gym.envs.g1.g1_mimic.g1_mimic import G1Mimic
-from legged_gym.envs.g1.g1_mimic.g1_mimic_config import G1MimicCfg, G1MimicCfgPPO
+from legged_gym.envs.g1.g1_deepmimic.g1_deepmimic import G1DeepMimic
+from legged_gym.envs.g1.g1_deepmimic.g1_deepmimic_config import G1DeepMimicCfg, G1DeepMimicCfgPPO
 # go2
 from legged_gym.envs.go2.go2 import GO2
 from legged_gym.envs.go2.go2_config import GO2Cfg, GO2CfgPPO
@@ -86,8 +93,10 @@ from legged_gym.envs.bipedal_walker.bipedal_walker import BipedalWalker
 from legged_gym.utils.task_registry import task_registry
 
 task_registry.register("k1", K1Robot, K1Cfg(), K1CfgPPO())
+task_registry.register("k1_deepmimic", K1DeepMimic, K1DeepMimicCfg(), K1DeepMimicCfgPPO())
+task_registry.register("k1_amp", K1AMP, K1AMPCfg(), K1AMPCfgPPO())
 task_registry.register("g1", G1Robot, G1RoughCfg(), G1RoughCfgPPO())
-task_registry.register("g1_mimic", G1Mimic, G1MimicCfg(), G1MimicCfgPPO())
+task_registry.register("g1_deepmimic", G1DeepMimic, G1DeepMimicCfg(), G1DeepMimicCfgPPO())
 task_registry.register( "go2", GO2, GO2Cfg(), GO2CfgPPO())
 task_registry.register( "go2_wtw", GO2WTW, GO2WTWCfg(), GO2WTWCfgPPO())
 task_registry.register( "go2_ts", Go2TS, Go2TSCfg(), Go2TSCfgPPO())
@@ -97,8 +106,8 @@ task_registry.register( "go2_dreamwaq", Go2Dreamwaq, Go2DreamwaqCfg(), Go2Dreamw
 task_registry.register( "go2_cat", Go2CaT, Go2CaTCfg(), Go2CaTCfgPPO())
 task_registry.register( "go2_ts_depth", Go2TSDepth, Go2TSDepthCfg(), Go2TSDepthCfgPPO())
 task_registry.register( "go2_nav", GO2Nav, GO2NavCfg(), GO2NavCfgPPO())
-task_registry.register( "tron1_pf", TRON1PF, TRON1PFCfg(), TRON1PFCfgPPO())
-task_registry.register( "tron1_pf_ee", TRON1PF_EE, TRON1PF_EECfg(), TRON1PF_EECfgPPO())
-task_registry.register( "tron1_sf", TRON1SF, TRON1SFCfg(), TRON1SFCfgPPO())
+task_registry.register( "tron1pf", TRON1PF, TRON1PFCfg(), TRON1PFCfgPPO())
+task_registry.register( "tron1pf_ee", TRON1PF_EE, TRON1PF_EECfg(), TRON1PF_EECfgPPO())
+task_registry.register( "tron1sf", TRON1SF, TRON1SFCfg(), TRON1SFCfgPPO())
 # task_registry.register( "go2_sysid", GO2SysID, GO2SysIDCfg(), GO2CfgPPO())
 # task_registry.register( "bipedal_walker", BipedalWalker, BipedalWalkerCfg(), BipedalWalkerCfgPPO())

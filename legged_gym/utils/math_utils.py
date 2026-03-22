@@ -109,6 +109,44 @@ def get_euler_xyz(q):
     return torch.stack((roll, pitch, yaw), dim=-1)
 
 @torch.jit.script
+def quat_slerp(q0, q1, t):
+    # type: (Tensor, Tensor, Tensor) -> Tensor
+    # q: [..., 4] (x, y, z, w)
+    # t: [0, 1]
+    
+    # standardize: ensure short path (dot > 0)
+    dot = torch.sum(q0 * q1, dim=-1, keepdim=True)
+    q1 = torch.where(dot < 0, -q1, q1)
+    dot = torch.abs(dot)
+    
+    # clamp for numerical stability
+    dot = torch.clamp(dot, -1.0, 1.0)
+    theta_0 = torch.acos(dot)
+    sin_theta_0 = torch.sin(theta_0)
+    
+    # linear interpolation for very small angles to avoid division by zero
+    mask = (sin_theta_0 < 1e-6).flatten()
+    
+    # lerp
+    res_lerp = (1.0 - t) * q0 + t * q1
+    
+    # slerp
+    theta = theta_0 * t
+    sin_theta = torch.sin(theta)
+    s0 = torch.cos(theta) - dot * sin_theta / (sin_theta_0 + 1e-9)
+    s1 = sin_theta / (sin_theta_0 + 1e-9)
+    res_slerp = s0 * q0 + s1 * q1
+    
+    res = torch.where(mask[..., None], res_lerp, res_slerp)
+    return normalize(res)
+
+@torch.jit.script
+def standardize_quaternion(q):
+    # type: (Tensor) -> Tensor
+    # Ensure w is positive
+    return torch.where(q[..., 3:4] < 0, -q, q)
+
+@torch.jit.script
 def quat_from_euler_xyz(roll, pitch, yaw):
     cy = torch.cos(yaw * 0.5)
     sy = torch.sin(yaw * 0.5)

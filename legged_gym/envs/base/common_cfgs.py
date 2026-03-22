@@ -8,10 +8,6 @@ from legged_gym import SIMULATOR
 
 #----- Common configuration for Unitree Go2 on flat terrain -----#
 class Go2FlatCommonCfg(LeggedRobotCfg):
-    
-    class terrain(LeggedRobotCfg.terrain):
-        mesh_type = "plane"
-    
     class init_state(LeggedRobotCfg.init_state):
         pos = [0.0, 0.0, 0.4] # x,y,z [m]
         default_joint_angles = { # = target angles [rad] when action = 0.0
@@ -132,9 +128,6 @@ class Go2RoughCommonCfg(Go2FlatCommonCfg):
 
 #----- Common configuration for Unitree G1 on flat terrain (12DOF) -----#
 class G1Flat12DofCommonCfg(LeggedRobotCfg):
-    class terrain(LeggedRobotCfg.terrain):
-        mesh_type = "plane"
-
     class init_state(LeggedRobotCfg.init_state):
         pos = [0.0, 0.0, 0.8]  # x,y,z [m]
         default_joint_angles = {
@@ -166,7 +159,6 @@ class G1Flat12DofCommonCfg(LeggedRobotCfg):
         penalize_contacts_on = ["hip", "knee"]
         terminate_after_contacts_on = ["pelvis"]
         base_link_name = "pelvis"
-        self_collisions = 0
         flip_visual_attachments = False
         dof_names = [
             "left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint",
@@ -185,9 +177,6 @@ class G1Flat12DofCommonCfg(LeggedRobotCfg):
 
 #----- Common configuration for Unitree G1 DeepMimic (29DOF) -----#
 class G1MimicCommonCfg(LeggedRobotCfg):
-    class terrain(LeggedRobotCfg.terrain):
-        mesh_type = "plane"
-
     class init_state(LeggedRobotCfg.init_state):
         pos = [0.0, 0.0, 0.8]  # x,y,z [m]
         default_joint_angles = {
@@ -258,8 +247,6 @@ class G1MimicCommonCfg(LeggedRobotCfg):
                                 "shoulder", "elbow", "wrist"]
         terminate_after_contacts_on = ["pelvis"]
         base_link_name = "pelvis"
-        self_collisions = 0
-        flip_visual_attachments = False
         dof_names = [
             "left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint",
             "left_knee_joint", "left_ankle_pitch_joint", "left_ankle_roll_joint",
@@ -286,8 +273,6 @@ class G1MimicCommonCfg(LeggedRobotCfg):
 
 # ----- Common configuration for Booster K1 on flat terrain (22DOF) -----#
 class K1FlatCommonCfg(LeggedRobotCfg):
-    class terrain(LeggedRobotCfg.terrain):
-        mesh_type = "plane"
 
     class init_state(LeggedRobotCfg.init_state):
         pos = [0.0, 0.0, 0.55]  # x,y,z [m]
@@ -316,9 +301,10 @@ class K1FlatCommonCfg(LeggedRobotCfg):
         foot_name = "foot"
         penalize_contacts_on = ["Trunk", "Shank", "Hip", "Arm", "Head"]
         terminate_after_contacts_on = []
+        key_bodies = ["Head_1", "Head_2",
+                      "Left_Arm_3", "left_hand_link", "Right_Arm_3", "right_hand_link",
+                      "Left_Hip_Roll", "Left_Shank", "left_foot_link", "Right_Hip_Roll", "Right_Shank", "right_foot_link"]
         base_link_name = "Trunk"
-        self_collisions = 0
-        flip_visual_attachments = False
         dof_names = [
             "AAHead_yaw", "Head_pitch", 
             "ALeft_Shoulder_Pitch", "Left_Shoulder_Roll", "Left_Elbow_Pitch", "Left_Elbow_Yaw", 

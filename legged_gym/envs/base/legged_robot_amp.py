@@ -1,4 +1,5 @@
 from legged_gym.envs.base.legged_robot import *
+from legged_gym.utils.motion_loader import AMPLoader
 
 class LeggedRobotAMP(LeggedRobot):
     
@@ -18,15 +19,15 @@ class LeggedRobotAMP(LeggedRobot):
         if self.privileged_obs_buf is not None:
             self.privileged_obs_buf = torch.clip(
                 self.privileged_obs_buf, -clip_obs, clip_obs)
-        return self.obs_buf, self.privileged_obs_buf, self.obs_history, self.critic_obs_buf, \
-            self.rew_buf, self.reset_buf, self.extras
+        return self.obs_buf, self.privileged_obs_buf, self.rew_buf, self.reset_buf, self.extras,\
+            self.reset_env_ids, self.terminal_amp_states
     
     def reset(self):
         """ Reset all robots"""
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
-        obs, privileged_obs, obs_history, critic_obs, _, _, _ = self.step(torch.zeros(
+        obs, privileged_obs, _, _, _, _, _ = self.step(torch.zeros(
             self.num_envs, self.num_actions, device=self.device, requires_grad=False))
-        return obs, privileged_obs, obs_history, critic_obs
+        return obs, privileged_obs
     
     def reset_idx(self, env_ids):
         """ Reset some environments.
@@ -50,8 +51,15 @@ class LeggedRobotAMP(LeggedRobot):
             self._update_command_curriculum(env_ids)
 
         self._resample_commands(env_ids)
-        self._reset_dofs(env_ids)
-        self._reset_root_states(env_ids)
+        _ = np.random.random()
+        if self.cfg.init_state.reference_state_initialization \
+            and _ < self.cfg.init_state.reference_state_initialization_prob:
+            frames = self.amp_loader.get_full_frame_batch(len(env_ids))
+            self._reset_dofs_from_reference_motion(env_ids, frames)
+            self._reset_root_states_from_reference_motion(env_ids, frames)
+        else:
+            self._reset_dofs(env_ids)
+            self._reset_root_states(env_ids)
         self.simulator.reset_idx(env_ids)
 
         # reset buffers
@@ -86,22 +94,49 @@ class LeggedRobotAMP(LeggedRobot):
             self.action_delay[env_ids] = torch.randint(self.cfg.domain_rand.ctrl_delay_step_range[0],
                                                        self.cfg.domain_rand.ctrl_delay_step_range[1]+1, (len(env_ids),), device=self.device, requires_grad=False)
     
+    def get_amp_observations(self):
+        key_body_pos_relative_to_base = self.simulator.key_body_pos - \
+                self.simulator.base_pos.unsqueeze(1)
+        # convert angular velocity from base frame to world frame
+        base_ang_vel_w = quat_apply(self.simulator.base_quat, self.simulator.base_ang_vel)
+        # Use dof_pos, dof_vel, key_body_pos_relative_to_base, projected_gravity in the observations
+        return torch.cat((
+            base_ang_vel_w,
+            self.simulator.dof_pos,
+            self.simulator.dof_vel,
+            key_body_pos_relative_to_base.flatten(start_dim=1),
+        ), dim=-1)
+        
     def _init_buffers(self):
         super()._init_buffers()
         self.reset_env_ids = None
         self.terminal_amp_states = None
-    
-    def _parse_cfg(self, cfg):
-        super()._parse_cfg(cfg)
+        if self.cfg.init_state.reference_state_initialization:
+            self.amp_loader = AMPLoader(motion_files=self.cfg.env.amp_motion_files, 
+                                        device=self.device, 
+                                        time_between_frames=self.dt,
+                                        num_dof=self.num_actions,
+                                        num_key_bodies=len(self.simulator.key_body_indices))
         
-    
-    def get_amp_observations(self):
-        key_body_pos_relative_to_base = self.simulator.key_body_pos - \
-                self.simulator.base_pos.unsqueeze(1)
-        # Use dof_pos, dof_vel, key_body_pos_relative_to_base, projected_gravity in the observations
-        return torch.cat((
-            self.simulator.dof_pos,
-            self.simulator.dof_vel,
-            key_body_pos_relative_to_base,
-            self.simulator.projected_gravity
-        ), dim=-1)
+    def _reset_dofs_from_reference_motion(self, env_ids, ref_motions=None):
+        """Reset the dof positions and velocities of the robots in env_ids to the reference motion at random time steps
+
+        Args:
+            env_ids (torch.Tensor): Tensor of shape (num_envs_to_reset,) containing the ids of the envs to reset
+        """
+        ref_dof_pos = self.amp_loader.get_dof_pos_batch(ref_motions)
+        ref_dof_vel = self.amp_loader.get_dof_vel_batch(ref_motions)
+        self.simulator.reset_dofs(env_ids, ref_dof_pos, ref_dof_vel)
+        
+    def _reset_root_states_from_reference_motion(self, env_ids, ref_motions=None):
+        """Reset the root positions, orientations, linear and angular velocities of the robots in env_ids to the reference motion at random time steps
+
+        Args:
+            env_ids (torch.Tensor): Tensor of shape (num_envs_to_reset,) containing the ids of the envs to reset
+        """
+        ref_base_pos = self.amp_loader.get_base_pos_batch(ref_motions)
+        base_pos = ref_base_pos + self.simulator.env_origins[env_ids]
+        ref_base_rot = self.amp_loader.get_base_rot_batch(ref_motions)
+        ref_base_lin_vel = self.amp_loader.get_base_lin_vel_batch(ref_motions)
+        ref_base_ang_vel = self.amp_loader.get_base_ang_vel_batch(ref_motions)
+        self.simulator.reset_root_states(env_ids, base_pos, ref_base_rot, ref_base_lin_vel, ref_base_ang_vel)

@@ -437,6 +437,15 @@ class Simulator(ABC):
         return self._feet_pos
     
     @property
+    def key_body_indices(self):
+        """Returns the indices of the key bodies in the robot articulation.
+
+        Returns:
+            list[int]: Indices of the key bodies.
+        """
+        return self._key_body_indices
+    
+    @property
     def key_body_pos(self):
         """Returns the positions of the key bodies in the world frame.
 

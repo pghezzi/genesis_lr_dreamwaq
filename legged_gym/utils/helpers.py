@@ -5,8 +5,6 @@ import numpy as np
 import random
 import argparse
 
-from legged_gym import LEGGED_GYM_ROOT_DIR, LEGGED_GYM_ENVS_DIR
-
 def class_to_dict(obj) -> dict:
     if not hasattr(obj,"__dict__"):
         return obj
@@ -324,5 +322,3 @@ class PolicyExporterLSTM(torch.nn.Module):
         self.to('cpu')
         traced_script_module = torch.jit.script(self)
         traced_script_module.save(path)
-
-    
