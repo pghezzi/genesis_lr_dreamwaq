@@ -84,12 +84,12 @@ class AMPRunner(OnPolicyRunner):
                     critic_obs = privileged_obs if privileged_obs is not None else obs
                     obs, critic_obs, next_amp_obs, rewards, dones = obs.to(self.device), critic_obs.to(self.device), next_amp_obs.to(self.device), rewards.to(self.device), dones.to(self.device)
 
-                    # Account for terminal states.
+                    # Account for terminal states. Use amp states before reset_idx
                     next_amp_obs_with_term = torch.clone(next_amp_obs)
                     next_amp_obs_with_term[reset_env_ids] = terminal_amp_states
 
-                    rewards = self.alg.discriminator.predict_amp_reward(
-                        amp_obs, next_amp_obs_with_term, rewards, normalizer=self.alg.amp_normalizer)[0]
+                    rewards, amp_reward = self.alg.discriminator.predict_amp_reward(
+                        amp_obs, next_amp_obs_with_term, rewards, normalizer=self.alg.amp_normalizer)
                     amp_obs = torch.clone(next_amp_obs)
                     self.alg.process_env_step(rewards, dones, infos, next_amp_obs_with_term)
                     
@@ -97,6 +97,8 @@ class AMPRunner(OnPolicyRunner):
                         # Book keeping
                         if 'episode' in infos:
                             ep_infos.append(infos['episode'])
+                        # add amp reward to ep_infos
+                        ep_infos.append({'rew_amp': amp_reward})
                         cur_reward_sum += rewards
                         cur_episode_length += 1
                         new_ids = (dones > 0).nonzero(as_tuple=False)
@@ -133,7 +135,7 @@ class AMPRunner(OnPolicyRunner):
 
         ep_string = f''
         if locs['ep_infos']:
-            for key in locs['ep_infos'][0]:
+            for key in locs['ep_infos']:
                 infotensor = torch.tensor([], device=self.device)
                 for ep_info in locs['ep_infos']:
                     # handle scalar and zero dimensional tensor infos
@@ -144,7 +146,7 @@ class AMPRunner(OnPolicyRunner):
                     infotensor = torch.cat((infotensor, ep_info[key].to(self.device)))
                 value = torch.mean(infotensor)
                 self.writer.add_scalar('Episode/' + key, value, locs['it'])
-                ep_string += f"""{f'Mean episode {key}:':>{pad}} {value:.4f}\n"""
+                ep_string += f"""{f'Mean episode {key}:':>{pad}} {value:.4f}\n"""   
         mean_std = self.alg.actor_critic.std.mean()
         fps = int(self.num_steps_per_env * self.env.num_envs / (locs['collection_time'] + locs['learn_time']))
 

@@ -23,7 +23,7 @@ class K1AMPCfg(LeggedRobotAMPCfg):
     class init_state(K1FlatCommonCfg.init_state):
         # whether to initialize the robot with the reference motion
         reference_state_initialization = True
-        reference_state_initialization_prob = 0.7
+        reference_state_initialization_prob = 0.6
     class control(K1FlatCommonCfg.control):
         pass
     class asset(K1FlatCommonCfg.asset):
@@ -51,13 +51,13 @@ class K1AMPCfg(LeggedRobotAMPCfg):
             dof_power = -1.e-4
             collision = -1.0
             action_rate = -0.01
-            # dof_close_to_default = -0.1
             dof_close_to_default_stand_still = -0.5
             foot_clearance = 0.4
             foot_flat = 0.2
             feet_air_time = 1.0
             feet_contact_stand_still = 0.5
             foot_landing_vel = -0.15
+            amp_style = 1.0
     
     class domain_rand(K1FlatCommonCfg.domain_rand):
         randomize_friction = True
@@ -89,7 +89,7 @@ class K1AMPCfg(LeggedRobotAMPCfg):
 
 class K1AMPCfgPPO(LeggedRobotAMPCfgPPO):
     class runner( LeggedRobotAMPCfgPPO.runner ):
-        amp_reward_coef = 1.0 * 0.02
+        amp_reward_coef = K1AMPCfg.rewards.scales.amp_style * K1AMPCfg.control.dt # consistent with 
         amp_motion_files = MOTION_FILES
         amp_num_preload_transitions = K1AMPCfg.env.num_envs * LeggedRobotAMPCfgPPO.runner.num_steps_per_env * 20
         amp_discr_hidden_dims = [1024, 512]
