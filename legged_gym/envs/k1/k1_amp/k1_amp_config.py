@@ -89,6 +89,10 @@ class K1AMPCfg(LeggedRobotAMPCfg):
     #     clip_actions = 100.
 
 class K1AMPCfgPPO(LeggedRobotAMPCfgPPO):
+    
+    class algorithm(LeggedRobotAMPCfgPPO.algorithm):
+        amp_replay_buffer_size = K1AMPCfg.env.num_envs * LeggedRobotAMPCfgPPO.runner.num_steps_per_env * 10
+        disc_lr = 1e-4
     class runner( LeggedRobotAMPCfgPPO.runner ):
         amp_reward_coef = 2.0 * K1AMPCfg.control.dt # consistent with other rewards by multiplying dt
         amp_motion_files = MOTION_FILES

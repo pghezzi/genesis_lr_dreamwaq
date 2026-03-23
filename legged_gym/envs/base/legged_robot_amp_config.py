@@ -20,6 +20,7 @@ class LeggedRobotAMPCfgPPO(LeggedRobotCfgPPO):
         
     class algorithm( LeggedRobotCfgPPO.algorithm ):
         amp_replay_buffer_size = 1000000
+        disc_lr = 1e-4
 
     class runner( LeggedRobotCfgPPO.runner ):
         algorithm_class_name = 'PPO_AMP'

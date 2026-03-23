@@ -59,6 +59,7 @@ class PPO_AMP(PPO):
                  device='cpu',
                  use_spo=False,
                  amp_replay_buffer_size=100000,
+                 disc_lr=1e-4
                  ):
 
         super().__init__(
@@ -90,12 +91,14 @@ class PPO_AMP(PPO):
 
         # Optimizer for policy and discriminator.
         params = [
-            {'params': self.actor_critic.parameters(), 'name': 'actor_critic'},
+            {'params': self.actor_critic.parameters(), 'name': 'actor_critic'}]
+        self.optimizer = optim.Adam(params, lr=learning_rate)
+        disc_params = [
             {'params': self.discriminator.trunk.parameters(),
              'weight_decay': 10e-4, 'name': 'amp_trunk'},
             {'params': self.discriminator.amp_linear.parameters(),
              'weight_decay': 10e-2, 'name': 'amp_head'}]
-        self.optimizer = optim.Adam(params, lr=learning_rate)
+        self.disc_optimizer = optim.Adam(disc_params, lr=disc_lr)
 
     def act(self, obs, critic_obs, amp_obs):
         if self.actor_critic.is_recurrent:
@@ -169,9 +172,12 @@ class PPO_AMP(PPO):
                 amp_loss = 0.5 * (expert_loss + policy_loss)
                 grad_pen_loss = self.discriminator.compute_grad_pen(
                     *sample_amp_expert, lambda_=10)
-
-                # Compute total loss.
-                loss += amp_loss + grad_pen_loss
+                disc_loss = amp_loss + grad_pen_loss
+                # Update discriminator.
+                self.disc_optimizer.zero_grad()
+                disc_loss.backward()
+                nn.utils.clip_grad_norm_(self.discriminator.parameters(), self.max_grad_norm)
+                self.disc_optimizer.step()
 
                 # Gradient step
                 self.optimizer.zero_grad()
