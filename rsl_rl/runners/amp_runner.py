@@ -46,7 +46,8 @@ class AMPRunner(OnPolicyRunner):
         discriminator = AMPDiscriminator(
             amp_data.observation_dim * 2,
             self.cfg['amp_reward_coef'],
-            self.cfg['amp_discr_hidden_dims'], self.device).to(self.device)
+            self.cfg['amp_discr_hidden_dims'], self.device,
+            self.cfg['amp_task_reward_lerp']).to(self.device)
         alg_class = eval(self.cfg["algorithm_class_name"]) # PPO_AMP
         self.alg: PPO_AMP = alg_class(actor_critic, 
                                       discriminator, 

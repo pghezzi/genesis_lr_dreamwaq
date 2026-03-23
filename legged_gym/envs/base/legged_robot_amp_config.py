@@ -28,3 +28,4 @@ class LeggedRobotAMPCfgPPO(LeggedRobotCfgPPO):
         amp_motion_files = MOTION_FILES
         amp_num_preload_transitions = 2000000
         amp_discr_hidden_dims = [1024, 512]
+        amp_task_reward_lerp = 0.3                 # 任务奖励混合比例

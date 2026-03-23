@@ -5,7 +5,7 @@ from legged_gym import SIMULATOR
 
 import glob
 
-MOTION_FILES = glob.glob(LEGGED_GYM_ROOT_DIR + "/resources/reference_motion/booster_k1/isaacgym/*")
+MOTION_FILES = glob.glob(LEGGED_GYM_ROOT_DIR + f"/resources/reference_motion/booster_k1/{SIMULATOR}/*")
 
 class K1AMPCfg(LeggedRobotAMPCfg):
     class env(K1FlatCommonCfg.env):
@@ -43,18 +43,18 @@ class K1AMPCfg(LeggedRobotAMPCfg):
             tracking_ang_vel = 1.0
             feet_distance = -100.0
             keep_balance = 1.0
-            lin_vel_z = -1.0
+            lin_vel_z = -2.0
             ang_vel_xy = -0.05
             orientation = -1.0
-            base_height = -2.0
+            # base_height = -2.0
             dof_acc = -2.5e-7
             dof_power = -1.e-4
             collision = -1.0
             action_rate = -0.01
-            dof_close_to_default_stand_still = -0.5
+            # dof_close_to_default_stand_still = -0.5
             foot_clearance = 0.4
             foot_flat = 0.2
-            # feet_air_time = 1.0
+            feet_air_time = 1.0
             feet_contact_stand_still = 0.5
             foot_landing_vel = -0.15
     
@@ -79,7 +79,7 @@ class K1AMPCfg(LeggedRobotAMPCfg):
         max_curriculum = 1.
         resampling_time = 5.0
         heading_command = False
-        zero_cmd_prob = 0.4
+        zero_cmd_prob = 0.2
         class ranges:
             lin_vel_x = [-0.5, 0.5] # min max [m/s]
             lin_vel_y = [0.5, 0.5]   # min max [m/s]
@@ -88,10 +88,11 @@ class K1AMPCfg(LeggedRobotAMPCfg):
 
 class K1AMPCfgPPO(LeggedRobotAMPCfgPPO):
     class runner( LeggedRobotAMPCfgPPO.runner ):
-        amp_reward_coef = 0.8 * K1AMPCfg.control.dt # consistent with other rewards by multiplying dt
+        amp_reward_coef = 5.0 * K1AMPCfg.control.dt # consistent with other rewards by multiplying dt
         amp_motion_files = MOTION_FILES
-        amp_num_preload_transitions = K1AMPCfg.env.num_envs * LeggedRobotAMPCfgPPO.runner.num_steps_per_env * 20
+        amp_num_preload_transitions = K1AMPCfg.env.num_envs * LeggedRobotAMPCfgPPO.runner.num_steps_per_env * 10
         amp_discr_hidden_dims = [1024, 512]
+        amp_task_reward_lerp = 0.4                 # 任务奖励混合比例
         
         max_iterations = 10000
         save_interval = 200

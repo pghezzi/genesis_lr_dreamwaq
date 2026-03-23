@@ -139,7 +139,10 @@ def main(args):
         "key_body_pos_relative_to_base": key_body_pos_relative_to_base.cpu().numpy(),
     }
     
-    output_file = motion_file_path.replace(".pkl", f"_{SIMULATOR}.pkl")
+    out_file_name = env_cfg.env.motion_file.replace(".pkl", f"_{SIMULATOR}.pkl")
+    out_file_name = out_file_name.split("/")[-1]  # only keep the file name, remove the directory
+    out_file_dir = args.motion_out_dir if args.motion_out_dir is not None else motion_file_dir
+    output_file = os.path.join(LEGGED_GYM_ROOT_DIR, "resources/reference_motion", out_file_dir, out_file_name)
     with open(output_file, "wb") as f:
         pickle.dump(motion_data, f)
     print(f"Saved updated motion data to {output_file}")
