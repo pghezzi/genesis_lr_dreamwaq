@@ -75,6 +75,20 @@ def quat_rotate_inverse(q, v):
     c = q_vec * (2.0 * torch.sum(q_vec * v, dim=-1, keepdim=True))
     return a - b + c
 
+def quat_rotate_inverse_np(q, v):
+    '''
+    Rotate vector v by the inverse of quaternion q.
+    q: shape (..., 4)
+    v: shape (..., 3)'''
+    shape = q.shape
+    assert v.shape == shape[:-1] + (3,), f"Shape mismatch: q {shape}, v {v.shape}"
+    q_w = q[..., 3]
+    q_vec = q[..., :3]
+    a = v * (2.0 * q_w ** 2 - 1.0)[..., None]
+    b = np.cross(q_vec, v, axis=-1) * (2.0 * q_w)[..., None]
+    c = q_vec * (2.0 * np.sum(q_vec * v, axis=-1, keepdims=True))
+    return a - b + c
+
 @torch.jit.script
 def torch_rand_float(lower, upper, shape, device):
     # type: (float, float, Tuple[int, int], str) -> Tensor

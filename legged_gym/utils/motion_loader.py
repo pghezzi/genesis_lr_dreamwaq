@@ -1,7 +1,7 @@
 import glob
 import sys
 from legged_gym import LEGGED_GYM_ROOT_DIR
-from legged_gym.utils.math_utils import quat_slerp, standardize_quaternion
+from legged_gym.utils.math_utils import quat_slerp, standardize_quaternion, quat_rotate_inverse_np
 
 import torch
 import numpy as np
@@ -83,6 +83,20 @@ class AMPLoader:
         self.trajectory_frame_durations = [] # time between frames of reference motion
         self.trajectory_num_frames = []
 
+        # open the .pkl file and load the motion data
+        # the motion data should be a dictionary with the following keys:
+        # motion_data = {
+        #     "fps": aligned_fps,
+        #     "root_pos": root_pos.cpu().numpy(), # root link position in world frame
+        #     "root_lin_vel": root_lin_vel.cpu().numpy(), # root link linear velocity in world frame
+        #     "root_rot": root_rot.cpu().numpy(), # root link orientation as quaternion in world frame, xyzw order
+        #     "root_euler": root_euler.cpu().numpy(), # root link orientation as euler angles in world frame
+        #     "root_ang_vel": root_ang_vel.cpu().numpy(), # root link angular velocity in world frame
+        #     "dof_pos": dof_pos.cpu().numpy(), # joint angles matching dof_names order
+        #     "dof_vel": dof_vel.cpu().numpy(), # joint velocities matching dof_names order
+        #     "key_body_pos_relative_to_base": key_body_pos_relative_to_base.cpu().numpy(),
+        #           # key body point positions relative to the base in the world frame, shape [motion_length, num_key_bodies, 3]
+        # }
         # Load all motions 
         for i, motion_file in enumerate(motion_files):
             self.trajectory_names.append(motion_file.split('.')[0])
@@ -91,7 +105,9 @@ class AMPLoader:
             root_pos_data = motion_data_all["root_pos"]
             root_rot_data = motion_data_all["root_rot"]
             root_lin_vel_data = motion_data_all["root_lin_vel"]
+            root_lin_vel_data = quat_rotate_inverse_np(root_rot_data, root_lin_vel_data)
             root_ang_vel_data = motion_data_all["root_ang_vel"]
+            root_ang_vel_data = quat_rotate_inverse_np(root_rot_data, root_ang_vel_data)
             dof_pos_data = motion_data_all["dof_pos"]
             dof_vel_data = motion_data_all["dof_vel"]
             key_body_pos_relative_to_base_data = motion_data_all["key_body_pos_relative_to_base"]
@@ -106,9 +122,9 @@ class AMPLoader:
             ], axis=-1)
                 
             # store the trajectory and its metadata
-            # Only use base_ang_vel, dof_pos, dof_vel and ket_body_pos_relative_to_base for AMP learning
+            # Only use base_lin_vel, base_ang_vel, dof_pos, dof_vel and key_body_pos_relative_to_base for AMP learning
             self.trajectories.append(torch.tensor(
-                motion_data[:, self.base_ang_vel_start_idx:], dtype=torch.float32, device=device))
+                motion_data[:, self.base_lin_vel_start_idx:], dtype=torch.float32, device=device))
             # Full trajectory is used for state initialization.
             self.trajectories_full.append(torch.tensor(
                 motion_data, dtype=torch.float32, device=device))
@@ -312,8 +328,8 @@ class AMPLoader:
                 idxs = np.random.choice(
                     self.preloaded_s.shape[0], size=mini_batch_size)
                 # preloaded state comes from trajectory_full
-                s = self.preloaded_s[idxs, self.base_ang_vel_start_idx:self.key_body_pos_end_idx]
-                s_next = self.preloaded_s_next[idxs, self.base_ang_vel_start_idx:self.key_body_pos_end_idx]
+                s = self.preloaded_s[idxs, self.base_lin_vel_start_idx:self.key_body_pos_end_idx]
+                s_next = self.preloaded_s_next[idxs, self.base_lin_vel_start_idx:self.key_body_pos_end_idx]
             else:
                 s, s_next = [], []
                 traj_idxs = self.weighted_traj_idx_sample_batch(mini_batch_size)

@@ -154,6 +154,8 @@ class AMPRunner(OnPolicyRunner):
         self.writer.add_scalar('Loss/surrogate', locs['mean_surrogate_loss'], locs['it'])
         self.writer.add_scalar('Loss/AMP', locs['mean_amp_loss'], locs['it'])
         self.writer.add_scalar('Loss/AMP_grad', locs['mean_grad_pen_loss'], locs['it'])
+        self.writer.add_scalar('AMP/policy_pred', locs['mean_policy_pred'], locs['it'])
+        self.writer.add_scalar('AMP/expert_pred', locs['mean_expert_pred'], locs['it'])
         self.writer.add_scalar('Loss/learning_rate', self.alg.learning_rate, locs['it'])
         self.writer.add_scalar('Policy/mean_noise_std', mean_std.item(), locs['it'])
         self.writer.add_scalar('Perf/total_fps', fps, locs['it'])

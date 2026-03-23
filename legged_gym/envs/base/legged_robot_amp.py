@@ -97,14 +97,13 @@ class LeggedRobotAMP(LeggedRobot):
     def get_amp_observations(self):
         key_body_pos_relative_to_base = self.simulator.key_body_pos - \
                 self.simulator.base_pos.unsqueeze(1)
-        # convert angular velocity from base frame to world frame
-        base_ang_vel_w = quat_apply(self.simulator.base_quat, self.simulator.base_ang_vel)
-        # Use dof_pos, dof_vel, key_body_pos_relative_to_base, projected_gravity in the observations
+        # Use base_lin_vel_w, base_ang_vel_w, dof_pos, dof_vel, key_body_pos_relative_to_base in the observations
         return torch.cat((
-            base_ang_vel_w,
-            self.simulator.dof_pos,
-            self.simulator.dof_vel,
-            key_body_pos_relative_to_base.flatten(start_dim=1),
+            self.simulator.base_lin_vel,              # 3
+             self.simulator.base_ang_vel,             # 3
+            self.simulator.dof_pos,                   # num_dofs
+            self.simulator.dof_vel,                   # num_dofs
+            key_body_pos_relative_to_base.flatten(start_dim=1), # num_key_bodies * 3
         ), dim=-1)
         
     def _init_buffers(self):
