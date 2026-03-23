@@ -275,7 +275,7 @@ class G1MimicCommonCfg(LeggedRobotCfg):
 class K1FlatCommonCfg(LeggedRobotCfg):
 
     class init_state(LeggedRobotCfg.init_state):
-        pos = [0.0, 0.0, 0.55]  # x,y,z [m]
+        pos = [0.0, 0.0, 0.57]  # x,y,z [m]
         default_joint_angles = {
             'AAHead_yaw': 0., "Head_pitch": 0., 
             "ALeft_Shoulder_Pitch": 0., 'Left_Shoulder_Roll': -1.3, "Left_Elbow_Pitch": 0., "Left_Elbow_Yaw": -0.5, 

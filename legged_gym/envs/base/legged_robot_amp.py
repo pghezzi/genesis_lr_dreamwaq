@@ -136,6 +136,7 @@ class LeggedRobotAMP(LeggedRobot):
         """
         ref_base_pos = self.amp_loader.get_base_pos_batch(ref_motions)
         base_pos = ref_base_pos + self.simulator.env_origins[env_ids]
+        base_pos[:, 2] += 0.05 # add a small height offset to avoid initial penetration with the ground
         ref_base_rot = self.amp_loader.get_base_rot_batch(ref_motions)
         ref_base_lin_vel = self.amp_loader.get_base_lin_vel_batch(ref_motions)
         ref_base_ang_vel = self.amp_loader.get_base_ang_vel_batch(ref_motions)
