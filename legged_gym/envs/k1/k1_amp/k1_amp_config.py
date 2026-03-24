@@ -38,10 +38,11 @@ class K1AMPCfg(LeggedRobotAMPCfg):
         about_landing_threshold = 0.04
         only_positive_rewards = False
         class scales(K1FlatCommonCfg.rewards.scales):
+            # task
             tracking_lin_vel = 1.0
             tracking_ang_vel = 1.0
-            # feet_distance = -100.0
             keep_balance = 1.0
+            # smooth
             lin_vel_z = -2.0
             ang_vel_xy = -0.05
             orientation = -1.0
@@ -50,9 +51,10 @@ class K1AMPCfg(LeggedRobotAMPCfg):
             collision = -1.0
             action_rate = -0.01
             # foot_clearance = 0.4
+            # regularization
+            hip_yaw_pos = -0.1
             foot_flat = 0.2
             feet_air_time = 1.0
-            # feet_contact_stand_still = 0.5
             foot_landing_vel = -0.15
     
     class domain_rand(K1FlatCommonCfg.domain_rand):
@@ -99,7 +101,7 @@ class K1AMPCfgPPO(LeggedRobotAMPCfgPPO):
         amp_motion_files = MOTION_FILES
         amp_num_preload_transitions = K1AMPCfg.env.num_envs * LeggedRobotAMPCfgPPO.runner.num_steps_per_env * 10
         amp_discr_hidden_dims = [1024, 512]
-        amp_task_reward_lerp = 0.4                 # 任务奖励混合比例
+        amp_task_reward_lerp = 0.5                 # 任务奖励混合比例
         
         max_iterations = 30000
         save_interval = 200

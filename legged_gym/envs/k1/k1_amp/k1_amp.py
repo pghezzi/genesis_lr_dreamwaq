@@ -161,3 +161,9 @@ class K1AMP(LeggedRobotAMP):
         foot_tilt = torch.abs(foot_z_axis[:, :, 0]) + torch.abs(foot_z_axis[:, :, 1])  # x and y components
         rew_foot_flat = torch.exp(-foot_tilt / 0.1)
         return torch.sum(rew_foot_flat * foot_contact, dim=1)
+    
+    def _reward_hip_yaw_pos(self):
+        """Encourage hip yaw to be close to default position
+        """
+        hip_yaw = self.simulator.dof_pos[:, [12, 18]]
+        return torch.sum(torch.square(hip_yaw - self.simulator.default_dof_pos[:, [12, 18]]), dim=1)
