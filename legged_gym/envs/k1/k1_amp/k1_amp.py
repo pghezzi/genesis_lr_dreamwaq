@@ -18,7 +18,7 @@ class K1AMP(LeggedRobotAMP):
             (self.simulator.dof_pos - self.simulator.default_dof_pos) * self.obs_scales.dof_pos,
             self.simulator.dof_vel * self.obs_scales.dof_vel,
             self.actions,
-            key_body_pos_relative_to_base.flatten(start_dim=1),
+            # key_body_pos_relative_to_base.flatten(start_dim=1),
         ), dim=-1)
         
         domain_randomization_info = torch.cat((

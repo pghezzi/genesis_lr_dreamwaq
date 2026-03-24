@@ -11,7 +11,7 @@ class K1AMPCfg(LeggedRobotAMPCfg):
     class env(K1FlatCommonCfg.env):
         num_envs = 4096
         frame_stack = 5
-        num_single_obs = 75 + 36
+        num_single_obs = 75
         num_observations = int(num_single_obs * frame_stack)
         c_frame_stack = 5
         num_single_critic_obs = num_single_obs + 54
@@ -50,14 +50,14 @@ class K1AMPCfg(LeggedRobotAMPCfg):
             collision = -1.0
             action_rate = -0.01
             # foot_clearance = 0.4
-            # foot_flat = 0.2
+            foot_flat = 0.2
             feet_air_time = 1.0
             # feet_contact_stand_still = 0.5
-            # foot_landing_vel = -0.15
+            foot_landing_vel = -0.15
     
     class domain_rand(K1FlatCommonCfg.domain_rand):
         randomize_friction = True
-        friction_range = [1.0, 1.6]
+        friction_range = [0.4, 1.6]
         randomize_base_mass = True
         added_mass_range = [-1., 2.]
         push_robots = True
@@ -79,8 +79,8 @@ class K1AMPCfg(LeggedRobotAMPCfg):
         zero_cmd_prob = 0.0
         class ranges:
             lin_vel_x = [-0.5, 0.5] # min max [m/s]
-            lin_vel_y = [-0.3, 0.3]   # min max [m/s]
-            ang_vel_yaw = [-0.5, 0.5]    # min max [rad/s]
+            lin_vel_y = [-0.4, 0.4]   # min max [m/s]
+            ang_vel_yaw = [-1.0, 1.0]    # min max [rad/s]
             heading = [0.0, 0.0]
     
     # class normalization(K1FlatCommonCfg.normalization):
@@ -93,13 +93,13 @@ class K1AMPCfgPPO(LeggedRobotAMPCfgPPO):
     
     class algorithm(LeggedRobotAMPCfgPPO.algorithm):
         amp_replay_buffer_size = K1AMPCfg.env.num_envs * LeggedRobotAMPCfgPPO.runner.num_steps_per_env * 10
-        disc_lr = 5.e-5
+        disc_lr = 1.e-4
     class runner( LeggedRobotAMPCfgPPO.runner ):
         amp_reward_coef = 5.0 * K1AMPCfg.control.dt # consistent with other rewards by multiplying dt
         amp_motion_files = MOTION_FILES
         amp_num_preload_transitions = K1AMPCfg.env.num_envs * LeggedRobotAMPCfgPPO.runner.num_steps_per_env * 10
         amp_discr_hidden_dims = [1024, 512]
-        amp_task_reward_lerp = 0.1                 # 任务奖励混合比例
+        amp_task_reward_lerp = 0.4                 # 任务奖励混合比例
         
         max_iterations = 30000
         save_interval = 200
