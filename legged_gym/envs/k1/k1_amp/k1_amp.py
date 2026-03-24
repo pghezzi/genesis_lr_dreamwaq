@@ -53,6 +53,18 @@ class K1AMP(LeggedRobotAMP):
                 for i in range(self.obs_history_deque.maxlen)],
             dim=-1,
         )
+    
+    def get_amp_observations(self):
+        key_body_pos_relative_to_base = self.simulator.key_body_pos - \
+                self.simulator.base_pos.unsqueeze(1)
+        # Use base_lin_vel_w, base_ang_vel_w, dof_pos, dof_vel, key_body_pos_relative_to_base in the observations
+        return torch.cat((
+            self.simulator.base_lin_vel,              # 3
+             self.simulator.base_ang_vel,             # 3
+            self.simulator.dof_pos[:, 2:],                   # num_dofs-2, excluding head joint
+            self.simulator.dof_vel[:, 2:],                   # num_dofs, excluding head joint
+            key_body_pos_relative_to_base[:, 2:].flatten(start_dim=1), # (num_key_bodies * 3)
+        ), dim=-1)
         
     def _init_buffers(self):
         super()._init_buffers()
@@ -108,6 +120,38 @@ class K1AMP(LeggedRobotAMP):
         dof_pos[:, [14,20]] = default[:, [14,20]] + torch_rand_float(-0.1, 0.1, (len(env_ids), 2), self.device)
         self.simulator.reset_dofs(env_ids, dof_pos, dof_vel)
     
+    def _reset_dofs_from_reference_motion(self, env_ids, ref_motions=None):
+        """Reset the dof positions and velocities of the robots in env_ids to the reference motion at random time steps
+
+        Args:
+            env_ids (torch.Tensor): Tensor of shape (num_envs_to_reset,) containing the ids of the envs to reset
+        """
+        ref_dof_pos = self.amp_loader.get_dof_pos_batch(ref_motions)
+        dof_pos = torch.cat((
+            torch.zeros((ref_dof_pos.shape[0], 2), device=ref_dof_pos.device),  # head joint
+            ref_dof_pos
+        ), dim=1)
+        ref_dof_vel = self.amp_loader.get_dof_vel_batch(ref_motions)
+        dof_vel = torch.cat((
+            torch.zeros((ref_dof_vel.shape[0], 2), device=ref_dof_vel.device),  # head joint
+            ref_dof_vel
+        ), dim=1)
+        self.simulator.reset_dofs(env_ids, dof_pos, dof_vel)
+        
+    def _reset_root_states_from_reference_motion(self, env_ids, ref_motions=None):
+        """Reset the root positions, orientations, linear and angular velocities of the robots in env_ids to the reference motion at random time steps
+
+        Args:
+            env_ids (torch.Tensor): Tensor of shape (num_envs_to_reset,) containing the ids of the envs to reset
+        """
+        ref_base_pos = self.amp_loader.get_base_pos_batch(ref_motions)
+        base_pos = ref_base_pos + self.simulator.env_origins[env_ids]
+        base_pos[:, 2] += 0.05 # add a small height offset to avoid initial penetration with the ground
+        ref_base_rot = self.amp_loader.get_base_rot_batch(ref_motions)
+        ref_base_lin_vel = self.amp_loader.get_base_lin_vel_batch(ref_motions)
+        ref_base_ang_vel = self.amp_loader.get_base_ang_vel_batch(ref_motions)
+        self.simulator.reset_root_states(env_ids, base_pos, ref_base_rot, ref_base_lin_vel, ref_base_ang_vel)
+    
     def reset_idx(self, env_ids):
         if len(env_ids) == 0:
             return
@@ -162,8 +206,27 @@ class K1AMP(LeggedRobotAMP):
         rew_foot_flat = torch.exp(-foot_tilt / 0.1)
         return torch.sum(rew_foot_flat * foot_contact, dim=1)
     
-    def _reward_hip_yaw_pos(self):
+    def _reward_hip_yaw_roll_pos(self):
         """Encourage hip yaw to be close to default position
         """
-        hip_yaw = self.simulator.dof_pos[:, [12, 18]]
-        return torch.sum(torch.square(hip_yaw - self.simulator.default_dof_pos[:, [12, 18]]), dim=1)
+        hip_yaw = self.simulator.dof_pos[:, [11,12,17,18]]
+        return torch.sum(torch.square(hip_yaw - self.simulator.default_dof_pos[:, [11,12,17,18]]), dim=1)
+    
+    def _reward_arm_pos(self):
+        """Encourage arm joints to be close to default position
+        """
+        arm_joints = self.simulator.dof_pos[:, [2,3,4,5,6,7,8,9]]
+        return torch.sum(torch.square(arm_joints - self.simulator.default_dof_pos[:, [2,3,4,5,6,7,8,9]]), dim=1)
+    
+    def _reward_head_pos(self):
+        """Encourage head joints to be close to default position
+        """
+        head_joints = self.simulator.dof_pos[:, :2]
+        return torch.sum(torch.square(head_joints - self.simulator.default_dof_pos[:, :2]), dim=1)
+    
+    def _reward_feet_slip(self):
+        '''penalize foot slip when in contact with the ground'''
+        foot_vel_xy_norm = torch.norm(self.simulator.feet_vel[:, :, :2], dim=-1)
+        contacts = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2] > 0.1
+        slip_penalty = torch.sum(foot_vel_xy_norm * contacts, dim=1)
+        return slip_penalty

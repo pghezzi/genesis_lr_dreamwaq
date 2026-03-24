@@ -5,7 +5,7 @@ from legged_gym import SIMULATOR
 
 import glob
 
-MOTION_FILES = glob.glob(LEGGED_GYM_ROOT_DIR + f"/resources/reference_motion/booster_k1/{SIMULATOR}1/*")
+MOTION_FILES = glob.glob(LEGGED_GYM_ROOT_DIR + f"/resources/reference_motion/booster_k1/{SIMULATOR}/*")
 
 class K1AMPCfg(LeggedRobotAMPCfg):
     class env(K1FlatCommonCfg.env):
@@ -46,15 +46,18 @@ class K1AMPCfg(LeggedRobotAMPCfg):
             lin_vel_z = -2.0
             ang_vel_xy = -0.05
             orientation = -1.0
-            dof_acc = -2.5e-7
+            dof_acc = -1.0e-7
             dof_power = -1.e-4
             collision = -1.0
-            action_rate = -0.01
+            action_rate = -0.005
             # foot_clearance = 0.4
             # regularization
-            hip_yaw_pos = -0.1
-            foot_flat = 0.2
-            feet_air_time = 1.0
+            feet_distance = -100.0
+            head_pos = -0.2
+            hip_yaw_roll_pos = -0.1
+            arm_pos = -0.05
+            feet_slip = -0.5
+            feet_air_time = 0.5
             foot_landing_vel = -0.15
     
     class domain_rand(K1FlatCommonCfg.domain_rand):
