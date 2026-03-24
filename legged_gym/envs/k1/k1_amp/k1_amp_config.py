@@ -54,7 +54,7 @@ class K1AMPCfg(LeggedRobotAMPCfg):
             # regularization
             feet_distance = -100.0
             head_pos = -0.2
-            hip_yaw_roll_pos = -0.1
+            hip_yaw_roll_pos = -0.2
             arm_pos = -0.05
             feet_slip = -0.5
             feet_air_time = 0.5
@@ -104,7 +104,7 @@ class K1AMPCfgPPO(LeggedRobotAMPCfgPPO):
         amp_motion_files = MOTION_FILES
         amp_num_preload_transitions = K1AMPCfg.env.num_envs * LeggedRobotAMPCfgPPO.runner.num_steps_per_env * 10
         amp_discr_hidden_dims = [1024, 512]
-        amp_task_reward_lerp = 0.5                 # 任务奖励混合比例
+        amp_task_reward_lerp = 0.6                 # 任务奖励混合比例
         
         max_iterations = 30000
         save_interval = 200

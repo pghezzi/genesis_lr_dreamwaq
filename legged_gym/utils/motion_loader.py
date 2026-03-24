@@ -54,7 +54,7 @@ class AMPLoader:
         self.base_ang_vel_size = 3
         self.dof_pos_size = num_dof - 2
         self.dof_vel_size = num_dof - 2
-        self.key_body_pos_size = (num_key_bodies - 2) * 3
+        self.key_body_pos_size = num_key_bodies * 3
         # indices for slicing the observation tensor
         self.base_pos_start_idx = 0
         self.base_pos_end_idx = self.base_pos_start_idx + self.base_pos_size
@@ -119,7 +119,7 @@ class AMPLoader:
                 # exclude head joint and head link
                 dof_pos_data[:, 2:], 
                 dof_vel_data[:, 2:],
-                key_body_pos_relative_to_base_data[:, 2:].reshape(key_body_pos_relative_to_base_data.shape[0], -1)
+                key_body_pos_relative_to_base_data.reshape(key_body_pos_relative_to_base_data.shape[0], -1)
             ], axis=-1)
                 
             # store the trajectory and its metadata

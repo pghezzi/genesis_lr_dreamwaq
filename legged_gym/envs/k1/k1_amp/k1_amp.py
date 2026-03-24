@@ -8,9 +8,6 @@ class K1AMP(LeggedRobotAMP):
     
     def compute_observations(self):
         
-        key_body_pos_relative_to_base = self.simulator.key_body_pos - \
-                self.simulator.base_pos.unsqueeze(1)
-        
         obs_buf = torch.cat((
             self.commands[:, :3] * self.commands_scale,
             self.simulator.projected_gravity,
@@ -18,7 +15,6 @@ class K1AMP(LeggedRobotAMP):
             (self.simulator.dof_pos - self.simulator.default_dof_pos) * self.obs_scales.dof_pos,
             self.simulator.dof_vel * self.obs_scales.dof_vel,
             self.actions,
-            # key_body_pos_relative_to_base.flatten(start_dim=1),
         ), dim=-1)
         
         domain_randomization_info = torch.cat((
@@ -63,7 +59,7 @@ class K1AMP(LeggedRobotAMP):
              self.simulator.base_ang_vel,             # 3
             self.simulator.dof_pos[:, 2:],                   # num_dofs-2, excluding head joint
             self.simulator.dof_vel[:, 2:],                   # num_dofs, excluding head joint
-            key_body_pos_relative_to_base[:, 2:].flatten(start_dim=1), # (num_key_bodies * 3)
+            key_body_pos_relative_to_base.flatten(start_dim=1), # num_key_bodies * 3
         ), dim=-1)
         
     def _init_buffers(self):
@@ -177,7 +173,7 @@ class K1AMP(LeggedRobotAMP):
     
     def _reward_feet_air_time(self):
         # Reward long steps
-        contact = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2] > 1.
+        contact = torch.norm(self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, :], dim=-1) > 1.
         contact_filt = torch.logical_or(contact, self.last_contacts)
         self.last_contacts = contact
         first_contact = (self.feet_air_time > 0.) * contact_filt

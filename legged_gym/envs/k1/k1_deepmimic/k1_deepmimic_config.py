@@ -9,8 +9,8 @@ class K1DeepMimicCfg(K1FlatCommonCfg):
     class env(K1FlatCommonCfg.env):
         frame_stack = 5
         ref_motion_frame_stack = 2
-        ref_motion_single_obs = 90
-        num_single_obs = 109 + int(ref_motion_single_obs * ref_motion_frame_stack)
+        ref_motion_single_obs = 66
+        num_single_obs = 85 + int(ref_motion_single_obs * ref_motion_frame_stack)
         num_observations = int(num_single_obs * frame_stack)
         c_frame_stack = 5
         num_single_critic_obs = num_single_obs + 17
