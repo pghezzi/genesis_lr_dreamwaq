@@ -79,6 +79,19 @@ class K1AMP(LeggedRobotAMP):
                 )
             )
     
+    def _update_command_curriculum(self, env_ids):
+        """ Implements a curriculum of increasing commands
+
+        Args:
+            env_ids (List[int]): ids of environments being reset
+        """
+        # If the tracking reward is above 80% of the maximum, increase the range of commands
+        if torch.mean(self.episode_sums["tracking_lin_vel"][env_ids]) / self.max_episode_length > \
+                self.cfg.commands.curriculum_threshold * self.reward_scales["tracking_lin_vel"]:
+            self.command_ranges["lin_vel_x"][1] = np.clip(
+                self.command_ranges["lin_vel_x"][1] + 0.5, 0., self.cfg.commands.max_curriculum)
+
+    
     def _reset_dofs(self, env_ids):
         dof_pos = torch.zeros((len(env_ids), self.num_actions), dtype=torch.float,
                               device=self.device, requires_grad=False)
