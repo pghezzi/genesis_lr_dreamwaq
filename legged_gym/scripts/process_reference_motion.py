@@ -24,18 +24,18 @@ if not hasattr(np, '_core'):
     sys.modules.setdefault("numpy._core.multiarray", _np_core.multiarray)
     del _np_core, _attr, _mod_name, _submod
 
-def main(args):
-    if SIMULATOR == "genesis":
-        gs.init(
-            backend=gs.cpu if args.cpu else gs.gpu,
-            logging_level='warning',
-        )
-    env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
-    env_cfg.env.num_envs = 1 # number of envs
-    env_cfg.viewer.rendered_envs_idx = list(range(env_cfg.env.num_envs))
-    # prepare environment
-    env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
-    env.reset()
+def process_single_motion_file(env, motion_file_path, output_dir):
+    """Process a single motion file and save the processed data.
+    
+    Args:
+        env: The environment instance
+        motion_file_path: Path to the motion file to process
+        output_dir: Directory to save the processed motion file
+    
+    Returns:
+        output_file: Path to the saved processed file
+    """
+    print(f"\nProcessing motion file: {motion_file_path}")
     
     # open the .pkl file and load the motion data
     # the motion data should be a dictionary with the following keys:
@@ -47,8 +47,6 @@ def main(args):
     #     "local_body_pos": local_body_pos,  # (N, num_links, 3) or None
     #     "link_body_list": body_names,      # list of link names or None
     # }
-    motion_file_dir = LEGGED_GYM_ROOT_DIR + "/resources/reference_motion/"
-    motion_file_path = motion_file_dir + env_cfg.env.motion_file
     with open(motion_file_path, "rb") as f:
         motion_data = pickle.load(f)
     aligned_fps = motion_data["fps"]
@@ -139,13 +137,77 @@ def main(args):
         "key_body_pos_relative_to_base": key_body_pos_relative_to_base.cpu().numpy(),
     }
     
-    out_file_name = env_cfg.env.motion_file.replace(".pkl", f"_{SIMULATOR}.pkl")
-    out_file_name = out_file_name.split("/")[-1]  # only keep the file name, remove the directory
-    out_file_dir = args.motion_out_dir if args.motion_out_dir is not None else motion_file_dir
-    output_file = os.path.join(LEGGED_GYM_ROOT_DIR, "resources/reference_motion", out_file_dir, out_file_name)
+    # Generate output file name with simulator suffix
+    base_name = os.path.basename(motion_file_path)
+    out_file_name = base_name.replace(".pkl", f"_{SIMULATOR}.pkl")
+    output_file = os.path.join(output_dir, out_file_name)
+    
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    
     with open(output_file, "wb") as f:
         pickle.dump(motion_data, f)
-    print(f"Saved updated motion data to {output_file}")
+    print(f"\nSaved updated motion data to {output_file}")
+    
+    return output_file
+
+
+def main(args):
+    if SIMULATOR == "genesis":
+        gs.init(
+            backend=gs.cpu if args.cpu else gs.gpu,
+            logging_level='warning',
+        )
+    env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
+    env_cfg.env.num_envs = 1 # number of envs
+    env_cfg.viewer.rendered_envs_idx = list(range(env_cfg.env.num_envs))
+    env_cfg.env.load_motion = False # do not load motion when processing
+    # prepare environment
+    env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
+    env.reset()
+    
+    # Determine input motion file(s)
+    motion_file_dir = LEGGED_GYM_ROOT_DIR + "/resources/reference_motion/"
+    
+    if args.motion_file is not None:
+        # Use specified motion file
+        motion_input_path = os.path.join(motion_file_dir, args.motion_file)
+    else:
+        # Use motion_file from config
+        motion_input_path = os.path.join(motion_file_dir, env_cfg.env.motion_file)
+    
+    # Determine output directory
+    if args.motion_out_dir is not None:
+        output_dir = os.path.join(LEGGED_GYM_ROOT_DIR, "resources/reference_motion", args.motion_out_dir)
+    else:
+        output_dir = motion_file_dir
+    
+    # Process motion file(s)
+    if os.path.isdir(motion_input_path):
+        # Process all .pkl files in the directory
+        motion_files = [f for f in os.listdir(motion_input_path) if f.endswith('.pkl')]
+        motion_files.sort()
+        
+        if not motion_files:
+            print(f"No .pkl files found in directory: {motion_input_path}")
+            return
+        
+        print(f"Found {len(motion_files)} motion files to process in {motion_input_path}")
+        
+        processed_files = []
+        for motion_file in motion_files:
+            motion_file_path = os.path.join(motion_input_path, motion_file)
+            output_file = process_single_motion_file(env, motion_file_path, output_dir)
+            processed_files.append(output_file)
+        
+        print(f"\n{'='*60}")
+        print(f"Successfully processed {len(processed_files)} motion files:")
+        for f in processed_files:
+            print(f"  - {f}")
+        print(f"{'='*60}")
+    else:
+        # Process single file
+        process_single_motion_file(env, motion_input_path, output_dir)
 
 if __name__ == "__main__":
     args = get_args()
