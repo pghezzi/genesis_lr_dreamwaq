@@ -50,8 +50,8 @@ class K1AMPCfg(LeggedRobotAMPCfg):
             dof_power = -1.e-4
             collision = -1.0
             action_rate = -0.005
-            # foot_clearance = 0.4
             # regularization
+            foot_clearance = 0.4
             feet_distance = -100.0
             head_pos = -0.2
             hip_yaw_roll_pos = -0.2
@@ -59,6 +59,7 @@ class K1AMPCfg(LeggedRobotAMPCfg):
             feet_slip = -0.5
             feet_air_time = 0.5
             foot_landing_vel = -0.15
+            feet_contact_stand_still = 0.5
     
     class domain_rand(K1FlatCommonCfg.domain_rand):
         randomize_friction = True
@@ -81,7 +82,7 @@ class K1AMPCfg(LeggedRobotAMPCfg):
         max_curriculum = 1.
         resampling_time = 10.0
         heading_command = False
-        zero_cmd_prob = 0.0
+        zero_cmd_prob = 0.1
         class ranges:
             lin_vel_x = [-0.5, 0.5] # min max [m/s]
             lin_vel_y = [-0.4, 0.4]   # min max [m/s]
@@ -100,7 +101,7 @@ class K1AMPCfgPPO(LeggedRobotAMPCfgPPO):
         amp_replay_buffer_size = K1AMPCfg.env.num_envs * LeggedRobotAMPCfgPPO.runner.num_steps_per_env * 10
         disc_lr = 1.e-4
     class runner( LeggedRobotAMPCfgPPO.runner ):
-        amp_reward_coef = 5.0 * K1AMPCfg.control.dt # consistent with other rewards by multiplying dt
+        amp_reward_coef = 3.0 * K1AMPCfg.control.dt # consistent with other rewards by multiplying dt
         amp_motion_files = MOTION_FILES
         amp_num_preload_transitions = K1AMPCfg.env.num_envs * LeggedRobotAMPCfgPPO.runner.num_steps_per_env * 10
         amp_discr_hidden_dims = [1024, 512]

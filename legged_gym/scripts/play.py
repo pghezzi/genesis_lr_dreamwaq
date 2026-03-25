@@ -69,7 +69,7 @@ def override_configs(env_cfg, args, task_type):
         
         
     env_cfg.env.debug = True
-    env_cfg.commands.ranges.lin_vel_x = [1.0, 1.0]
+    env_cfg.commands.ranges.lin_vel_x = [0.5, 0.5]
     
     if args.use_joystick:
         env_cfg.commands.heading_command = False
