@@ -61,7 +61,16 @@ def process_single_motion_file(env, motion_file_path, output_dir):
     root_lin_vel[-1] = root_lin_vel[-2]  # set the last velocity to be the same as the second last one
     root_ang_vel = torch.zeros_like(root_pos)
     root_euler = get_euler_xyz(root_rot)
-    root_ang_vel[:-1] = (root_euler[1:] - root_euler[:-1]) * aligned_fps
+    # compute angular velocity from quaternion delta to avoid Euler singularities/wrapping
+    root_rot = normalize(root_rot)
+    delta_quat = quat_mul(root_rot[1:], torch.cat([-root_rot[:-1, :3], root_rot[:-1, 3:4]], dim=-1))
+    delta_quat = standardize_quaternion(delta_quat)  # enforce shortest path
+    delta_xyz = delta_quat[:, :3]
+    delta_w = torch.clamp(delta_quat[:, 3], -1.0, 1.0)
+    sin_half_angle = torch.linalg.norm(delta_xyz, dim=-1)
+    angle = 2.0 * torch.atan2(sin_half_angle, delta_w)
+    axis = delta_xyz / sin_half_angle.unsqueeze(-1).clamp(min=1e-8)
+    root_ang_vel[:-1] = axis * angle.unsqueeze(-1) * aligned_fps
     root_ang_vel[-1] = root_ang_vel[-2]  # set the last velocity to be the same as the second last one
     dof_pos = torch.from_numpy(dof_pos).to(env.device).float()
     dof_vel = torch.zeros_like(dof_pos)
