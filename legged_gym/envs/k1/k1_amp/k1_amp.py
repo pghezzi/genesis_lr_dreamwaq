@@ -49,18 +49,6 @@ class K1AMP(LeggedRobotAMP):
                 for i in range(self.obs_history_deque.maxlen)],
             dim=-1,
         )
-    
-    def get_amp_observations(self):
-        key_body_pos_relative_to_base = self.simulator.key_body_pos - \
-                self.simulator.base_pos.unsqueeze(1)
-        # Use base_lin_vel_w, base_ang_vel_w, dof_pos, dof_vel, key_body_pos_relative_to_base in the observations
-        return torch.cat((
-            self.simulator.base_lin_vel,              # 3
-             self.simulator.base_ang_vel,             # 3
-            self.simulator.dof_pos[:, 2:],                   # num_dofs-2, excluding head joint
-            self.simulator.dof_vel[:, 2:],                   # num_dofs, excluding head joint
-            key_body_pos_relative_to_base.flatten(start_dim=1), # num_key_bodies * 3
-        ), dim=-1)
         
     def _init_buffers(self):
         super()._init_buffers()
@@ -123,16 +111,8 @@ class K1AMP(LeggedRobotAMP):
             env_ids (torch.Tensor): Tensor of shape (num_envs_to_reset,) containing the ids of the envs to reset
         """
         ref_dof_pos = self.amp_loader.get_dof_pos_batch(ref_motions)
-        dof_pos = torch.cat((
-            torch.zeros((ref_dof_pos.shape[0], 2), device=ref_dof_pos.device),  # head joint
-            ref_dof_pos
-        ), dim=1)
         ref_dof_vel = self.amp_loader.get_dof_vel_batch(ref_motions)
-        dof_vel = torch.cat((
-            torch.zeros((ref_dof_vel.shape[0], 2), device=ref_dof_vel.device),  # head joint
-            ref_dof_vel
-        ), dim=1)
-        self.simulator.reset_dofs(env_ids, dof_pos, dof_vel)
+        self.simulator.reset_dofs(env_ids, ref_dof_pos, ref_dof_vel)
         
     def _reset_root_states_from_reference_motion(self, env_ids, ref_motions=None):
         """Reset the root positions, orientations, linear and angular velocities of the robots in env_ids to the reference motion at random time steps

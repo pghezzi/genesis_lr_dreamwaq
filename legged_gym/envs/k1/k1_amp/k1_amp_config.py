@@ -23,7 +23,7 @@ class K1AMPCfg(LeggedRobotAMPCfg):
     class init_state(K1FlatCommonCfg.init_state):
         # whether to initialize the robot with the reference motion
         reference_state_initialization = True
-        reference_state_initialization_prob = 0.6
+        reference_state_initialization_prob = 0.4
     class control(K1FlatCommonCfg.control):
         pass
     class asset(K1FlatCommonCfg.asset):
@@ -88,12 +88,6 @@ class K1AMPCfg(LeggedRobotAMPCfg):
             lin_vel_y = [-0.4, 0.4]   # min max [m/s]
             ang_vel_yaw = [-1.0, 1.0]    # min max [rad/s]
             heading = [0.0, 0.0]
-    
-    # class normalization(K1FlatCommonCfg.normalization):
-    #     class obs_scales(K1FlatCommonCfg.normalization.obs_scales):
-    #         key_body_pos = 1.0
-    #     clip_observations = 100.
-    #     clip_actions = 100.
 
 class K1AMPCfgPPO(LeggedRobotAMPCfgPPO):
     
