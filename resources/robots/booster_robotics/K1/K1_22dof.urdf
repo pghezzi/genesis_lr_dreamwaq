@@ -109,11 +109,10 @@
     </visual>
     <collision>
       <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+        xyz="0 0 0.03"
+        rpy="1.57 0 0" />
       <geometry>
-        <mesh
-          filename="meshes/Head_1.STL" />
+        <cylinder radius="0.03" length="0.05"/>
       </geometry>
     </collision>
   </link>
@@ -168,11 +167,10 @@
     </visual>
     <collision>
       <origin
-        xyz="0 0 0"
+        xyz="0 0 0.09"
         rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="meshes/Head_2.STL" />
+        <box size="0.13 0.16 0.11"/>
       </geometry>
     </collision>
   </link>
@@ -335,11 +333,18 @@
     </visual>
     <collision>
       <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+        xyz="0 0.04 0"
+        rpy="1.57 0 0" />
       <geometry>
-        <mesh
-          filename="meshes/Left_Arm_3.STL" />
+        <cylinder radius="0.03" length="0.09"/>
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0.12 -0.005"
+        rpy="0.0 0 0" />
+      <geometry>
+        <cylinder radius="0.03" length="0.05"/>
       </geometry>
     </collision>
   </link>
@@ -394,11 +399,18 @@
     </visual>
     <collision>
       <origin
-        xyz="0 0 0"
+        xyz="0 0.11 0"
+        rpy="1.57 0 0" />
+      <geometry>
+        <cylinder radius="0.02" length="0.13"/>
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0.2 0"
         rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="meshes/Left_Arm_4.STL" />
+        <sphere radius="0.027"/>
       </geometry>
     </collision>
   </link>
@@ -562,11 +574,18 @@
     </visual>
     <collision>
       <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+        xyz="0 -0.04 0"
+        rpy="1.57 0 0" />
       <geometry>
-        <mesh
-          filename="meshes/Right_Arm_3.STL" />
+        <cylinder radius="0.03" length="0.09"/>
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 -0.12 -0.005"
+        rpy="0.0 0 0" />
+      <geometry>
+        <cylinder radius="0.03" length="0.05"/>
       </geometry>
     </collision>
   </link>
@@ -621,11 +640,18 @@
     </visual>
     <collision>
       <origin
-        xyz="0 0 0"
+        xyz="0 -0.11 0"
+        rpy="1.57 0 0" />
+      <geometry>
+        <cylinder radius="0.02" length="0.13"/>
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 -0.2 0"
         rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="meshes/Right_Arm_4.STL" />
+        <sphere radius="0.027"/>
       </geometry>
     </collision>
   </link>

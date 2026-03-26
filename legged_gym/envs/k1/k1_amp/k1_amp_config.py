@@ -20,10 +20,14 @@ class K1AMPCfg(LeggedRobotAMPCfg):
         amp_motion_files = MOTION_FILES
         max_projected_gravity = -0.3
     
+    class terrain(K1FlatCommonCfg.terrain):
+        static_friction = 0.8
+        dynamic_friction = 0.8
+    
     class init_state(K1FlatCommonCfg.init_state):
         # whether to initialize the robot with the reference motion
         reference_state_initialization = True
-        reference_state_initialization_prob = 0.4
+        reference_state_initialization_prob = 0.6
     class control(K1FlatCommonCfg.control):
         pass
     class asset(K1FlatCommonCfg.asset):
@@ -34,7 +38,7 @@ class K1AMPCfg(LeggedRobotAMPCfg):
         base_height_target = 0.54
         foot_height_offset = 0.038
         foot_clearance_target = 0.10
-        foot_distance_threshold = 0.12
+        foot_distance_threshold = 0.16
         about_landing_threshold = 0.04
         only_positive_rewards = False
         class scales(K1FlatCommonCfg.rewards.scales):
@@ -43,27 +47,25 @@ class K1AMPCfg(LeggedRobotAMPCfg):
             tracking_ang_vel = 1.0
             keep_balance = 1.0
             # smooth
-            lin_vel_z = -1.0
+            lin_vel_z = -2.0
             ang_vel_xy = -0.05
-            orientation = -2.0
+            orientation = -1.0
             dof_acc = -2.5e-7
             dof_power = -1.e-4
             collision = -1.0
             action_rate = -0.01
             # regularization
-            foot_clearance = 0.4
             feet_distance = -100.0
-            head_pos = -0.1
             hip_yaw_roll_pos = -0.1
             arm_pos = -0.05
             feet_slip = -0.5
             foot_flat = 0.2
-            feet_air_time = 0.5
+            feet_air_time = 1.0
             feet_contact_stand_still = 0.5
     
     class domain_rand(K1FlatCommonCfg.domain_rand):
         randomize_friction = True
-        friction_range = [0.2, 1.6]
+        friction_range = [0.0, 1.6]
         randomize_base_mass = True
         added_mass_range = [-1., 2.]
         push_robots = True
@@ -81,13 +83,13 @@ class K1AMPCfg(LeggedRobotAMPCfg):
         curriculum = True
         max_curriculum = 1.
         resampling_time = 10.0
-        heading_command = False
+        heading_command = True
         zero_cmd_prob = 0.1
         class ranges:
             lin_vel_x = [-0.5, 0.5] # min max [m/s]
             lin_vel_y = [-0.4, 0.4]   # min max [m/s]
             ang_vel_yaw = [-1.0, 1.0]    # min max [rad/s]
-            heading = [0.0, 0.0]
+            heading = [-3.14, 3.14]
 
 class K1AMPCfgPPO(LeggedRobotAMPCfgPPO):
     
