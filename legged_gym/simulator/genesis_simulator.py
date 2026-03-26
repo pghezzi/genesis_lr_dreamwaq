@@ -64,6 +64,9 @@ class GenesisSimulator(Simulator):
         # domain randomization
         if self._cfg.domain_rand.randomize_friction:
             self._randomize_friction(env_ids)
+        # randomize restitution (only at startup; doing it on reset slows down training)
+        if self._cfg.domain_rand.randomize_restitution:
+            self._randomize_restitution(torch.arange(self._num_envs))
         if self._cfg.domain_rand.randomize_base_mass:
             self._randomize_base_mass(env_ids)
         if self._cfg.domain_rand.randomize_com_displacement:
@@ -400,6 +403,9 @@ class GenesisSimulator(Simulator):
         # randomize friction
         if self._cfg.domain_rand.randomize_friction:
             self._randomize_friction(np.arange(self._num_envs))
+        # randomize restitution (only at startup; doing it on reset slows down training)
+        if self._cfg.domain_rand.randomize_restitution:
+            self._randomize_restitution(torch.arange(self._num_envs))
         # randomize base mass
         if self._cfg.domain_rand.randomize_base_mass:
             self._randomize_base_mass(np.arange(self._num_envs))
@@ -691,6 +697,9 @@ class GenesisSimulator(Simulator):
 
         self._robot.set_friction_ratio(
             ratios, torch.arange(0, self._robot.n_links), env_ids)
+    
+    def _randomize_restitution(self, env_ids):
+        return super()._randomize_restitution(env_ids)
 
     def _randomize_base_mass(self, env_ids=None):
         ''' Randomize base mass'''
