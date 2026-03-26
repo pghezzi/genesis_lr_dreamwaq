@@ -51,9 +51,9 @@ class IsaacGymSimulator(Simulator):
         self._last_base_lin_vel[:] = self._base_lin_vel[:]
         self._last_base_ang_vel[:] = self._base_ang_vel[:]
         self._last_feet_vel[:] = self._rigid_body_states[:, self._feet_indices, 7:10]
-        self._last_dof_vel[:] = self._dof_vel[:]
         for _ in range(self._cfg.control.decimation):
-            self._last_dof_pos[:] = self._dof_pos[:]
+            self._last_dof_vel[:] = self._dof_vel[:] # for computing velocity-target-based PD control
+            actions = self._pre_simulator_step(actions)
             self._torques = self._compute_torques(actions).view(self._torques.shape)
             self._gym.set_dof_actuation_force_tensor(self._sim, 
                                                 gymtorch.unwrap_tensor(self._torques[:, self._dof_indices]))
@@ -102,6 +102,13 @@ class IsaacGymSimulator(Simulator):
         self._last_feet_vel[env_ids] = 0.
         self._last_base_lin_vel[env_ids] = 0.
         self._last_base_ang_vel[env_ids] = 0.
+        
+        # reset action queue and delay
+        if self._cfg.domain_rand.randomize_ctrl_delay:
+            self._action_queue[env_ids] *= 0.
+            self._action_queue[env_ids] = 0.
+            self._action_delay[env_ids] = torch.randint(self._cfg.domain_rand.ctrl_delay_step_range[0],
+                                                       self._cfg.domain_rand.ctrl_delay_step_range[1]+1, (len(env_ids),), device=self._device, requires_grad=False)
         
         # reset depth image tensors
         # find common ids between env_ids and camera env ids
@@ -237,6 +244,16 @@ class IsaacGymSimulator(Simulator):
         return self._height_samples[px, py] * self._cfg.terrain.vertical_scale
     
     #----- Protected methods -----#
+    def _pre_simulator_step(self, actions):
+        # apply action delay by using an action queue
+        if self._cfg.domain_rand.randomize_ctrl_delay:
+            self._action_queue[:, 1:] = self._action_queue[:, :-1].clone()
+            self._action_queue[:, 0] = actions.clone()
+            actions = self._action_queue[torch.arange(
+                self._num_envs), self._action_delay].clone()
+        
+        return actions
+    
     def _parse_cfg(self):
         self._debug = self._cfg.env.debug
         self._control_dt = self._cfg.sim.dt * self._cfg.control.decimation
@@ -540,6 +557,13 @@ class IsaacGymSimulator(Simulator):
                 if self._cfg.control.control_type in ["P", "V"]:
                     print(f"PD gain of joint {name} were not defined, setting them to zero")
         self._default_dof_pos = self._default_dof_pos.unsqueeze(0)
+        
+        # control delay
+        if self._cfg.domain_rand.randomize_ctrl_delay:
+            self._action_queue = torch.zeros(
+                self._num_envs, self._cfg.domain_rand.ctrl_delay_step_range[1]+1, self._num_actions, dtype=torch.float, device=self._device, requires_grad=False)
+            self._action_delay = torch.randint(self._cfg.domain_rand.ctrl_delay_step_range[0],
+                                              self._cfg.domain_rand.ctrl_delay_step_range[1]+1, (self._num_envs,), device=self._device, requires_grad=False)
         
         # Camera image tensor
         if self._cfg.sensor.add_depth:

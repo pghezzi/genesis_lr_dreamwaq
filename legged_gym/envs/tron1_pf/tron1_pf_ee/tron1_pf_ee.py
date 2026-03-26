@@ -215,12 +215,6 @@ class TRON1PF_EE(LeggedRobotEE):
         if self.cfg.env.send_timeouts:
             self.extras["time_outs"] = self.time_out_buf
 
-        # reset action queue and delay
-        if self.cfg.domain_rand.randomize_ctrl_delay:
-            self.action_queue[env_ids] *= 0.
-            self.action_queue[env_ids] = 0.
-            self.action_delay[env_ids] = torch.randint(self.cfg.domain_rand.ctrl_delay_step_range[0],
-                                                       self.cfg.domain_rand.ctrl_delay_step_range[1]+1, (len(env_ids),), device=self.device, requires_grad=False)
         # clear obs history for the envs that are reset
         for i in range(self.obs_history_deque.maxlen):
             self.obs_history_deque[i][env_ids] *= 0

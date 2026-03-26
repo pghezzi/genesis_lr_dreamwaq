@@ -23,7 +23,8 @@ class K1AMP(LeggedRobotAMP):
             self.simulator.dr_rand_push_vels[:, :2],  # 2
             self.simulator.dr_base_com_bias,          # 3
             self.simulator.dr_kp_scale,               # num_dofs
-            self.simulator.dr_kd_scale                # num_dofs
+            self.simulator.dr_kd_scale,               # num_dofs
+            self.simulator.dr_ctrl_delay,             # 1
         ), dim=-1)
         
         single_critic_obs = torch.cat((

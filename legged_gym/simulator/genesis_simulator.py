@@ -21,8 +21,9 @@ class GenesisSimulator(Simulator):
         self._last_base_lin_vel[:] = self._base_lin_vel[:]
         self._last_base_ang_vel[:] = self._base_ang_vel[:]
         self._last_feet_vel[:] = self._feet_vel[:]
-        self._last_dof_vel[:] = self._dof_vel[:]
         for _ in range(self._cfg.control.decimation):
+            self._last_dof_vel[:] = self._dof_vel[:]
+            actions = self._pre_simulator_step(actions)
             self._torques = self._compute_torques(actions)
             self._robot.control_dofs_force(
                 self._torques, self._dof_indices)
@@ -84,6 +85,13 @@ class GenesisSimulator(Simulator):
         self._last_feet_vel[env_ids] = 0.
         self._last_base_lin_vel[env_ids] = 0.
         self._last_base_ang_vel[env_ids] = 0.
+        
+        # reset action queue and delay
+        if self._cfg.domain_rand.randomize_ctrl_delay:
+            self._action_queue[env_ids] *= 0.
+            self._action_queue[env_ids] = 0.
+            self._action_delay[env_ids] = torch.randint(self._cfg.domain_rand.ctrl_delay_step_range[0],
+                                                       self._cfg.domain_rand.ctrl_delay_step_range[1]+1, (len(env_ids),), device=self._device, requires_grad=False)
 
     def reset_dofs(self, env_ids, dof_pos, dof_vel):
         """ Resets DOF position and velocities of selected environmments
@@ -236,6 +244,16 @@ class GenesisSimulator(Simulator):
         self._scene.viewer.set_camera_pose(pos=eye, lookat=target)
     
     #----- Protected methods -----#
+    def _pre_simulator_step(self, actions):
+        # apply action delay by using an action queue
+        if self._cfg.domain_rand.randomize_ctrl_delay:
+            self._action_queue[:, 1:] = self._action_queue[:, :-1].clone()
+            self._action_queue[:, 0] = actions.clone()
+            actions = self._action_queue[torch.arange(
+                self._num_envs), self._action_delay].clone()
+            
+        return actions
+        
     def _parse_cfg(self):
         self._debug = self._cfg.env.debug
         self._control_dt = self._cfg.sim.dt * self._cfg.control.decimation
@@ -515,6 +533,13 @@ class GenesisSimulator(Simulator):
             self._d_gains = self._d_gains[None, :].repeat(self._num_envs, 1)
         self._robot.set_dofs_kp(self._p_gains, self._dof_indices)
         self._robot.set_dofs_kv(self._d_gains, self._dof_indices)
+        
+        # control delay
+        if self._cfg.domain_rand.randomize_ctrl_delay:
+            self._action_queue = torch.zeros(
+                self._num_envs, self._cfg.domain_rand.ctrl_delay_step_range[1]+1, self._num_actions, dtype=torch.float, device=self._device, requires_grad=False)
+            self._action_delay = torch.randint(self._cfg.domain_rand.ctrl_delay_step_range[0],
+                                              self._cfg.domain_rand.ctrl_delay_step_range[1]+1, (self._num_envs,), device=self._device, requires_grad=False)
 
         self._init_height_points()
         self._measured_heights = torch.zeros(self._num_envs, self._num_height_points, device=self._device, requires_grad=False)

@@ -308,13 +308,6 @@ class GO2SysID(LeggedRobot):
             self.height_points = self._init_height_points()
         self.measured_heights = 0
 
-        # randomize action delay
-        if self.cfg.domain_rand.randomize_ctrl_delay:
-            self.action_queue = torch.zeros(
-                self.num_envs, self.cfg.domain_rand.ctrl_delay_step_range[1]+1, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
-            self.action_delay = torch.randint(self.cfg.domain_rand.ctrl_delay_step_range[0],
-                                              self.cfg.domain_rand.ctrl_delay_step_range[1]+1, (self.num_envs,), device=self.device, requires_grad=False)
-
         self.default_dof_pos = torch.tensor(
             [self.cfg.init_state.default_joint_angles[name]
                 for name in self.cfg.asset.dof_names],

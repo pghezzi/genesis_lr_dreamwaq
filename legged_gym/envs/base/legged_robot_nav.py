@@ -137,13 +137,6 @@ class LeggedRobotNav(BaseTask):
         if self.cfg.env.send_timeouts:
             self.extras["time_outs"] = self.time_out_buf
 
-        # reset action queue and delay
-        if self.cfg.domain_rand.randomize_ctrl_delay:
-            self.action_queue[env_ids] *= 0.
-            self.action_queue[env_ids] = 0.
-            self.action_delay[env_ids] = torch.randint(self.cfg.domain_rand.ctrl_delay_step_range[0],
-                                                       self.cfg.domain_rand.ctrl_delay_step_range[1]+1, (len(env_ids),), device=self.device, requires_grad=False)
-
     def compute_reward(self):
         """ Compute rewards
             Calls each reward function which had a non-zero scale (processed in self._prepare_reward_function())
@@ -187,11 +180,6 @@ class LeggedRobotNav(BaseTask):
             self.obs_buf += (2 * torch.rand_like(self.obs_buf) - \
                              1) * self.noise_scale_vec
 
-        if self.cfg.domain_rand.randomize_ctrl_delay:
-            # normalize to [0, 1]
-            ctrl_delay = (self.action_delay /
-                          self.cfg.domain_rand.ctrl_delay_step_range[1]).unsqueeze(1)
-
         if self.num_privileged_obs is not None:
             self.privileged_obs_buf = torch.cat(
                 (
@@ -234,12 +222,6 @@ class LeggedRobotNav(BaseTask):
         self.llast_actions[:] = self.last_actions[:]
         self.last_actions[:] = self.actions[:]
         self.actions[:] = actions[:]
-        # apply action delay by using an action queue
-        if self.cfg.domain_rand.randomize_ctrl_delay:
-            self.action_queue[:, 1:] = self.action_queue[:, :-1].clone()
-            self.action_queue[:, 0] = actions.clone()
-            actions = self.action_queue[torch.arange(
-                self.num_envs), self.action_delay].clone()
         # during training, the camera follows the first environment
         if not self.debug and not self.headless:
             pos = self.simulator.base_pos[0].cpu().numpy() + np.array(self.cfg.viewer.pos)
@@ -429,14 +411,7 @@ class LeggedRobotNav(BaseTask):
         self.feet_air_time = torch.zeros(
             (self.num_envs, len(self.simulator.feet_indices)), device=self.device, dtype=torch.float)
         self.last_contacts = torch.zeros((self.num_envs, len(self.simulator.feet_indices)), device=self.device, dtype=torch.int)
-
-        # randomize action delay
-        if self.cfg.domain_rand.randomize_ctrl_delay:
-            self.action_queue = torch.zeros(
-                self.num_envs, self.cfg.domain_rand.ctrl_delay_step_range[1]+1, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
-            self.action_delay = torch.randint(self.cfg.domain_rand.ctrl_delay_step_range[0],
-                                              self.cfg.domain_rand.ctrl_delay_step_range[1]+1, (self.num_envs,), device=self.device, requires_grad=False)
-
+        
     def _prepare_reward_function(self):
         """ Prepares a list of reward functions, whcih will be called to compute the total reward.
             Looks for self._reward_<REWARD_NAME>, where <REWARD_NAME> are names of all non zero reward scales in the cfg.

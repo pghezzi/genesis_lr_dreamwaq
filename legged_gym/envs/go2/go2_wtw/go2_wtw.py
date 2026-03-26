@@ -66,11 +66,6 @@ class GO2WTW(LeggedRobot):
             self.theta,                                    # theta, gait offset, 4
         ), dim=-1)
 
-        if self.cfg.domain_rand.randomize_ctrl_delay:
-            # normalize to [0, 1]
-            ctrl_delay = (self.action_delay /
-                          self.cfg.domain_rand.ctrl_delay_step_range[1]).unsqueeze(1)
-
         if self.num_privileged_obs is not None:  # critic_obs, no noise
             self.privileged_obs_buf = torch.cat((
                 obs_buf,                                       # all above
@@ -80,7 +75,6 @@ class GO2WTW(LeggedRobot):
                 self.simulator._added_base_mass,                         # 1
                 self.simulator._friction_values,                         # 1
                 self.simulator._base_com_bias,                           # 3
-                # ctrl_delay,                                    # 1
                 self.simulator._kp_scale,                                # 12
                 self.simulator._kd_scale,                                # 12
                 # privileged infos
@@ -161,13 +155,6 @@ class GO2WTW(LeggedRobot):
         self.extras["episode"]["pitch_target_max"] = self.pitch_target_range[1]
         self.extras["episode"]["num_gaits"] = self.num_gaits
         
-        # reset action queue and delay
-        if self.cfg.domain_rand.randomize_ctrl_delay:
-            self.action_queue[env_ids] *= 0.
-            self.action_queue[env_ids] = 0.
-            self.action_delay[env_ids] = torch.randint(self.cfg.domain_rand.ctrl_delay_step_range[0],
-                                                       self.cfg.domain_rand.ctrl_delay_step_range[1]+1, (len(env_ids),), device=self.device, requires_grad=False)
-
         # clear obs and critic history for the envs that are reset
         for i in range(self.obs_history.maxlen):
             self.obs_history[i][env_ids] *= 0

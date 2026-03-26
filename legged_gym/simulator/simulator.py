@@ -1,10 +1,11 @@
 from abc import ABC, abstractmethod
 from torch import Tensor
 import numpy as np
+from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg
 
 """ ********** Base Simulator ********** """
 class Simulator(ABC):
-    def __init__(self, cfg, sim_params: dict, sim_device: str = "cuda:0", headless: bool = False):
+    def __init__(self, cfg : LeggedRobotCfg, sim_params: dict, sim_device: str = "cuda:0", headless: bool = False):
         self._height_samples = None
         self._device = sim_device
         self._headless = headless
@@ -120,6 +121,12 @@ class Simulator(ABC):
         return
 
     #----- Protected methods -----#
+    @abstractmethod
+    def _pre_simulator_step(self, actions):
+        """Performs any necessary updates before the simulator step
+        """
+        return
+    
     @abstractmethod
     def _parse_cfg(self):
         """Parses the configuration file and initializes necessary variables for the simulator.
@@ -687,6 +694,15 @@ class Simulator(ABC):
             Tensor((num_envs, num_dof)): KD scale for domain randomization.
         """
         return self._kd_scale
+    
+    @property
+    def dr_ctrl_delay(self):
+        """Returns the control delay for domain randomization.
+
+        Returns:
+            Tensor((num_envs, 1)): Control delay for domain randomization.
+        """
+        return self._action_delay.unsqueeze(-1) / self._cfg.domain_rand.ctrl_delay_step_range[1]
     
     @property
     def env_origins(self):

@@ -1,9 +1,9 @@
 from legged_gym import *
-from legged_gym.envs.base.legged_robot_ts_config import LeggedRobotTSCfg, LeggedRobotTSCfgPPO
+from legged_gym.envs.base.legged_robot_ts_config import LeggedRobotTSCfgPPO
 from legged_gym.envs.base.common_cfgs import Go2RoughCommonCfg
 
-class Go2TSCfg( LeggedRobotTSCfg ):
-    class env( LeggedRobotTSCfg.env ):
+class Go2TSCfg( Go2RoughCommonCfg ):
+    class env( Go2RoughCommonCfg.env ):
         num_envs = 4096
         num_observations = 45     # num_obs
         num_privileged_obs = 99
@@ -19,32 +19,20 @@ class Go2TSCfg( LeggedRobotTSCfg ):
         # This operation is to prevent the critic from receiving noisy input from the concatenation of current observation(noisy) and latent vector
         num_actions = 12
         env_spacing = 0.5
-    
-    class terrain( Go2RoughCommonCfg.terrain ):
-        pass
-    class init_state( Go2RoughCommonCfg.init_state ):
-        pass
-    class control( Go2RoughCommonCfg.control ):
-        pass
-    class asset( Go2RoughCommonCfg.asset ):
-        pass
-    class rewards( Go2RoughCommonCfg.rewards ):
-        class scales( Go2RoughCommonCfg.rewards.scales ):
-            pass
 
-    class commands( LeggedRobotTSCfg.commands ):
+    class commands( Go2RoughCommonCfg.commands ):
         curriculum = True
         max_curriculum = 1.0
         num_commands = 4 # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         resampling_time = 10.  # time before command are changed[s]
         heading_command = True # if true: compute ang vel command from heading error
-        class ranges( LeggedRobotTSCfg.commands.ranges ):
+        class ranges( Go2RoughCommonCfg.commands.ranges ):
             lin_vel_x = [-0.5, 0.5] # min max [m/s]
             lin_vel_y = [-1.0, 1.0]   # min max [m/s]
             ang_vel_yaw = [-1, 1]    # min max [rad/s]
             heading = [-3.14, 3.14]
             
-    class domain_rand(LeggedRobotTSCfg.domain_rand):
+    class domain_rand(Go2RoughCommonCfg.domain_rand):
         randomize_friction = True
         friction_range = [0.2, 1.7]
         randomize_base_mass = True

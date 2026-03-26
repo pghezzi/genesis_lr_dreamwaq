@@ -14,15 +14,11 @@ class K1AMPCfg(LeggedRobotAMPCfg):
         num_single_obs = 75
         num_observations = int(num_single_obs * frame_stack)
         c_frame_stack = 5
-        num_single_critic_obs = num_single_obs + 54
+        num_single_critic_obs = num_single_obs + 55
         num_privileged_obs = int(num_single_critic_obs * c_frame_stack)
         num_actions = 22
         amp_motion_files = MOTION_FILES
         max_projected_gravity = -0.3
-    
-    class terrain(K1FlatCommonCfg.terrain):
-        static_friction = 0.8
-        dynamic_friction = 0.8
     
     class init_state(K1FlatCommonCfg.init_state):
         # whether to initialize the robot with the reference motion
@@ -38,7 +34,7 @@ class K1AMPCfg(LeggedRobotAMPCfg):
         base_height_target = 0.54
         foot_height_offset = 0.038
         foot_clearance_target = 0.10
-        foot_distance_threshold = 0.16
+        foot_distance_threshold = 0.15
         about_landing_threshold = 0.04
         only_positive_rewards = False
         class scales(K1FlatCommonCfg.rewards.scales):
@@ -65,19 +61,21 @@ class K1AMPCfg(LeggedRobotAMPCfg):
     
     class domain_rand(K1FlatCommonCfg.domain_rand):
         randomize_friction = True
-        friction_range = [0.0, 1.6]
+        friction_range = [0.2, 1.6]
         randomize_base_mass = True
         added_mass_range = [-1., 2.]
         push_robots = True
         push_interval_s = 8
-        max_push_vel_xy = 0.4
+        max_push_vel_xy = 0.5
         randomize_com_displacement = True
         com_pos_x_range = [-0.02, 0.02]
         com_pos_y_range = [-0.02, 0.02]
         com_pos_z_range = [-0.02, 0.02]
         randomize_pd_gain = True
-        kp_range = [0.8, 1.2]
-        kd_range = [0.8, 1.2]
+        kp_range = [0.9, 1.1]
+        kd_range = [0.9, 1.1]
+        randomize_ctrl_delay = True
+        ctrl_delay_step_range = [0, 4] # number of simulation steps of control delay
     
     class commands(K1FlatCommonCfg.commands):
         curriculum = True

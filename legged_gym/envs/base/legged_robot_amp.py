@@ -87,13 +87,6 @@ class LeggedRobotAMP(LeggedRobot):
         if self.cfg.env.send_timeouts:
             self.extras["time_outs"] = self.time_out_buf
 
-        # reset action queue and delay
-        if self.cfg.domain_rand.randomize_ctrl_delay:
-            self.action_queue[env_ids] *= 0.
-            self.action_queue[env_ids] = 0.
-            self.action_delay[env_ids] = torch.randint(self.cfg.domain_rand.ctrl_delay_step_range[0],
-                                                       self.cfg.domain_rand.ctrl_delay_step_range[1]+1, (len(env_ids),), device=self.device, requires_grad=False)
-    
     def get_amp_observations(self):
         key_body_pos_relative_to_base = self.simulator.key_body_pos - \
                 self.simulator.base_pos.unsqueeze(1)

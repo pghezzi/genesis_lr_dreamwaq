@@ -188,7 +188,7 @@ class LeggedRobotCfg(BaseConfig):
         com_pos_z_range = [-0.01, 0.01]
         # apply random delay to the actions to simulate latency in the control loop
         randomize_ctrl_delay = False
-        ctrl_delay_step_range = [0, 1]
+        ctrl_delay_step_range = [0, 1] # number of simulation steps
         # randomize PD gains by a scale factor
         randomize_pd_gain = False
         kp_range = [0.8, 1.2]
