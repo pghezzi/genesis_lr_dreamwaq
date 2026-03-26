@@ -33,7 +33,7 @@ isaacgym = [
 genesis = [
     "torch==2.8.0+cu126",
     "torchvision==0.23.0+cu126",
-    "genesis-world==0.3.14"
+    "genesis-world==0.4.3"
 ]
 isaaclab = [
     "isaaclab==2.3.2.post1",
