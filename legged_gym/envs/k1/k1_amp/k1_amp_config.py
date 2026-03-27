@@ -2,6 +2,7 @@ from legged_gym.envs.base.template_cfgs import LeggedRobotAMPCfgPPO
 from legged_gym import LEGGED_GYM_ROOT_DIR
 from legged_gym.envs.base.common_cfgs import K1FlatCommonCfg
 from legged_gym import SIMULATOR
+from legged_gym.utils.symmetry import compute_symmetric_states_k1
 
 import glob
 
@@ -14,7 +15,7 @@ class K1AMPCfg(K1FlatCommonCfg):
         num_single_obs = 75
         num_observations = int(num_single_obs * frame_stack)
         c_frame_stack = 5
-        num_single_critic_obs = num_single_obs + 72
+        num_single_critic_obs = num_single_obs + 56
         num_privileged_obs = int(num_single_critic_obs * c_frame_stack)
         num_actions = 22
         amp_motion_files = MOTION_FILES
@@ -105,6 +106,13 @@ class K1AMPCfgPPO(LeggedRobotAMPCfgPPO):
     class algorithm(LeggedRobotAMPCfgPPO.algorithm):
         amp_replay_buffer_size = K1AMPCfg.env.num_envs * LeggedRobotAMPCfgPPO.runner.num_steps_per_env * 10
         disc_lr = 1.e-4
+        # Symmetry loss config
+        symmetry_cfg = {
+            "use_data_augmentation" : True,
+            "data_augmentation_func": compute_symmetric_states_k1,
+            "use_mirror_loss": True,
+            "mirror_loss_coeff": 0.1,
+        }
     class runner( LeggedRobotAMPCfgPPO.runner ):
         amp_reward_coef = 3.0 * K1AMPCfg.control.dt # consistent with other rewards by multiplying dt
         amp_motion_files = MOTION_FILES

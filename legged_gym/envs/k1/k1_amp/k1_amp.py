@@ -31,12 +31,10 @@ class K1AMP(LeggedRobotAMP):
         ), dim=-1)
         
         single_critic_obs = torch.cat((
-            self.simulator.base_lin_vel * self.obs_scales.lin_vel, # 3
             obs_buf,                                               # num_obs
-            domain_randomization_info,                             # 52
+            self.simulator.base_lin_vel * self.obs_scales.lin_vel, # 3
+            domain_randomization_info,                             # 51
             self.simulator.feet_pos[:, :, 2],                      # 2
-            key_body_pos_relative_to_base.flatten(start_dim=1),    # num_key_bodies * 3
-            self.clock_input,                                      # 4
         ), dim=-1)
         
         self.critic_obs_deque.append(single_critic_obs)
