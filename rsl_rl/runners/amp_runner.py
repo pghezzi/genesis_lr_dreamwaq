@@ -117,7 +117,7 @@ class AMPRunner(OnPolicyRunner):
             
             mean_value_loss, mean_surrogate_loss, \
                 mean_amp_loss, mean_grad_pen_loss, \
-                    mean_policy_pred, mean_expert_pred = self.alg.update()
+                    mean_policy_pred, mean_expert_pred, mean_symmetry_loss = self.alg.update()
             stop = time.time()
             learn_time = stop - start
             if self.log_dir is not None:
@@ -157,6 +157,8 @@ class AMPRunner(OnPolicyRunner):
         self.writer.add_scalar('Loss/AMP_grad', locs['mean_grad_pen_loss'], locs['it'])
         self.writer.add_scalar('AMP/policy_pred', locs['mean_policy_pred'], locs['it'])
         self.writer.add_scalar('AMP/expert_pred', locs['mean_expert_pred'], locs['it'])
+        if locs['mean_symmetry_loss'] is not None:
+            self.writer.add_scalar('AMP/symmetry_loss', locs['mean_symmetry_loss'], locs['it'])
         self.writer.add_scalar('Loss/learning_rate', self.alg.learning_rate, locs['it'])
         self.writer.add_scalar('Policy/mean_noise_std', mean_std.item(), locs['it'])
         self.writer.add_scalar('Perf/total_fps', fps, locs['it'])
@@ -181,6 +183,7 @@ class AMPRunner(OnPolicyRunner):
                           f"""{'AMP grad pen loss:':>{pad}} {locs['mean_grad_pen_loss']:.4f}\n"""
                           f"""{'AMP mean policy pred:':>{pad}} {locs['mean_policy_pred']:.4f}\n"""
                           f"""{'AMP mean expert pred:':>{pad}} {locs['mean_expert_pred']:.4f}\n"""
+                          f"""{'Mean symmetry loss:':>{pad}} {locs['mean_symmetry_loss']:.4f}\n""" if locs['mean_symmetry_loss'] is not None else '' # only log symmetry loss if it's computed
                           f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n"""
                           f"""{'Mean reward:':>{pad}} {statistics.mean(locs['rewbuffer']):.2f}\n"""
                           f"""{'Mean episode length:':>{pad}} {statistics.mean(locs['lenbuffer']):.2f}\n""")

@@ -59,7 +59,8 @@ class PPO_AMP(PPO):
                  device='cpu',
                  use_spo=False,
                  amp_replay_buffer_size=100000,
-                 disc_lr=1e-4
+                 disc_lr=1e-4,
+                 symmetry_cfg : dict = None,
                  ):
 
         super().__init__(
@@ -99,6 +100,9 @@ class PPO_AMP(PPO):
             {'params': self.discriminator.amp_linear.parameters(),
              'weight_decay': 10e-2, 'name': 'amp_head'}]
         self.disc_optimizer = optim.Adam(disc_params, lr=disc_lr)
+        
+        # symmetry config
+        self.symmetry_cfg = symmetry_cfg
 
     def act(self, obs, critic_obs, amp_obs):
         if self.actor_critic.is_recurrent:
@@ -139,6 +143,7 @@ class PPO_AMP(PPO):
         mean_grad_pen_loss = 0
         mean_policy_pred = 0
         mean_expert_pred = 0
+        mean_symmetry_loss = 0 if self.symmetry_cfg else None
         generator = self._get_data_generator()
         amp_policy_generator = self.amp_storage.feed_forward_generator(
             self.num_learning_epochs * self.num_mini_batches,
@@ -152,31 +157,66 @@ class PPO_AMP(PPO):
 
                 obs_batch, critic_obs_batch, actions_batch, target_values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, \
                     old_mu_batch, old_sigma_batch, hid_states_batch, masks_batch = sample
-                loss, surrogate_loss, value_loss = self._compute_rl_loss(obs_batch, critic_obs_batch, actions_batch, target_values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, 
+                
+                num_aug = 1  # Number of augmentations per sample. Starts at 1 for no augmentation.
+                original_batch_size = obs_batch.shape[0]
+                
+                # Perform symmetric augmentation
+                if self.symmetry_cfg and self.symmetry_cfg["use_data_augmentation"]:
+                    # Augmentation using symmetry
+                    data_augmentation_func = self.symmetry_cfg["data_augmentation_func"]
+                    # Returned shape: [batch_size * num_aug, ...]
+                    obs_batch, actions_batch, critic_obs_batch = data_augmentation_func(
+                        obs=obs_batch,
+                        actions=actions_batch,
+                        critic_obs=critic_obs_batch, # in case the data augmentation also needs to augment critic obs
+                    )
+                    # Compute number of augmentations per sample
+                    num_aug = int(obs_batch.shape[0] / original_batch_size)
+                    # Repeat the rest of the batch
+                    old_actions_log_prob_batch = old_actions_log_prob_batch.repeat(num_aug, 1)
+                    target_values_batch = target_values_batch.repeat(num_aug, 1)
+                    advantages_batch = advantages_batch.repeat(num_aug, 1)
+                    returns_batch = returns_batch.repeat(num_aug, 1)
+                
+                loss, surrogate_loss, value_loss = self._compute_rl_loss(original_batch_size, obs_batch, critic_obs_batch, actions_batch, target_values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, 
                                                                   old_mu_batch, old_sigma_batch, hid_states_batch, masks_batch)
+                
+                # Symmetry loss
+                if self.symmetry_cfg:
+                    # Obtain the symmetric actions
+                    # Note: If we did augmentation before then we don't need to augment again
+                    if not self.symmetry_cfg["use_data_augmentation"]:
+                        data_augmentation_func = self.symmetry_cfg["data_augmentation_func"]
+                        obs_batch, _, _ = data_augmentation_func(obs=obs_batch, actions=None, critic_obs=None)
+                        # Compute number of augmentations per sample
+                        num_aug = int(obs_batch.shape[0] / original_batch_size)
+                    
+                    # Actions predicted by the actor for symmetrically-augmented observations
+                    mean_actions_batch = self.actor_critic.act_inference(obs_batch.detach().clone())
+                    # Compute the symmetrically augmented actions
+                    # Note: We are assuming the first augmentation is the original one. We do not use the action_batch from
+                    # earlier since that action was sampled from the distribution. However, the symmetry loss is computed
+                    # using the mean of the distribution.
+                    action_mean_orig = mean_actions_batch[:original_batch_size]
+                    _, actions_mean_symm_batch, _ = data_augmentation_func(
+                        obs=None, actions=action_mean_orig, critic_obs=None
+                    )
+                    symmetry_loss = torch.nn.MSELoss()(
+                        mean_actions_batch[original_batch_size:], actions_mean_symm_batch.detach()[original_batch_size:]
+                    )
+                    # Add the loss to the total loss
+                    if self.symmetry_cfg["use_mirror_loss"]:
+                        loss += self.symmetry_cfg["mirror_loss_coeff"] * symmetry_loss
+                    else:
+                        symmetry_loss = symmetry_loss.detach()
+                
                 # Discriminator loss.
                 policy_state, policy_next_state = sample_amp_policy
                 expert_state, expert_next_state = sample_amp_expert
-                
-                # if self.amp_normalizer is not None:
-                #     with torch.no_grad():
-                #         policy_state = self.amp_normalizer.normalize_torch(policy_state, self.device)
-                #         policy_next_state = self.amp_normalizer.normalize_torch(policy_next_state, self.device)
-                #         expert_state = self.amp_normalizer.normalize_torch(expert_state, self.device)
-                #         expert_next_state = self.amp_normalizer.normalize_torch(expert_next_state, self.device)
-                # policy_d = self.discriminator(torch.cat([policy_state, policy_next_state], dim=-1))
-                # expert_d = self.discriminator(torch.cat([expert_state, expert_next_state], dim=-1))
-                # expert_loss = torch.nn.MSELoss()(
-                #     expert_d, torch.ones(expert_d.size(), device=self.device))
-                # policy_loss = torch.nn.MSELoss()(
-                #     policy_d, -1 * torch.ones(policy_d.size(), device=self.device))
-                # amp_loss = 0.5 * (expert_loss + policy_loss)
-                # grad_pen_loss = self.discriminator.compute_grad_pen(
-                #     *sample_amp_expert, lambda_=10)
-                # disc_loss = amp_loss + grad_pen_loss
-                
                 disc_loss, amp_loss, grad_pen_loss, policy_d, expert_d = self._compute_amp_loss(
                     policy_state, policy_next_state, expert_state, expert_next_state)
+                
                 # Update discriminator.
                 self.disc_optimizer.zero_grad()
                 disc_loss.backward()
@@ -199,6 +239,9 @@ class PPO_AMP(PPO):
                 mean_grad_pen_loss += grad_pen_loss.item()
                 mean_policy_pred += policy_d.mean().item()
                 mean_expert_pred += expert_d.mean().item()
+                # Symmetry loss
+                if mean_symmetry_loss is not None:
+                    mean_symmetry_loss += symmetry_loss.item()
 
         num_updates = self.num_learning_epochs * self.num_mini_batches
         mean_value_loss /= num_updates
@@ -207,11 +250,38 @@ class PPO_AMP(PPO):
         mean_grad_pen_loss /= num_updates
         mean_policy_pred /= num_updates
         mean_expert_pred /= num_updates
+        if mean_symmetry_loss is not None:
+            mean_symmetry_loss /= num_updates
         self.storage.clear()
 
         return mean_value_loss, mean_surrogate_loss, \
                 mean_amp_loss, mean_grad_pen_loss, \
-                mean_policy_pred, mean_expert_pred
+                mean_policy_pred, mean_expert_pred, mean_symmetry_loss
+    
+    def _compute_rl_loss(self, original_batch_size, obs_batch, critic_obs_batch, actions_batch, \
+            target_values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, \
+            old_mu_batch, old_sigma_batch, hid_states_batch, masks_batch):
+        # Recompute actions log prob and entropy for current batch of transitions
+        # Note: We need to do this because we updated the policy with the new parameters
+        self.actor_critic.act(obs_batch, masks=masks_batch, hidden_states=hid_states_batch[0])
+        actions_log_prob_batch = self.actor_critic.get_actions_log_prob(actions_batch)
+        value_batch = self.actor_critic.evaluate(critic_obs_batch, masks=masks_batch, hidden_states=hid_states_batch[1])
+        mu_batch = self.actor_critic.action_mean[:original_batch_size]
+        sigma_batch = self.actor_critic.action_std[:original_batch_size]
+        entropy_batch = self.actor_critic.entropy[:original_batch_size]
+
+        self._adjust_learning_rate(sigma_batch, old_sigma_batch, mu_batch, old_mu_batch)
+
+        # Surrogate loss
+        ratio = torch.exp(actions_log_prob_batch - torch.squeeze(old_actions_log_prob_batch))
+        surrogate_loss = self._compute_surrogate_loss(ratio, advantages_batch)
+
+        # Value function loss
+        value_loss = self._compute_value_function_loss(value_batch, returns_batch, target_values_batch)
+
+        loss = surrogate_loss + self.value_loss_coef * value_loss - self.entropy_coef * entropy_batch.mean()
+        
+        return loss, surrogate_loss, value_loss
     
     def _compute_amp_loss(self, policy_state, policy_next_state,
                                 expert_state, expert_next_state):
