@@ -157,22 +157,26 @@ class PPO_AMP(PPO):
                 # Discriminator loss.
                 policy_state, policy_next_state = sample_amp_policy
                 expert_state, expert_next_state = sample_amp_expert
-                if self.amp_normalizer is not None:
-                    with torch.no_grad():
-                        policy_state = self.amp_normalizer.normalize_torch(policy_state, self.device)
-                        policy_next_state = self.amp_normalizer.normalize_torch(policy_next_state, self.device)
-                        expert_state = self.amp_normalizer.normalize_torch(expert_state, self.device)
-                        expert_next_state = self.amp_normalizer.normalize_torch(expert_next_state, self.device)
-                policy_d = self.discriminator(torch.cat([policy_state, policy_next_state], dim=-1))
-                expert_d = self.discriminator(torch.cat([expert_state, expert_next_state], dim=-1))
-                expert_loss = torch.nn.MSELoss()(
-                    expert_d, torch.ones(expert_d.size(), device=self.device))
-                policy_loss = torch.nn.MSELoss()(
-                    policy_d, -1 * torch.ones(policy_d.size(), device=self.device))
-                amp_loss = 0.5 * (expert_loss + policy_loss)
-                grad_pen_loss = self.discriminator.compute_grad_pen(
-                    *sample_amp_expert, lambda_=10)
-                disc_loss = amp_loss + grad_pen_loss
+                
+                # if self.amp_normalizer is not None:
+                #     with torch.no_grad():
+                #         policy_state = self.amp_normalizer.normalize_torch(policy_state, self.device)
+                #         policy_next_state = self.amp_normalizer.normalize_torch(policy_next_state, self.device)
+                #         expert_state = self.amp_normalizer.normalize_torch(expert_state, self.device)
+                #         expert_next_state = self.amp_normalizer.normalize_torch(expert_next_state, self.device)
+                # policy_d = self.discriminator(torch.cat([policy_state, policy_next_state], dim=-1))
+                # expert_d = self.discriminator(torch.cat([expert_state, expert_next_state], dim=-1))
+                # expert_loss = torch.nn.MSELoss()(
+                #     expert_d, torch.ones(expert_d.size(), device=self.device))
+                # policy_loss = torch.nn.MSELoss()(
+                #     policy_d, -1 * torch.ones(policy_d.size(), device=self.device))
+                # amp_loss = 0.5 * (expert_loss + policy_loss)
+                # grad_pen_loss = self.discriminator.compute_grad_pen(
+                #     *sample_amp_expert, lambda_=10)
+                # disc_loss = amp_loss + grad_pen_loss
+                
+                disc_loss, amp_loss, grad_pen_loss, policy_d, expert_d = self._compute_amp_loss(
+                    policy_state, policy_next_state, expert_state, expert_next_state)
                 # Update discriminator.
                 self.disc_optimizer.zero_grad()
                 disc_loss.backward()
@@ -208,3 +212,24 @@ class PPO_AMP(PPO):
         return mean_value_loss, mean_surrogate_loss, \
                 mean_amp_loss, mean_grad_pen_loss, \
                 mean_policy_pred, mean_expert_pred
+    
+    def _compute_amp_loss(self, policy_state, policy_next_state,
+                                expert_state, expert_next_state):
+        if self.amp_normalizer is not None:
+            with torch.no_grad():
+                policy_state = self.amp_normalizer.normalize_torch(policy_state, self.device)
+                policy_next_state = self.amp_normalizer.normalize_torch(policy_next_state, self.device)
+                expert_state = self.amp_normalizer.normalize_torch(expert_state, self.device)
+                expert_next_state = self.amp_normalizer.normalize_torch(expert_next_state, self.device)
+        policy_d = self.discriminator(torch.cat([policy_state, policy_next_state], dim=-1))
+        expert_d = self.discriminator(torch.cat([expert_state, expert_next_state], dim=-1))
+        expert_loss = torch.nn.MSELoss()(
+            expert_d, torch.ones(expert_d.size(), device=self.device))
+        policy_loss = torch.nn.MSELoss()(
+            policy_d, -1 * torch.ones(policy_d.size(), device=self.device))
+        amp_loss = 0.5 * (expert_loss + policy_loss)
+        grad_pen_loss = self.discriminator.compute_grad_pen(
+                expert_state, expert_next_state, lambda_=10)
+        disc_loss = amp_loss + grad_pen_loss
+        
+        return disc_loss, amp_loss, grad_pen_loss, policy_d, expert_d

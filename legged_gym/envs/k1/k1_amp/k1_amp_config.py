@@ -1,4 +1,4 @@
-from legged_gym.envs.base.legged_robot_amp_config import LeggedRobotAMPCfgPPO, LeggedRobotAMPCfg
+from legged_gym.envs.base.template_cfgs import LeggedRobotAMPCfgPPO
 from legged_gym import LEGGED_GYM_ROOT_DIR
 from legged_gym.envs.base.common_cfgs import K1FlatCommonCfg
 from legged_gym import SIMULATOR
@@ -7,14 +7,14 @@ import glob
 
 MOTION_FILES = glob.glob(LEGGED_GYM_ROOT_DIR + f"/resources/reference_motion/booster_k1/{SIMULATOR}/*")
 
-class K1AMPCfg(LeggedRobotAMPCfg):
+class K1AMPCfg(K1FlatCommonCfg):
     class env(K1FlatCommonCfg.env):
         num_envs = 4096
         frame_stack = 5
         num_single_obs = 75
         num_observations = int(num_single_obs * frame_stack)
         c_frame_stack = 5
-        num_single_critic_obs = num_single_obs + 55
+        num_single_critic_obs = num_single_obs + 70
         num_privileged_obs = int(num_single_critic_obs * c_frame_stack)
         num_actions = 22
         amp_motion_files = MOTION_FILES
@@ -24,10 +24,6 @@ class K1AMPCfg(LeggedRobotAMPCfg):
         # whether to initialize the robot with the reference motion
         reference_state_initialization = True
         reference_state_initialization_prob = 0.6
-    class control(K1FlatCommonCfg.control):
-        pass
-    class asset(K1FlatCommonCfg.asset):
-        pass
     
     class rewards(K1FlatCommonCfg.rewards):
         soft_dof_pos_limit = 0.99
@@ -72,10 +68,8 @@ class K1AMPCfg(LeggedRobotAMPCfg):
         com_pos_y_range = [-0.02, 0.02]
         com_pos_z_range = [-0.02, 0.02]
         randomize_pd_gain = True
-        kp_range = [0.9, 1.1]
-        kd_range = [0.9, 1.1]
-        randomize_ctrl_delay = True
-        ctrl_delay_step_range = [0, 4] # number of simulation steps of control delay
+        kp_range = [0.8, 1.2]
+        kd_range = [0.8, 1.2]
     
     class commands(K1FlatCommonCfg.commands):
         curriculum = True
@@ -90,7 +84,8 @@ class K1AMPCfg(LeggedRobotAMPCfg):
             heading = [-3.14, 3.14]
 
 class K1AMPCfgPPO(LeggedRobotAMPCfgPPO):
-    
+    class policy(LeggedRobotAMPCfgPPO.policy):
+        critic_hidden_dims = [1024, 512, 256]
     class algorithm(LeggedRobotAMPCfgPPO.algorithm):
         amp_replay_buffer_size = K1AMPCfg.env.num_envs * LeggedRobotAMPCfgPPO.runner.num_steps_per_env * 10
         disc_lr = 1.e-4

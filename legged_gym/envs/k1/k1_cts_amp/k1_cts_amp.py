@@ -1,17 +1,110 @@
-from legged_gym.envs.base.legged_robot_amp import LeggedRobotAMP
+from legged_gym.envs.base.legged_robot_cts import LeggedRobotCTS
 import torch
 from legged_gym.utils.math_utils import quat_rotate_inverse, torch_rand_float
-from collections import deque
+from legged_gym.utils.motion_loader import AMPLoader
 import numpy as np
 
-class K1AMP(LeggedRobotAMP):
+class K1_CTS_AMP(LeggedRobotCTS):
+    
+    def step(self, actions):
+        """ Apply actions, simulate, call self.post_physics_step()
+
+        Args:
+            actions (torch.Tensor): Tensor of shape (num_envs, num_actions_per_env)
+        """
+        actions = self._pre_sim_step(actions)
+        self.simulator.step(actions)
+        self.post_physics_step()
+
+        # return clipped obs, clipped states (None), rewards, dones and infos
+        clip_obs = self.cfg.normalization.clip_observations
+        self.obs_buf = torch.clip(self.obs_buf, -clip_obs, clip_obs)
+        if self.privileged_obs_buf is not None:
+            self.privileged_obs_buf = torch.clip(
+                self.privileged_obs_buf, -clip_obs, clip_obs)
+        return self.obs_buf, self.privileged_obs_buf, self.obs_history, self.critic_obs_buf, \
+            self.rew_buf, self.reset_buf, self.extras, self.reset_env_ids, self.terminal_amp_states
+        
+    def reset(self):
+        """ Reset all robots"""
+        self.reset_idx(torch.arange(self.num_envs, device=self.device))
+        obs, privileged_obs, obs_history, critic_obs, _, _, _, _, _ = self.step(torch.zeros(
+            self.num_envs, self.num_actions, device=self.device, requires_grad=False))
+        return obs, privileged_obs, obs_history, critic_obs
+    
+    def reset_idx(self, env_ids):
+        self.reset_env_ids = env_ids
+        self.terminal_amp_states = self.get_amp_observations()[env_ids]
+        if len(env_ids) == 0:
+            return
+        # update curriculum
+        if self.cfg.terrain.curriculum:
+            self._update_terrain_curriculum(env_ids)
+        # avoid updating command curriculum at each step since the maximum command is common to all envs
+        if self.cfg.commands.curriculum and (self.common_step_counter % self.max_episode_length ==0):
+            self._update_command_curriculum(env_ids)
+
+        self._resample_commands(env_ids)
+        _ = np.random.random()
+        if self.cfg.init_state.reference_state_initialization \
+            and _ < self.cfg.init_state.reference_state_initialization_prob:
+            frames = self.amp_loader.get_full_frame_batch(len(env_ids))
+            self._reset_dofs_from_reference_motion(env_ids, frames)
+            self._reset_root_states_from_reference_motion(env_ids, frames)
+        else:
+            self._reset_dofs(env_ids)
+            self._reset_root_states(env_ids)
+        self.simulator.reset_idx(env_ids)
+
+        # reset buffers
+        self.llast_actions[env_ids] = 0.
+        self.last_actions[env_ids] = 0.
+        self.actions[env_ids] = 0.
+        self.feet_air_time[env_ids] = 0.
+        self.episode_length_buf[env_ids] = 0
+        self.reset_buf[env_ids] = 1
+        self.fail_buf[env_ids] = 0
+
+        # fill extras
+        self.extras["episode"] = {}
+        for key in self.episode_sums.keys():
+            self.extras["episode"]['rew_' + key] = torch.mean(
+                self.episode_sums[key][env_ids]) / self.max_episode_length_s
+            self.episode_sums[key][env_ids] = 0.
+        # log additional curriculum info
+        if self.cfg.terrain.curriculum:
+            self.extras["episode"]["terrain_level"] = torch.mean(
+                self.simulator.terrain_levels.float())
+        if self.cfg.commands.curriculum:
+            self.extras["episode"]["max_command_x"] = self.command_ranges["lin_vel_x"][1]
+        # send timeout info to the algorithm
+        if self.cfg.env.send_timeouts:
+            self.extras["time_outs"] = self.time_out_buf
+            
+        # clear obs history for the envs that are reset
+        for i in range(self.obs_history_deque.maxlen):
+            self.obs_history_deque[i][env_ids] *= 0
+        for i in range(self.critic_obs_deque.maxlen):
+            self.critic_obs_deque[i][env_ids] *= 0
+    
+    def get_amp_observations(self):
+        key_body_pos_relative_to_base = self.simulator.key_body_pos - \
+                self.simulator.base_pos.unsqueeze(1)
+        # Use base_lin_vel_w, base_ang_vel_w, dof_pos, dof_vel, key_body_pos_relative_to_base in the observations
+        return torch.cat((
+            self.simulator.base_lin_vel,              # 3
+             self.simulator.base_ang_vel,             # 3
+            self.simulator.dof_pos,                   # num_dofs
+            self.simulator.dof_vel,                   # num_dofs
+            key_body_pos_relative_to_base.flatten(start_dim=1), # num_key_bodies * 3
+        ), dim=-1)
     
     def compute_observations(self):
         
         key_body_pos_relative_to_base = self.simulator.key_body_pos - \
                 self.simulator.base_pos.unsqueeze(1)
-        
-        obs_buf = torch.cat((
+                
+        self.obs_buf = torch.cat((
             self.commands[:, :3] * self.commands_scale,
             self.simulator.projected_gravity,
             self.simulator.base_ang_vel * self.obs_scales.ang_vel,
@@ -31,55 +124,51 @@ class K1AMP(LeggedRobotAMP):
         
         single_critic_obs = torch.cat((
             self.simulator.base_lin_vel * self.obs_scales.lin_vel, # 3
-            obs_buf,                                               # num_obs
-            domain_randomization_info,                             # 52
+            self.obs_buf,                                               # num_obs
+            domain_randomization_info,                             # 51
             self.feet_air_time,                                    # 2
             self.simulator.feet_pos[:, :, 2],                      # 2
             key_body_pos_relative_to_base.flatten(start_dim=1),    # num_key_bodies * 3
         ), dim=-1)
         
         self.critic_obs_deque.append(single_critic_obs)
-        self.privileged_obs_buf = torch.cat(
+        self.critic_obs_buf = torch.cat(
             [self.critic_obs_deque[i]
                 for i in range(self.critic_obs_deque.maxlen)],
             dim=-1,
         )
         
         if self.add_noise:
-            obs_buf += (2 * torch.rand_like(obs_buf) - 1) * self.noise_scale_vec
+            self.obs_buf += (2 * torch.rand_like(self.obs_buf) - 1) * self.noise_scale_vec
         
         # push obs_buf to obs_history
-        self.obs_history_deque.append(obs_buf)
-        self.obs_buf = torch.cat(
+        self.obs_history_deque.append(self.obs_buf)
+        self.obs_history = torch.cat(
             [self.obs_history_deque[i]
                 for i in range(self.obs_history_deque.maxlen)],
             dim=-1,
         )
         
+        # Privileged observation, for privileged encoder
+        self.privileged_obs_buf = torch.cat((
+            domain_randomization_info,
+            self.simulator.base_lin_vel * self.obs_scales.lin_vel,
+            self.feet_air_time,                                    # 2
+            self.simulator.feet_pos[:, :, 2],                      # 2
+            key_body_pos_relative_to_base.flatten(start_dim=1),    # num_key_bodies * 3
+        ), dim=-1)
+        
     def _init_buffers(self):
         super()._init_buffers()
-        # obs_history
-        self.obs_history_deque = deque(maxlen=self.cfg.env.frame_stack)
-        for _ in range(self.cfg.env.frame_stack):
-            self.obs_history_deque.append(
-                torch.zeros(
-                    self.num_envs,
-                    self.cfg.env.num_single_obs,
-                    dtype=torch.float,
-                    device=self.device,
-                )
-            )
-        # critic observation buffer
-        self.critic_obs_deque = deque(maxlen=self.cfg.env.c_frame_stack)
-        for _ in range(self.cfg.env.c_frame_stack):
-            self.critic_obs_deque.append(
-                torch.zeros(
-                    self.num_envs,
-                    self.cfg.env.num_single_critic_obs,
-                    dtype=torch.float,
-                    device=self.device,
-                )
-            )
+        self.reset_env_ids = None
+        self.terminal_amp_states = None
+        if self.cfg.init_state.reference_state_initialization:
+            self.amp_loader = AMPLoader(motion_files=self.cfg.env.amp_motion_files, 
+                                        device=self.device, 
+                                        time_between_frames=self.dt,
+                                        num_dof=self.num_actions,
+                                        num_key_bodies=len(self.simulator.key_body_indices))
+        
     
     def _update_command_curriculum(self, env_ids):
         """ Implements a curriculum of increasing commands
@@ -92,7 +181,6 @@ class K1AMP(LeggedRobotAMP):
                 self.cfg.commands.curriculum_threshold * self.reward_scales["tracking_lin_vel"]:
             self.command_ranges["lin_vel_x"][1] = np.clip(
                 self.command_ranges["lin_vel_x"][1] + 0.5, 0., self.cfg.commands.max_curriculum)
-
     
     def _reset_dofs(self, env_ids):
         dof_pos = torch.zeros((len(env_ids), self.num_actions), dtype=torch.float,
@@ -134,18 +222,8 @@ class K1AMP(LeggedRobotAMP):
         ref_base_ang_vel = self.amp_loader.get_base_ang_vel_batch(ref_motions)
         self.simulator.reset_root_states(env_ids, base_pos, ref_base_rot, ref_base_lin_vel, ref_base_ang_vel)
     
-    def reset_idx(self, env_ids):
-        if len(env_ids) == 0:
-            return
-        super().reset_idx(env_ids)
-        # clear obs history for the envs that are reset
-        for i in range(self.obs_history_deque.maxlen):
-            self.obs_history_deque[i][env_ids] *= 0
-        for i in range(self.critic_obs_deque.maxlen):
-            self.critic_obs_deque[i][env_ids] *= 0
-    
     def _get_noise_scale_vec(self):
-        noise_vec = torch.zeros(self.cfg.env.num_single_obs, device=self.device)
+        noise_vec = torch.zeros_like(self.obs_buf)
         self.add_noise = self.cfg.noise.add_noise
         noise_scales = self.cfg.noise.noise_scales
         noise_level = self.cfg.noise.noise_level

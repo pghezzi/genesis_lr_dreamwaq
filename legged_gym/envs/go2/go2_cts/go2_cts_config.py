@@ -1,9 +1,9 @@
-from legged_gym.envs.base.legged_robot_cts_config import LeggedRobotCTSCfg, LeggedRobotCTSCfgPPO
+from legged_gym.envs.base.template_cfgs import LeggedRobotCTSCfgPPO
 from legged_gym import *
 from legged_gym.envs.base.common_cfgs import Go2RoughCommonCfg
 
-class Go2CTSCfg( LeggedRobotCTSCfg ):
-    class env( LeggedRobotCTSCfg.env ):
+class Go2CTSCfg( Go2RoughCommonCfg ):
+    class env( Go2RoughCommonCfg.env ):
         num_envs = 4096
         num_teacher = num_envs // 4 * 3 # a quarter of the total environments are student envs, the rest are teacher envs
         num_observations = 45  # num_obs
@@ -12,35 +12,23 @@ class Go2CTSCfg( LeggedRobotCTSCfg ):
         num_history_obs = int(num_observations * frame_stack)
         num_latent_dims = num_privileged_obs
         c_frame_stack = 5
-        single_critic_obs_len = num_observations + 31 + 81 + 17 + 3
-        num_critic_obs = c_frame_stack * single_critic_obs_len
+        num_single_critic_obs = num_observations + 31 + 81 + 17 + 3
+        num_critic_obs = c_frame_stack * num_single_critic_obs
         num_actions = 12
-    
-    class terrain( Go2RoughCommonCfg.terrain ):
-        pass
-    class init_state( Go2RoughCommonCfg.init_state ):
-        pass
-    class control( Go2RoughCommonCfg.control ):
-        pass
-    class asset( Go2RoughCommonCfg.asset ):
-        pass
-    class rewards( Go2RoughCommonCfg.rewards ):
-        class scales( Go2RoughCommonCfg.rewards.scales ):
-            pass
         
-    class commands( LeggedRobotCTSCfg.commands ):
+    class commands( Go2RoughCommonCfg.commands ):
         curriculum = True
         max_curriculum = 1.0
         num_commands = 4 # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         resampling_time = 10.  # time before command are changed[s]
         heading_command = True # if true: compute ang vel command from heading error
-        class ranges( LeggedRobotCTSCfg.commands.ranges ):
+        class ranges( Go2RoughCommonCfg.commands.ranges ):
             lin_vel_x = [-0.5, 0.5] # min max [m/s]
             lin_vel_y = [-1.0, 1.0]   # min max [m/s]
             ang_vel_yaw = [-1, 1]    # min max [rad/s]
             heading = [-3.14, 3.14]
             
-    class domain_rand(LeggedRobotCTSCfg.domain_rand):
+    class domain_rand(Go2RoughCommonCfg.domain_rand):
         randomize_friction = True
         friction_range = [0.2, 1.7]
         randomize_base_mass = True

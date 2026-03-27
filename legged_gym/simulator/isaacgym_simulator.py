@@ -1352,21 +1352,13 @@ class IsaacGymSimulator(Simulator):
         return self._default_dof_pos[:, self._dof_indices]
     
     @property
-    def dr_joint_armature(self):
-        return self._joint_armature
-    
-    @property
-    def dr_joint_friction(self):
-        return self._joint_friction
-    
-    @property
-    def dr_joint_damping(self):
-        return self._joint_damping
-    
-    @property
     def dr_kp_scale(self):
-        return self._kp_scale[:, self._dof_indices]
+        return dr_normalize(self._kp_scale[:, self._dof_indices],
+                            self._cfg.domain_rand.kp_range[0],
+                            self._cfg.domain_rand.kp_range[1])
     
     @property
     def dr_kd_scale(self):
-        return self._kd_scale[:, self._dof_indices]
+        return dr_normalize(self._kd_scale[:, self._dof_indices],
+                            self._cfg.domain_rand.kd_range[0],
+                            self._cfg.domain_rand.kd_range[1])

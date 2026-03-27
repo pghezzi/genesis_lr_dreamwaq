@@ -1,5 +1,5 @@
 from legged_gym import *
-from legged_gym.envs.base.legged_robot_ee_config import LeggedRobotEECfg, LeggedRobotEECfgPPO
+from legged_gym.envs.base.template_cfgs import LeggedRobotEECfg, LeggedRobotEECfgPPO
 
 class TRON1PF_EECfg( LeggedRobotEECfg ):
     class env( LeggedRobotEECfg.env ):
@@ -9,8 +9,8 @@ class TRON1PF_EECfg( LeggedRobotEECfg ):
         num_estimator_features = int(num_single_obs * frame_stack) # dim of input of estimator
         num_estimator_labels = 17  # dim of output of estimator
         c_frame_stack = 10         # number of frames to stack for critic input
-        single_critic_obs_len = num_single_obs + 22 + 49 + 6 + 2 + 24 # number of elements in single step critic observation
-        num_privileged_obs = c_frame_stack * single_critic_obs_len
+        num_single_critic_obs = num_single_obs + 22 + 49 + 6 + 2 + 24 # number of elements in single step critic observation
+        num_privileged_obs = c_frame_stack * num_single_critic_obs
         # privileged_obs here is actually critic_obs
         num_actions = 6
         env_spacing = 3.0

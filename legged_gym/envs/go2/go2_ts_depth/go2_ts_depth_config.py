@@ -1,17 +1,17 @@
 from legged_gym import *
-from legged_gym.envs.base.legged_robot_ts_depth_config import LeggedRobotTSDepthCfg, LeggedRobotTSDepthCfgPPO
+from legged_gym.envs.base.template_cfgs import LeggedRobotTSDepthCfgPPO
 from legged_gym.envs.base.common_cfgs import Go2RoughCommonCfg
 
-class Go2TSDepthCfg( LeggedRobotTSDepthCfg ):
-    class env( LeggedRobotTSDepthCfg.env ):
+class Go2TSDepthCfg( Go2RoughCommonCfg ):
+    class env( Go2RoughCommonCfg.env ):
         num_envs = 3000
         num_camera_envs = 1000
         num_observations = 45
         num_privileged_obs = 241
         num_latent_dims = 32
         c_frame_stack = 5
-        single_critic_obs_len = num_observations + 31 + 15 + 3 + 48 + 144
-        num_critic_obs = c_frame_stack * single_critic_obs_len
+        num_single_critic_obs = num_observations + 31 + 15 + 3 + 48 + 144
+        num_critic_obs = c_frame_stack * num_single_critic_obs
         # Privileged_obs and critic_obs are seperated here
         # privileged_obs contains information given to privileged encoder
         # critic_obs contains information given to critic, including some privileged information
@@ -44,8 +44,6 @@ class Go2TSDepthCfg( LeggedRobotTSDepthCfg ):
             "pit_depth": "0.1 + 0.6 * difficulty"
         }
         
-    class init_state( Go2RoughCommonCfg.init_state ):
-        pass
 
     class control( Go2RoughCommonCfg.control ):
         # PD Drive parameters:
@@ -113,15 +111,13 @@ class Go2TSDepthCfg( LeggedRobotTSDepthCfg ):
         kp_range = [0.8, 1.2]
         kd_range = [0.8, 1.2]
     
-    class normalization( LeggedRobotTSDepthCfg.normalization):
+    class normalization( Go2RoughCommonCfg.normalization):
         clip_actions = 20.0
-        class obs_scales( LeggedRobotTSDepthCfg.normalization.obs_scales ):
-            pass
     
-    class sensor( LeggedRobotTSDepthCfg.sensor ):
+    class sensor( Go2RoughCommonCfg.sensor ):
         add_depth = True
         use_warp = True       # whether to use warp-based model
-        class depth_camera_config( LeggedRobotTSDepthCfg.sensor.depth_camera_config ):
+        class depth_camera_config( Go2RoughCommonCfg.sensor.depth_camera_config ):
             num_sensors = 1
             num_history = 1        # history frames for depth images
             near_clip = 0.1

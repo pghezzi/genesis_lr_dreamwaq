@@ -21,7 +21,7 @@ def override_configs(env_cfg, args, task_type):
     # override some parameters for testing
     # number of environments
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, 16)
-    if task_type == "cts": # concurrent teacher-student specific
+    if task_type == "cts" or task_type == "cts_amp": # concurrent teacher-student specific
         env_cfg.env.num_teacher = 1
     elif "depth" in task_type:  # depth specific
         env_cfg.env.num_camera_envs = 1
@@ -111,7 +111,7 @@ def interaction_loop(env, policy, args, task_type):
     # Get initial observations according to task type
     if task_type == "depth_ts":
         obs_buf, privileged_obs_buf, depth_image, critic_obs = env.get_observations()
-    elif task_type == "ts" or task_type == "cat" or task_type == "cts":
+    elif task_type == "ts" or task_type == "cat" or task_type == "cts" or task_type == "cts_amp": # teacher-student specific (including AMP)
         obs_buf, privileged_obs_buf, obs_history, critic_obs = env.get_observations()
     elif task_type == "ee":
         estimator_features, _, _ = env.get_observations()
@@ -158,6 +158,9 @@ def interaction_loop(env, policy, args, task_type):
         elif task_type == "amp":
             actions = policy(obs_buf.detach())
             obs_buf, _, rews, dones, infos, _, _ = env.step(actions.detach())
+        elif task_type == "cts_amp":
+            actions = policy(obs_buf, obs_history)
+            obs_buf, privileged_obs_buf, obs_history, critic_obs, rews, dones, infos, _, _ = env.step(actions.detach())
         else:
             actions = policy(obs_buf.detach())
             obs_buf, _, rews, dones, infos = env.step(actions.detach())
@@ -212,7 +215,7 @@ def export_policy(alg_runner, path: str, args, env_cfg, train_cfg, task_type):
     """
     if task_type == "depth_ts":
         pass
-    elif task_type == "ts" or task_type == "cat" or task_type == "cts":
+    elif task_type == "ts" or task_type == "cat" or task_type == "cts" or task_type == "cts_amp":
         exporter = PolicyExporterTS(alg_runner.alg.actor_critic)
         exporter.export(path, env_cfg, args.export_onnx, train_cfg)
     elif task_type == "ee":

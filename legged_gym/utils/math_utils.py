@@ -175,3 +175,11 @@ def quat_from_euler_xyz(roll, pitch, yaw):
     qz = sy * cr * cp - cy * sr * sp
 
     return torch.stack([qx, qy, qz, qw], dim=-1)
+
+@torch.jit.script
+def dr_normalize(x, min_val, max_val):
+    # type: (Tensor, float, float) -> Tensor
+    """ 根据输入的Tensor和最小值最大值范围, 将Tensor中的值归一化到-1到1之间。 
+        normalization for domain randomization parameters, which may have different ranges.
+    """
+    return 2 * (x - min_val) / (max_val - min_val) - 1

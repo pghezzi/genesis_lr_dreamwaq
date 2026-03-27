@@ -1,7 +1,9 @@
 from abc import ABC, abstractmethod
+import torch
 from torch import Tensor
 import numpy as np
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg
+from legged_gym.utils.math_utils import dr_normalize
 
 """ ********** Base Simulator ********** """
 class Simulator(ABC):
@@ -612,7 +614,9 @@ class Simulator(ABC):
         Returns:
             Tensor((num_envs, 1)): Friction values for domain randomization.
         """
-        return self._friction_values
+        return dr_normalize(self._friction_values, 
+                            self._cfg.domain_rand.friction_range[0], 
+                            self._cfg.domain_rand.friction_range[1])
 
     @property
     def dr_restitution_values(self):
@@ -621,8 +625,10 @@ class Simulator(ABC):
         Returns:
             Tensor((num_envs, 1)): Restitution values for domain randomization.
         """
-        return self._restitution_values
-    
+        return dr_normalize(self._restitution_values, 
+                            self._cfg.domain_rand.restitution_range[0], 
+                            self._cfg.domain_rand.restitution_range[1])
+
     @property
     def dr_added_base_mass(self):
         """Returns the added base mass for domain randomization.
@@ -630,7 +636,9 @@ class Simulator(ABC):
         Returns:
             Tensor((num_envs, 1)): Added base mass for domain randomization.
         """
-        return self._added_base_mass
+        return dr_normalize(self._added_base_mass,
+                            self._cfg.domain_rand.added_mass_range[0], 
+                            self._cfg.domain_rand.added_mass_range[1])
     
     @property
     def dr_rand_push_vels(self):
@@ -639,8 +647,10 @@ class Simulator(ABC):
         Returns:
             Tensor((num_envs, 3)): Random push velocities for domain randomization.
         """
-        return self._rand_push_vels
-    
+        return dr_normalize(self._rand_push_vels,
+                            -self._cfg.domain_rand.max_push_vel_xy,
+                            self._cfg.domain_rand.max_push_vel_xy)
+
     @property
     def dr_base_com_bias(self):
         """Returns the base COM bias for domain randomization.
@@ -648,8 +658,17 @@ class Simulator(ABC):
         Returns:
             Tensor((num_envs, 3)): Base COM bias for domain randomization.
         """
-        return self._base_com_bias
-    
+        com_bias_x = dr_normalize(self._base_com_bias[:, 0],
+                                  self._cfg.domain_rand.com_pos_x_range[0],
+                                  self._cfg.domain_rand.com_pos_x_range[1])
+        com_bias_y = dr_normalize(self._base_com_bias[:, 1],
+                                  self._cfg.domain_rand.com_pos_y_range[0],
+                                  self._cfg.domain_rand.com_pos_y_range[1])
+        com_bias_z = dr_normalize(self._base_com_bias[:, 2],
+                                  self._cfg.domain_rand.com_pos_z_range[0],
+                                  self._cfg.domain_rand.com_pos_z_range[1])
+        return torch.stack([com_bias_x, com_bias_y, com_bias_z], dim=-1)
+
     @property
     def dr_joint_armature(self):
         """Returns the joint armature for domain randomization.
@@ -657,7 +676,9 @@ class Simulator(ABC):
         Returns:
             Tensor((num_envs, num_dof)): Joint armature for domain randomization.
         """
-        return self._joint_armature
+        return dr_normalize(self._joint_armature,
+                            self._cfg.domain_rand.joint_armature_range[0],
+                            self._cfg.domain_rand.joint_armature_range[1])
     
     @property
     def dr_joint_friction(self):
@@ -666,8 +687,10 @@ class Simulator(ABC):
         Returns:
             Tensor((num_envs, num_dof)): Joint friction for domain randomization.
         """
-        return self._joint_friction
-    
+        return dr_normalize(self._joint_friction,
+                            self._cfg.domain_rand.joint_friction_range[0],
+                            self._cfg.domain_rand.joint_friction_range[1])
+
     @property
     def dr_joint_damping(self):
         """Returns the joint damping for domain randomization.
@@ -675,8 +698,10 @@ class Simulator(ABC):
         Returns:
             Tensor((num_envs, num_dof)): Joint damping for domain randomization.
         """
-        return self._joint_damping
-    
+        return dr_normalize(self._joint_damping,
+                            self._cfg.domain_rand.joint_damping_range[0],
+                            self._cfg.domain_rand.joint_damping_range[1])
+
     @property
     def dr_kp_scale(self):
         """Returns the KP scale for domain randomization.
@@ -684,8 +709,10 @@ class Simulator(ABC):
         Returns:
             Tensor((num_envs, num_dof)): KP scale for domain randomization.
         """
-        return self._kp_scale
-    
+        return dr_normalize(self._kp_scale,
+                            self._cfg.domain_rand.kp_range[0],
+                            self._cfg.domain_rand.kp_range[1])
+
     @property
     def dr_kd_scale(self):
         """Returns the KD scale for domain randomization.
@@ -693,8 +720,10 @@ class Simulator(ABC):
         Returns:
             Tensor((num_envs, num_dof)): KD scale for domain randomization.
         """
-        return self._kd_scale
-    
+        return dr_normalize(self._kd_scale,
+                            self._cfg.domain_rand.kd_range[0],
+                            self._cfg.domain_rand.kd_range[1])
+
     @property
     def dr_ctrl_delay(self):
         """Returns the control delay for domain randomization.
@@ -702,7 +731,9 @@ class Simulator(ABC):
         Returns:
             Tensor((num_envs, 1)): Control delay for domain randomization.
         """
-        return self._action_delay.unsqueeze(-1) / self._cfg.domain_rand.ctrl_delay_step_range[1]
+        return dr_normalize(self._action_delay.unsqueeze(-1),
+                            self._cfg.domain_rand.ctrl_delay_step_range[0],
+                            self._cfg.domain_rand.ctrl_delay_step_range[1])
     
     @property
     def env_origins(self):

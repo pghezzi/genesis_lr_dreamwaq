@@ -28,15 +28,12 @@ class Go2CaT(LeggedRobotTS):
         ), dim=-1)
         
         domain_randomization_info = torch.cat((
-                    (self.simulator._friction_values - 
-                    self.friction_value_offset),            # 1
+                    self.simulator._friction_values,            # 1
                     self.simulator._added_base_mass,        # 1
                     self.simulator._base_com_bias,          # 3
                     self.simulator._rand_push_vels[:, :2],  # 2
-                    (self.simulator._kp_scale - 
-                     self.kp_scale_offset),                 # num_actions
-                    (self.simulator._kd_scale - 
-                     self.kd_scale_offset),                 # num_actions
+                    self.simulator._kp_scale,                 # num_actions
+                    self.simulator._kd_scale,                 # num_actions
                     self.simulator._joint_armature,         # 1
                     self.simulator._joint_friction,        # 1
                     self.simulator._joint_damping,          # 1

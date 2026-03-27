@@ -18,12 +18,6 @@ class G1RoughCfg(G1Flat12DofCommonCfg):
         push_interval_s = 5
         max_push_vel_xy = 1.5
 
-    class control(G1Flat12DofCommonCfg.control):
-        pass
-
-    class asset(G1Flat12DofCommonCfg.asset):
-        pass
-
     class rewards(G1Flat12DofCommonCfg.rewards):
         soft_dof_pos_limit = 0.9
         base_height_target = 0.78

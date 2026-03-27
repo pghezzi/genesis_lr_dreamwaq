@@ -1,12 +1,12 @@
 from legged_gym import *
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfgPPO
-from legged_gym.envs.base.common_cfgs import G1MimicCommonCfg
+from legged_gym.envs.base.common_cfgs import G1Flat29DofCommonCfg
 
 """
 Unitree G1 DeepMimic environment configuration file.
 """
-class G1DeepMimicCfg(G1MimicCommonCfg):
-    class env(G1MimicCommonCfg.env):
+class G1DeepMimicCfg(G1Flat29DofCommonCfg):
+    class env(G1Flat29DofCommonCfg.env):
         frame_stack = 5
         ref_motion_frame_stack = 1
         ref_motion_single_obs = 125
@@ -22,7 +22,7 @@ class G1DeepMimicCfg(G1MimicCommonCfg):
         debug_draw_key_body_points = True # draw key body points for mimic tasks
         max_projected_gravity = -0.3
         
-    class domain_rand(G1MimicCommonCfg.domain_rand):
+    class domain_rand(G1Flat29DofCommonCfg.domain_rand):
         randomize_friction = True
         friction_range = [0.2, 1.25]
         randomize_base_mass = True
@@ -39,7 +39,7 @@ class G1DeepMimicCfg(G1MimicCommonCfg):
         max_push_force = 10.0 # [N], maximum magnitude of the random push force applied to each link
         push_links_interval_s = 2.0 # time interval between random pushes
 
-    class rewards(G1MimicCommonCfg.rewards):
+    class rewards(G1Flat29DofCommonCfg.rewards):
         soft_dof_pos_limit = 0.9
         base_height_target = 0.78
         tracking_dof_pos_sigma = 4.0
@@ -48,7 +48,7 @@ class G1DeepMimicCfg(G1MimicCommonCfg):
         tracking_ref_base_vel_sigma = 1.0
         tracking_ref_key_pos_sigma = 0.1
         only_positive_rewards = False
-        class scales(G1MimicCommonCfg.rewards.scales):
+        class scales(G1Flat29DofCommonCfg.rewards.scales):
             # limits
             dof_pos_limits = -5.0
             # tasks
@@ -65,7 +65,7 @@ class G1DeepMimicCfg(G1MimicCommonCfg):
             action_rate = -0.01
             feet_slip = -0.5
     
-    class normalization(G1MimicCommonCfg.normalization):
+    class normalization(G1Flat29DofCommonCfg.normalization):
         clip_actions = 100.0
 
 class G1DeepMimicCfgPPO(LeggedRobotCfgPPO):

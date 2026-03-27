@@ -3,10 +3,7 @@ from legged_gym import *
 import torch
 
 from legged_gym.envs.base.legged_robot_cts import LeggedRobotCTS
-from legged_gym.utils.math_utils import wrap_to_pi, quat_apply, torch_rand_float
-from legged_gym.utils.helpers import class_to_dict
-from collections import deque
-import random
+from legged_gym.utils.math_utils import torch_rand_float
 
 class Go2CTS(LeggedRobotCTS):
     def compute_observations(self):
@@ -21,15 +18,12 @@ class Go2CTS(LeggedRobotCTS):
         ), dim=-1)
         
         domain_randomization_info = torch.cat((
-                    (self.simulator._friction_values - 
-                    self.friction_value_offset),            # 1
+                    self.simulator._friction_values,            # 1
                     self.simulator._added_base_mass,        # 1
                     self.simulator._base_com_bias,          # 3
                     self.simulator._rand_push_vels[:, :2],  # 2
-                    (self.simulator._kp_scale - 
-                     self.kp_scale_offset),                 # num_actions
-                    (self.simulator._kd_scale - 
-                     self.kd_scale_offset),                 # num_actions
+                    self.simulator._kp_scale,                 # num_actions
+                    self.simulator._kd_scale,                 # num_actions
             ), dim=-1)
         
         # Critic observation

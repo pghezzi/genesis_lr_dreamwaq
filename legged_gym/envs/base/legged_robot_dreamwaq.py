@@ -119,7 +119,7 @@ class LeggedRobotDreamwaq(LeggedRobot):
             self.critic_obs_deque.append(
                 torch.zeros(
                     self.num_envs,
-                    self.cfg.env.single_critic_obs_len,
+                    self.cfg.env.num_single_critic_obs,
                     dtype=torch.float,
                     device=self.device,
                 )

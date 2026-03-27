@@ -1,10 +1,10 @@
 from legged_gym import *
-from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
+from legged_gym.envs.base.legged_robot_config import LeggedRobotCfgPPO
 from legged_gym.envs.base.common_cfgs import K1FlatCommonCfg
 
 
 class K1Cfg(K1FlatCommonCfg):
-    class env(LeggedRobotCfg.env):
+    class env(K1FlatCommonCfg.env):
         frame_stack = 5
         num_single_obs = 75
         num_observations = int(num_single_obs * frame_stack)
@@ -14,13 +14,7 @@ class K1Cfg(K1FlatCommonCfg):
         num_actions = 22
         max_projected_gravity = -0.3
 
-    class control(K1FlatCommonCfg.control):
-        pass
-
-    class asset(K1FlatCommonCfg.asset):
-        pass
-
-    class rewards(LeggedRobotCfg.rewards):
+    class rewards(K1FlatCommonCfg.rewards):
         soft_dof_pos_limit = 0.99
         base_height_target = 0.54
         foot_height_offset = 0.038
@@ -29,7 +23,7 @@ class K1Cfg(K1FlatCommonCfg):
         about_landing_threshold = 0.04
 
         only_positive_rewards = False
-        class scales(LeggedRobotCfg.rewards.scales):
+        class scales(K1FlatCommonCfg.rewards.scales):
             dof_pos_limits = -1.0
             tracking_lin_vel = 1.0
             tracking_ang_vel = 1.0
@@ -78,7 +72,7 @@ class K1Cfg(K1FlatCommonCfg):
         kp_range = [0.8, 1.2]
         kd_range = [0.8, 1.2]
     
-    class commands(LeggedRobotCfg.commands):
+    class commands(K1FlatCommonCfg.commands):
         curriculum = True
         max_curriculum = 1.
         resampling_time = 5.0

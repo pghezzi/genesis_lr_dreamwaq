@@ -16,8 +16,7 @@ class LeggedRobotTSDepth(LeggedRobot):
         
         # Domain Randomization info
         domain_randomization_info = torch.cat((
-                    (self.simulator._friction_values - 
-                    self.friction_value_offset),            # 1
+                    self.simulator._friction_values,            # 1
                     self.simulator._added_base_mass,        # 1
                     self.simulator._base_com_bias,          # 3
                     self.simulator._rand_push_vels,         # 3
@@ -112,7 +111,7 @@ class LeggedRobotTSDepth(LeggedRobot):
             self.critic_obs_deque.append(
                 torch.zeros(
                     self.num_envs,
-                    self.cfg.env.single_critic_obs_len,
+                    self.cfg.env.num_single_critic_obs,
                     dtype=torch.float,
                     device=self.device,
                 )

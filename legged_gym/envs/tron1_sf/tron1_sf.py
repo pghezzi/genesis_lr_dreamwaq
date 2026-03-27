@@ -36,16 +36,13 @@ class TRON1SF(LeggedRobot):
                     self.simulator.base_lin_vel * self.obs_scales.lin_vel, # 3
                     obs_buf,
                     self.last_actions,                      # num_actions
-                    (self.simulator.dr_friction_values - 
-                    self.friction_value_offset),            # 1
+                    self.simulator.dr_friction_values,            # 1
                     self.simulator.dr_added_base_mass,        # 1
                     self.simulator.dr_base_com_bias,          # 3
                     self.simulator.dr_rand_push_vels[:, :2],  # 2
                     self.feet_air_time,                     # 2
-                    (self.simulator.dr_kp_scale - 
-                     self.kp_scale_offset),                 # num_actions
-                    (self.simulator.dr_kd_scale - 
-                     self.kd_scale_offset),                 # num_actions
+                    self.simulator.dr_kp_scale,                 # num_actions
+                    self.simulator.dr_kd_scale,                 # num_actions
                     self.simulator.dr_joint_armature,
                     self.simulator.dr_joint_friction,
                     self.simulator.dr_joint_damping,

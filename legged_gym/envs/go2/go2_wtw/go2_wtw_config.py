@@ -1,9 +1,9 @@
 from legged_gym import SIMULATOR
-from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
+from legged_gym.envs.base.legged_robot_config import LeggedRobotCfgPPO
 from legged_gym.envs.base.common_cfgs import Go2FlatCommonCfg
 
-class GO2WTWCfg(LeggedRobotCfg):
-    class env(LeggedRobotCfg.env):
+class GO2WTWCfg(Go2FlatCommonCfg):
+    class env(Go2FlatCommonCfg.env):
         num_envs = 4096
         num_actions = 12
         # observation history
@@ -14,16 +14,8 @@ class GO2WTWCfg(LeggedRobotCfg):
         single_num_privileged_obs = num_single_obs + 38
         num_privileged_obs = int(c_frame_stack * single_num_privileged_obs)
         env_spacing = 1.0
-
-    class terrain(Go2FlatCommonCfg.terrain):
-        pass
-    class init_state(Go2FlatCommonCfg.init_state):
-        pass
-    class control(Go2FlatCommonCfg.control):
-        pass
-    class asset(Go2FlatCommonCfg.asset):
-        pass
-    class rewards(LeggedRobotCfg.rewards):
+        
+    class rewards(Go2FlatCommonCfg.rewards):
         soft_dof_pos_limit = 0.9
         base_height_tracking_sigma = 0.01
         foot_height_offset = 0.022 # height of the foot coordinate origin above ground [m]
@@ -31,7 +23,7 @@ class GO2WTWCfg(LeggedRobotCfg):
         euler_tracking_sigma = 0.1
         about_landing_threshold = 0.03
         only_positive_rewards = True
-        class scales(LeggedRobotCfg.rewards.scales):
+        class scales(Go2FlatCommonCfg.rewards.scales):
             # limitation
             dof_pos_limits = -10.0
             collision = -1.0
@@ -72,7 +64,7 @@ class GO2WTWCfg(LeggedRobotCfg):
             base_height_target_range = [0.2, 0.34]
             pitch_target_range = [-0.3, 0.3]
             
-    class commands(LeggedRobotCfg.commands):
+    class commands(Go2FlatCommonCfg.commands):
         curriculum = True
         max_curriculum = 1.
         # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
@@ -80,13 +72,13 @@ class GO2WTWCfg(LeggedRobotCfg):
         resampling_time = 8.  # time before command are changed[s]
         heading_command = True  # if true: compute ang vel command from heading error
 
-        class ranges(LeggedRobotCfg.commands.ranges):
+        class ranges(Go2FlatCommonCfg.commands.ranges):
             lin_vel_x = [-0.5, 0.5]  # min max [m/s]
             lin_vel_y = [-1.0, 1.0]   # min max [m/s]
             ang_vel_yaw = [-1, 1]    # min max [rad/s]
             heading = [-3.14, 3.14]
 
-    class domain_rand(LeggedRobotCfg.domain_rand):
+    class domain_rand(Go2FlatCommonCfg.domain_rand):
         enable = True
         randomize_friction = enable
         friction_range = [0.2, 1.7]

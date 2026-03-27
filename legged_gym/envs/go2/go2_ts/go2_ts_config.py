@@ -1,5 +1,5 @@
 from legged_gym import *
-from legged_gym.envs.base.legged_robot_ts_config import LeggedRobotTSCfgPPO
+from legged_gym.envs.base.template_cfgs import LeggedRobotTSCfgPPO
 from legged_gym.envs.base.common_cfgs import Go2RoughCommonCfg
 
 class Go2TSCfg( Go2RoughCommonCfg ):
@@ -11,8 +11,8 @@ class Go2TSCfg( Go2RoughCommonCfg ):
         num_history_obs = int(num_observations * frame_stack)
         num_latent_dims = num_privileged_obs
         c_frame_stack = 5
-        single_critic_obs_len = num_observations + 31 + 81 + 17 + 3
-        num_critic_obs = c_frame_stack * single_critic_obs_len
+        num_single_critic_obs = num_observations + 31 + 81 + 17 + 3
+        num_critic_obs = c_frame_stack * num_single_critic_obs
         # Privileged_obs and critic_obs are seperated here
         # privileged_obs contains information given to privileged encoder
         # critic_obs contains information given to critic, including some privileged information

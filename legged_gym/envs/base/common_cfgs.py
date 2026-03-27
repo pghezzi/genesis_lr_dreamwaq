@@ -175,8 +175,8 @@ class G1Flat12DofCommonCfg(LeggedRobotCfg):
         ]
 
 
-#----- Common configuration for Unitree G1 DeepMimic (29DOF) -----#
-class G1MimicCommonCfg(LeggedRobotCfg):
+#----- Common configuration for Unitree G1 flat ground (29DOF) -----#
+class G1Flat29DofCommonCfg(LeggedRobotCfg):
     class init_state(LeggedRobotCfg.init_state):
         pos = [0.0, 0.0, 0.8]  # x,y,z [m]
         default_joint_angles = {

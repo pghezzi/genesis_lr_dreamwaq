@@ -33,7 +33,7 @@ class G1DeepMimic(LeggedRobot):
         
         # domain randomization params
         domain_params = torch.cat((
-            self.simulator.dr_friction_values - self.friction_value_offset,
+            self.simulator.dr_friction_values,
             self.simulator.dr_added_base_mass,
             self.simulator.dr_base_com_bias,
             self.simulator.dr_rand_push_vels,

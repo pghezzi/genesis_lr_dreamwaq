@@ -1,17 +1,10 @@
 from legged_gym import *
-from time import time
-import numpy as np
-import os
 
 import torch
-from torch import Tensor
-from typing import Tuple, Dict
 
 from legged_gym import LEGGED_GYM_ROOT_DIR
 from legged_gym.envs.base.legged_robot import LeggedRobot
 from legged_gym.utils.math_utils import torch_rand_float
-from legged_gym.utils.helpers import class_to_dict
-from .go2_config import GO2Cfg
 
 class GO2(LeggedRobot):
     def _reset_dofs(self, env_ids):

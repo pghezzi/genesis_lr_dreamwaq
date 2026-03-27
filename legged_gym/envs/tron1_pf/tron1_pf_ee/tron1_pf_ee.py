@@ -23,15 +23,12 @@ class TRON1PF_EE(LeggedRobotEE):
         ), dim=-1)
         
         domain_randomization_info = torch.cat((
-                    (self.simulator.dr_friction_values - 
-                    self.friction_value_offset),            # 1
+                    self.simulator.dr_friction_values,            # 1
                     self.simulator.dr_added_base_mass,        # 1
                     self.simulator.dr_base_com_bias,          # 3
                     self.simulator.dr_rand_push_vels[:, :2],  # 2
-                    (self.simulator.dr_kp_scale - 
-                     self.kp_scale_offset),                 # num_actions
-                    (self.simulator.dr_kd_scale - 
-                     self.kd_scale_offset),                 # num_actions
+                    self.simulator.dr_kp_scale,                 # num_actions
+                    self.simulator.dr_kd_scale,                 # num_actions
                     self.simulator.dr_joint_armature,       # 1
                     self.simulator.dr_joint_friction,       # 1
                     self.simulator.dr_joint_damping,        # 1
@@ -119,7 +116,7 @@ class TRON1PF_EE(LeggedRobotEE):
             self.critic_obs_deque.append(
                 torch.zeros(
                     self.num_envs,
-                    self.cfg.env.single_critic_obs_len,
+                    self.cfg.env.num_single_critic_obs,
                     dtype=torch.float,
                     device=self.device,
                 )
