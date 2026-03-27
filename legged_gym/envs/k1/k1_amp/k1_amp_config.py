@@ -15,7 +15,7 @@ class K1AMPCfg(K1FlatCommonCfg):
         num_single_obs = 75
         num_observations = int(num_single_obs * frame_stack)
         c_frame_stack = 5
-        num_single_critic_obs = num_single_obs + 56
+        num_single_critic_obs = num_single_obs + 60
         num_privileged_obs = int(num_single_critic_obs * c_frame_stack)
         num_actions = 22
         amp_motion_files = MOTION_FILES
@@ -42,7 +42,7 @@ class K1AMPCfg(K1FlatCommonCfg):
             # smooth
             lin_vel_z = -2.0
             ang_vel_xy = -0.05
-            orientation = -1.0
+            orientation = -2.0
             dof_acc = -2.5e-7
             dof_power = -1.e-4
             collision = -1.0
@@ -90,7 +90,7 @@ class K1AMPCfg(K1FlatCommonCfg):
         max_curriculum = 1.
         resampling_time = 10.0
         heading_command = True
-        zero_cmd_prob = 0.3
+        zero_cmd_prob = 0.4
         class ranges:
             lin_vel_x = [-0.5, 0.5] # min max [m/s]
             lin_vel_y = [-0.4, 0.4]   # min max [m/s]
