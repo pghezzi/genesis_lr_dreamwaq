@@ -162,6 +162,19 @@ def process_single_motion_file(env, motion_file_path, output_dir):
 
 
 def main(args):
+    # Determine input motion file or directory
+    # Determine input motion file(s)
+    motion_file_dir = LEGGED_GYM_ROOT_DIR + "/resources/reference_motion/"
+    if args.motion_file is not None:
+        # Use specified motion file
+        motion_input_path = os.path.join(motion_file_dir, args.motion_file)
+    else:
+        # Use motion_file from config
+        motion_input_path = os.path.join(motion_file_dir, env_cfg.env.motion_file)
+    # if input motion is a directory, set headless to True to avoid rendering overhead during processing
+    if os.path.isdir(motion_input_path):
+        args.headless = True
+        
     if SIMULATOR == "genesis":
         gs.init(
             backend=gs.cpu if args.cpu else gs.gpu,
@@ -174,16 +187,6 @@ def main(args):
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
     env.reset()
-    
-    # Determine input motion file(s)
-    motion_file_dir = LEGGED_GYM_ROOT_DIR + "/resources/reference_motion/"
-    
-    if args.motion_file is not None:
-        # Use specified motion file
-        motion_input_path = os.path.join(motion_file_dir, args.motion_file)
-    else:
-        # Use motion_file from config
-        motion_input_path = os.path.join(motion_file_dir, env_cfg.env.motion_file)
     
     # Determine output directory
     if args.motion_out_dir is not None:
