@@ -30,7 +30,7 @@ class K1AMPCfg(K1FlatCommonCfg):
         base_height_target = 0.54
         foot_height_offset = 0.038
         foot_clearance_target = 0.10
-        foot_distance_threshold = 0.15
+        foot_distance_threshold = 0.14
         about_landing_threshold = 0.04
         only_positive_rewards = False
         class scales(K1FlatCommonCfg.rewards.scales):
@@ -49,7 +49,7 @@ class K1AMPCfg(K1FlatCommonCfg):
             # regularization
             feet_distance = -100.0
             hip_yaw_roll_pos = -0.1
-            arm_pos = -0.05
+            arm_pos = -0.04
             feet_slip = -0.5
             foot_flat = 0.2
             feet_air_time = 1.0
@@ -94,9 +94,9 @@ class K1AMPCfgPPO(LeggedRobotAMPCfgPPO):
         amp_motion_files = MOTION_FILES
         amp_num_preload_transitions = K1AMPCfg.env.num_envs * LeggedRobotAMPCfgPPO.runner.num_steps_per_env * 10
         amp_discr_hidden_dims = [1024, 512]
-        amp_task_reward_lerp = 0.6                 # 任务奖励混合比例
+        amp_task_reward_lerp = 0.5                 # 任务奖励混合比例
         
-        max_iterations = 30000
+        max_iterations = 20000
         save_interval = 200
         run_name = f'k1_amp_{SIMULATOR}'
         experiment_name = 'k1_amp'
