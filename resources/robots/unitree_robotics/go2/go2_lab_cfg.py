@@ -1,4 +1,4 @@
-from isaaclab.actuators import DCMotorCfg, IdealPDActuatorCfg
+from isaaclab.actuators import DCMotorCfg
 
 GO2_ACTUATOR_CFG = {
     "hip_thigh": DCMotorCfg(

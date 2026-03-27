@@ -1,5 +1,5 @@
 """Isaac Lab actuator config for Booster K1."""
-from isaaclab.actuators import DCMotorCfg
+from isaaclab.actuators import IdealPDActuatorCfg
 
 BOOSTER_ARMATURE_6416 = 0.095625
 BOOSTER_ARMATURE_4310 = 0.0282528
@@ -11,7 +11,7 @@ BOOSTER_ARMATURE_ROB_14 = 0.001
 
 # Effort/velocity from k1_22dof.urdf; stiffness/damping applied in _compute_torques
 K1_ACTUATOR_CFG = {
-    "legs": DCMotorCfg(
+    "legs": IdealPDActuatorCfg(
         joint_names_expr=[
                 ".*_Hip_Pitch",
                 ".*_Hip_Roll",
@@ -23,35 +23,35 @@ K1_ACTUATOR_CFG = {
                 ".*_Hip_Roll": 35.,
                 ".*_Hip_Yaw": 20.,
                 ".*_Knee_Pitch": 40.,
-            },
-            effort_limit_sim={
-                ".*_Hip_Pitch": 30.,
-                ".*_Hip_Roll": 35.,
-                ".*_Hip_Yaw": 20.,
-                ".*_Knee_Pitch": 40.,
-            },
-            velocity_limit={
-                ".*_Hip_Pitch": 7.1,
-                ".*_Hip_Roll": 12.9,
-                ".*_Hip_Yaw": 18.1,
-                ".*_Knee_Pitch": 12.5,
-            },
-            velocity_limit_sim={
-                ".*_Hip_Pitch": 7.1,
-                ".*_Hip_Roll": 12.9,
-                ".*_Hip_Yaw": 18.1,
-                ".*_Knee_Pitch": 12.5,
-            },
-            stiffness=0.0,
-            damping=0.0,
-            armature={
-                ".*_Hip_Pitch": BOOSTER_ARMATURE_6408,
-                ".*_Hip_Roll": BOOSTER_ARMATURE_4315,
-                ".*_Hip_Yaw": BOOSTER_ARMATURE_4310,
-                ".*_Knee_Pitch": BOOSTER_ARMATURE_6416,
-            },
+        },
+        effort_limit_sim={
+            ".*_Hip_Pitch": 30.,
+            ".*_Hip_Roll": 35.,
+            ".*_Hip_Yaw": 20.,
+            ".*_Knee_Pitch": 40.,
+        },
+        velocity_limit={
+            ".*_Hip_Pitch": 7.1,
+            ".*_Hip_Roll": 12.9,
+            ".*_Hip_Yaw": 18.1,
+            ".*_Knee_Pitch": 12.5,
+        },
+        velocity_limit_sim={
+            ".*_Hip_Pitch": 7.1,
+            ".*_Hip_Roll": 12.9,
+            ".*_Hip_Yaw": 18.1,
+            ".*_Knee_Pitch": 12.5,
+        },
+        stiffness=0.0,
+        damping=0.0,
+        armature={
+            ".*_Hip_Pitch": BOOSTER_ARMATURE_6408,
+            ".*_Hip_Roll": BOOSTER_ARMATURE_4315,
+            ".*_Hip_Yaw": BOOSTER_ARMATURE_4310,
+            ".*_Knee_Pitch": BOOSTER_ARMATURE_6416,
+        },
     ),
-    "feet": DCMotorCfg(
+    "feet": IdealPDActuatorCfg(
         effort_limit_sim=20.0,
         effort_limit=20.0,
         velocity_limit_sim=18.1,
@@ -61,47 +61,47 @@ K1_ACTUATOR_CFG = {
         damping=0.0,
         armature=2.0 * BOOSTER_ARMATURE_4310,
     ),
-    "arms": DCMotorCfg(
+    "arms": IdealPDActuatorCfg(
         joint_names_expr=[
-                ".*_Shoulder_Pitch",
-                ".*_Shoulder_Roll",
-                ".*_Elbow_Pitch",
-                ".*_Elbow_Yaw",
-            ],
-            effort_limit_sim={
-                ".*_Shoulder_Pitch": 14.0,
-                ".*_Shoulder_Roll": 14.0,
-                ".*_Elbow_Pitch": 14.0,
-                ".*_Elbow_Yaw": 14.0,
-            },
-            effort_limit={
-                ".*_Shoulder_Pitch": 14.0,
-                ".*_Shoulder_Roll": 14.0,
-                ".*_Elbow_Pitch": 14.0,
-                ".*_Elbow_Yaw": 14.0,
-            },
-            velocity_limit_sim={
-                ".*_Shoulder_Pitch": 18.0,
-                ".*_Shoulder_Roll": 18.0,
-                ".*_Elbow_Pitch": 18.0,
-                ".*_Elbow_Yaw": 18.0,
-            },
-            velocity_limit={
-                ".*_Shoulder_Pitch": 18.0,
-                ".*_Shoulder_Roll": 18.0,
-                ".*_Elbow_Pitch": 18.0,
-                ".*_Elbow_Yaw": 18.0,
-            },
-            stiffness=0.0,
-            damping=0.0,
-            armature={
-                ".*_Shoulder_Pitch": BOOSTER_ARMATURE_ROB_14,
-                ".*_Shoulder_Roll": BOOSTER_ARMATURE_ROB_14,
-                ".*_Elbow_Pitch": BOOSTER_ARMATURE_ROB_14,
-                ".*_Elbow_Yaw": BOOSTER_ARMATURE_ROB_14,
-            },
+            ".*_Shoulder_Pitch",
+            ".*_Shoulder_Roll",
+            ".*_Elbow_Pitch",
+            ".*_Elbow_Yaw",
+        ],
+        effort_limit_sim={
+            ".*_Shoulder_Pitch": 14.0,
+            ".*_Shoulder_Roll": 14.0,
+            ".*_Elbow_Pitch": 14.0,
+            ".*_Elbow_Yaw": 14.0,
+        },
+        effort_limit={
+            ".*_Shoulder_Pitch": 14.0,
+            ".*_Shoulder_Roll": 14.0,
+            ".*_Elbow_Pitch": 14.0,
+            ".*_Elbow_Yaw": 14.0,
+        },
+        velocity_limit_sim={
+            ".*_Shoulder_Pitch": 18.0,
+            ".*_Shoulder_Roll": 18.0,
+            ".*_Elbow_Pitch": 18.0,
+            ".*_Elbow_Yaw": 18.0,
+        },
+        velocity_limit={
+            ".*_Shoulder_Pitch": 18.0,
+            ".*_Shoulder_Roll": 18.0,
+            ".*_Elbow_Pitch": 18.0,
+            ".*_Elbow_Yaw": 18.0,
+        },
+        stiffness=0.0,
+        damping=0.0,
+        armature={
+            ".*_Shoulder_Pitch": BOOSTER_ARMATURE_ROB_14,
+            ".*_Shoulder_Roll": BOOSTER_ARMATURE_ROB_14,
+            ".*_Elbow_Pitch": BOOSTER_ARMATURE_ROB_14,
+            ".*_Elbow_Yaw": BOOSTER_ARMATURE_ROB_14,
+        },
     ),
-    "head": DCMotorCfg(
+    "head": IdealPDActuatorCfg(
         joint_names_expr=[".*Head.*"],
         effort_limit_sim=6.0,
         effort_limit=6.0,
