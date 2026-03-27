@@ -69,7 +69,8 @@ def override_configs(env_cfg, args, task_type):
         
         
     env_cfg.env.debug = True
-    env_cfg.commands.ranges.lin_vel_x = [1.0, 1.0]
+    env_cfg.commands.zero_cmd_prob = 0.0
+    env_cfg.commands.ranges.lin_vel_x = [0.0, 0.0]
     env_cfg.commands.ranges.lin_vel_y = [0.0, 0.0]
     env_cfg.commands.ranges.ang_vel_yaw = [0.0, 0.0]
     
@@ -91,6 +92,7 @@ def print_debug_info(env, robot_index):
     # print(f"knee pitch: {env.simulator.dof_pos[robot_index, [13,19]].cpu().numpy()}")
     # print(f"feet distance: {torch.norm(env.simulator.feet_pos[robot_index, 0, [0, 1]] - env.simulator.feet_pos[robot_index, 1, [0, 1]]).item()}")
     # print(f"actions: {env.simulator.dof_pos[robot_index].cpu().numpy()}")
+    # print(f"command: {env.commands[robot_index].cpu().numpy()}")
     pass
 
 def interaction_loop(env, policy, args, task_type):

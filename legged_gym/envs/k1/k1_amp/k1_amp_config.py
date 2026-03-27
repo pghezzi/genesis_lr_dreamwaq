@@ -14,7 +14,7 @@ class K1AMPCfg(K1FlatCommonCfg):
         num_single_obs = 75
         num_observations = int(num_single_obs * frame_stack)
         c_frame_stack = 5
-        num_single_critic_obs = num_single_obs + 70
+        num_single_critic_obs = num_single_obs + 72
         num_privileged_obs = int(num_single_critic_obs * c_frame_stack)
         num_actions = 22
         amp_motion_files = MOTION_FILES
@@ -30,7 +30,7 @@ class K1AMPCfg(K1FlatCommonCfg):
         base_height_target = 0.54
         foot_height_offset = 0.038
         foot_clearance_target = 0.10
-        foot_distance_threshold = 0.14
+        foot_distance_threshold = 0.16
         about_landing_threshold = 0.04
         only_positive_rewards = False
         class scales(K1FlatCommonCfg.rewards.scales):
@@ -51,9 +51,22 @@ class K1AMPCfg(K1FlatCommonCfg):
             hip_yaw_roll_pos = -0.1
             arm_pos = -0.04
             feet_slip = -0.5
+            foot_clearance = 0.5
             foot_flat = 0.2
-            feet_air_time = 1.0
+            biped_periodic_gait = 1.0
             feet_contact_stand_still = 0.5
+            dof_close_to_default_stand_still = -0.5
+        
+        class periodic_reward_framework:
+            '''Periodic reward framework in OSU's paper(https://arxiv.org/abs/2011.01387)'''
+            gait_function_type = "step" # can be "step" or "smooth"
+            kappa = 20
+            # start of swing(a_swing) is all the same
+            b_swing = 0.5
+            # phase offset of left and right legs
+            theta_left = 0.0
+            theta_right = 0.5
+            gait_period = 0.8  # [s]
     
     class domain_rand(K1FlatCommonCfg.domain_rand):
         randomize_friction = True
@@ -76,12 +89,15 @@ class K1AMPCfg(K1FlatCommonCfg):
         max_curriculum = 1.
         resampling_time = 10.0
         heading_command = True
-        zero_cmd_prob = 0.1
+        zero_cmd_prob = 0.3
         class ranges:
             lin_vel_x = [-0.5, 0.5] # min max [m/s]
             lin_vel_y = [-0.4, 0.4]   # min max [m/s]
             ang_vel_yaw = [-1.0, 1.0]    # min max [rad/s]
             heading = [-3.14, 3.14]
+    
+    class viewer(K1FlatCommonCfg.viewer):
+        pos = [1.0, 1.0, 0.5]
 
 class K1AMPCfgPPO(LeggedRobotAMPCfgPPO):
     class policy(LeggedRobotAMPCfgPPO.policy):
