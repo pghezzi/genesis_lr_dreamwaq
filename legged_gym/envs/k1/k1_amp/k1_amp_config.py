@@ -37,7 +37,7 @@ class K1AMPCfg(K1FlatCommonCfg):
         class scales(K1FlatCommonCfg.rewards.scales):
             # task
             tracking_lin_vel = 1.0
-            tracking_ang_vel = 1.0
+            tracking_ang_vel = 1.2
             keep_balance = 1.0
             # smooth
             lin_vel_z = -2.0
@@ -50,7 +50,7 @@ class K1AMPCfg(K1FlatCommonCfg):
             # regularization
             feet_distance = -100.0
             hip_yaw_roll_pos = -0.1
-            arm_pos = -0.04
+            arm_pos = -0.02
             feet_slip = -0.5
             foot_clearance = 0.5
             foot_flat = 0.2
@@ -114,7 +114,7 @@ class K1AMPCfgPPO(LeggedRobotAMPCfgPPO):
             "mirror_loss_coeff": 0.1,
         }
     class runner( LeggedRobotAMPCfgPPO.runner ):
-        amp_reward_coef = 3.0 * K1AMPCfg.control.dt # consistent with other rewards by multiplying dt
+        amp_reward_coef = 1.0 * K1AMPCfg.control.dt # consistent with other rewards by multiplying dt
         amp_motion_files = MOTION_FILES
         amp_num_preload_transitions = K1AMPCfg.env.num_envs * LeggedRobotAMPCfgPPO.runner.num_steps_per_env * 10
         amp_discr_hidden_dims = [1024, 512]
