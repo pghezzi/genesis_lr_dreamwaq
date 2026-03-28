@@ -76,8 +76,8 @@ class K1DeepMimic(LeggedRobot):
             # The dof state and root state is reset correctly, but the rigid body state is not updated
             _ = np.random.random()
             if self.cfg.init_state.reference_state_initialization and _ < self.cfg.init_state.reference_state_initialization_prob:
-                self._reset_dofs_reference(ref_time_out_env_ids)
-                self._reset_root_states_reference(ref_time_out_env_ids)
+                self._reset_dofs_from_reference_motion(ref_time_out_env_ids)
+                self._reset_root_states_from_reference_motion(ref_time_out_env_ids)
             else:
                 self._reset_root_states(ref_time_out_env_ids)
                 self._reset_dofs(ref_time_out_env_ids)
@@ -102,8 +102,8 @@ class K1DeepMimic(LeggedRobot):
         self._resample_commands(env_ids)
         _ = np.random.random()
         if self.cfg.init_state.reference_state_initialization and _ < self.cfg.init_state.reference_state_initialization_prob:
-            self._reset_dofs_reference(env_ids)
-            self._reset_root_states_reference(env_ids)
+            self._reset_dofs_from_reference_motion(env_ids)
+            self._reset_root_states_from_reference_motion(env_ids)
         else:
             self._reset_dofs(env_ids)
             self._reset_root_states(env_ids)
@@ -140,7 +140,7 @@ class K1DeepMimic(LeggedRobot):
         for i in range(self.critic_obs_deque.maxlen):
             self.critic_obs_deque[i][env_ids] *= 0
     
-    def _reset_dofs_reference(self, env_ids):
+    def _reset_dofs_from_reference_motion(self, env_ids):
         # reset dofs to match the reference motion at the current frame index
         dof_pos = self.motion_loader.get_ref_dof_pos(env_ids)
         dof_vel = self.motion_loader.get_ref_dof_vel(env_ids)
@@ -164,10 +164,10 @@ class K1DeepMimic(LeggedRobot):
         dof_pos[:, [14,20]] = default[:, [14,20]] + torch_rand_float(-0.1, 0.1, (len(env_ids), 2), self.device)
         self.simulator.reset_dofs(env_ids, dof_pos, dof_vel)
 
-    def _reset_root_states_reference(self, env_ids):
+    def _reset_root_states_from_reference_motion(self, env_ids):
         # reset root states to match the reference motion at the current frame index
         root_pos = self.motion_loader.get_ref_base_pos(env_ids) + self.simulator.env_origins[env_ids]
-        root_pos[:, 2] += 0.05 # add a small vertical offset to avoid initial penetration
+        root_pos[:, 2] = self.simulator.base_init_pos[2] # set the vertical position to the default value to avoid initial penetration
         root_rot = self.motion_loader.get_ref_base_quat(env_ids)
         root_lin_vel = self.motion_loader.get_ref_base_lin_vel(env_ids)
         root_ang_vel = self.motion_loader.get_ref_base_ang_vel(env_ids)

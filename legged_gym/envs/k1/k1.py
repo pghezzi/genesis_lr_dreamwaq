@@ -116,7 +116,7 @@ class K1Robot(LeggedRobot):
             self.clock_input[:, i + 2] = torch.cos(2 * torch.pi * (self.phi + self.theta[:, i].unsqueeze(1))).squeeze(-1)
 
     def _get_noise_scale_vec(self):
-        noise_vec = torch.zeros_like(self.cfg.env.num_single_obs)
+        noise_vec = torch.zeros(self.cfg.env.num_single_obs, device=self.device)
         self.add_noise = self.cfg.noise.add_noise
         noise_scales = self.cfg.noise.noise_scales
         noise_level = self.cfg.noise.noise_level

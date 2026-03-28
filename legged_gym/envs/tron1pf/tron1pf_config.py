@@ -39,7 +39,7 @@ class TRON1PFCfg( LeggedRobotCfg ):
 
     class asset( LeggedRobotCfg.asset ):
         # Common
-        name = "tron1_pf"
+        name = "tron1pf"
         file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/limx_dynamics/PF_TRON1A/urdf/robot.urdf'
         foot_name = "foot"
         penalize_contacts_on = ["knee", "hip"]

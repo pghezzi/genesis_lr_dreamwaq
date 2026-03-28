@@ -84,14 +84,14 @@ from legged_gym.envs.go2.go2_nav.go2_nav import GO2Nav
 from legged_gym.envs.go2.go2_nav.go2_nav_config import GO2NavCfg, GO2NavCfgPPO
 
 # tron1_pf
-from legged_gym.envs.tron1_pf.tron1_pf import TRON1PF
-from legged_gym.envs.tron1_pf.tron1_pf_config import TRON1PFCfg, TRON1PFCfgPPO
+from legged_gym.envs.tron1pf.tron1pf import TRON1PF
+from legged_gym.envs.tron1pf.tron1pf_config import TRON1PFCfg, TRON1PFCfgPPO
 # tron_pf_ee
-from legged_gym.envs.tron1_pf.tron1_pf_ee.tron1_pf_ee import TRON1PF_EE
-from legged_gym.envs.tron1_pf.tron1_pf_ee.tron1_pf_ee_config import TRON1PF_EECfg, TRON1PF_EECfgPPO
+from legged_gym.envs.tron1pf.tron1pf_ee.tron1pf_ee import TRON1PF_EE
+from legged_gym.envs.tron1pf.tron1pf_ee.tron1pf_ee_config import TRON1PF_EECfg, TRON1PF_EECfgPPO
 # tron1_sf
-from legged_gym.envs.tron1_sf.tron1_sf import TRON1SF
-from legged_gym.envs.tron1_sf.tron1_sf_config import TRON1SFCfg, TRON1SFCfgPPO
+from legged_gym.envs.tron1sf.tron1sf import TRON1SF
+from legged_gym.envs.tron1sf.tron1sf_config import TRON1SFCfg, TRON1SFCfgPPO
 # bipedal_walker
 from legged_gym.envs.bipedal_walker.bipedal_walker_config import BipedalWalkerCfg, BipedalWalkerCfgPPO
 from legged_gym.envs.bipedal_walker.bipedal_walker import BipedalWalker
@@ -104,12 +104,12 @@ from legged_gym.utils.task_registry import task_registry
 
 task_registry.register("k1", K1Robot, K1Cfg(), K1CfgPPO())
 task_registry.register("k1_deepmimic", K1DeepMimic, K1DeepMimicCfg(), K1DeepMimicCfgPPO())
-task_registry.register("k1_motion_vis", K1MotionVis, K1MotionVisCfg(), LeggedRobotCfgPPO()) # for motion visualization
+task_registry.register("k1_motion_vis", K1MotionVis, K1MotionVisCfg(), LeggedRobotCfgPPO()) # for motion visualization, not for training
 task_registry.register("k1_amp", K1AMP, K1AMPCfg(), K1AMPCfgPPO())
-task_registry.register("k1_cts_amp", K1_CTS_AMP, K1_CTS_AMPCfg(), K1_CTS_AMPCfgPPO())
+# task_registry.register("k1_cts_amp", K1_CTS_AMP, K1_CTS_AMPCfg(), K1_CTS_AMPCfgPPO()) # unvalidated
 task_registry.register("g1", G1Robot, G1RoughCfg(), G1RoughCfgPPO())
 task_registry.register("g1_deepmimic", G1DeepMimic, G1DeepMimicCfg(), G1DeepMimicCfgPPO())
-task_registry.register("g1_motion_vis", G1MotionVis, G1MotionVisCfg(), LeggedRobotCfgPPO()) # for motion visualization
+task_registry.register("g1_motion_vis", G1MotionVis, G1MotionVisCfg(), LeggedRobotCfgPPO()) # for motion visualization, not for training
 task_registry.register( "go2", GO2, GO2Cfg(), GO2CfgPPO())
 task_registry.register( "go2_wtw", GO2WTW, GO2WTWCfg(), GO2WTWCfgPPO())
 task_registry.register( "go2_ts", Go2TS, Go2TSCfg(), Go2TSCfgPPO())
@@ -117,7 +117,7 @@ task_registry.register( "go2_ee", Go2EE, Go2EECfg(), Go2EECfgPPO())
 task_registry.register( "go2_cts", Go2CTS, Go2CTSCfg(), Go2CTSCfgPPO())
 task_registry.register( "go2_dreamwaq", Go2Dreamwaq, Go2DreamwaqCfg(), Go2DreamwaqCfgPPO())
 task_registry.register( "go2_cat", Go2CaT, Go2CaTCfg(), Go2CaTCfgPPO())
-task_registry.register( "go2_ts_depth", Go2TSDepth, Go2TSDepthCfg(), Go2TSDepthCfgPPO())
+# task_registry.register( "go2_ts_depth", Go2TSDepth, Go2TSDepthCfg(), Go2TSDepthCfgPPO()) # unvalidated
 task_registry.register( "go2_nav", GO2Nav, GO2NavCfg(), GO2NavCfgPPO())
 task_registry.register( "tron1pf", TRON1PF, TRON1PFCfg(), TRON1PFCfgPPO())
 task_registry.register( "tron1pf_ee", TRON1PF_EE, TRON1PF_EECfg(), TRON1PF_EECfgPPO())

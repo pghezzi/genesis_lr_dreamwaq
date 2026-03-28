@@ -28,6 +28,7 @@ class G1DeepMimic(LeggedRobot):
             self.simulator.dof_vel * self.obs_scales.dof_vel,
             key_body_pos_b.flatten(start_dim=1),
             self.actions,
+            # reference motion features
             ref_motion_obs,
         ), dim=-1)
         
@@ -66,15 +67,20 @@ class G1DeepMimic(LeggedRobot):
         )
         
     def post_physics_step(self):
-        ref_time_out_env_ids = self.motion_loader.step_frame_time()
+        ref_time_out_env_ids = self.motion_loader.step_frame_index()
         # reset the envs that have reached the end of the reference motion trajectory
         if len(ref_time_out_env_ids) > 0:
             # BUG: IsaacGym requires 1 step after resetting to get the correct rigid body states
             # When enabling reference motion termination (env terminate when the distance between the robot and the reference motion is too large),
             # the rigid body state does not update after this reset, which causes the termination abnormally.
             # The dof state and root state is reset correctly, but the rigid body state is not updated
-            self._reset_root_states(ref_time_out_env_ids)
-            self._reset_dofs(ref_time_out_env_ids)
+            _ = np.random.random()
+            if self.cfg.init_state.reference_state_initialization and _ < self.cfg.init_state.reference_state_initialization_prob:
+                self._reset_dofs_from_reference_motion(ref_time_out_env_ids)
+                self._reset_root_states_from_reference_motion(ref_time_out_env_ids)
+            else:
+                self._reset_root_states(ref_time_out_env_ids)
+                self._reset_dofs(ref_time_out_env_ids)
         super().post_physics_step()
         if self.debug:
             ref_key_body_pos = self.motion_loader.get_ref_key_body_pos() \
@@ -85,15 +91,56 @@ class G1DeepMimic(LeggedRobot):
     def reset_idx(self, env_ids):
         if len(env_ids) == 0:
             return
-        self.motion_loader.resample_frame_time(env_ids)
-        super().reset_idx(env_ids)
+        # update curriculum
+        if self.cfg.terrain.curriculum:
+            self._update_terrain_curriculum(env_ids)
+        # avoid updating command curriculum at each step since the maximum command is common to all envs
+        if self.cfg.commands.curriculum and (self.common_step_counter % self.max_episode_length ==0):
+            self._update_command_curriculum(env_ids)
+
+        self.motion_loader.resample_frame_index(env_ids)
+        self._resample_commands(env_ids)
+        _ = np.random.random()
+        if self.cfg.init_state.reference_state_initialization and _ < self.cfg.init_state.reference_state_initialization_prob:
+            self._reset_dofs_from_reference_motion(env_ids)
+            self._reset_root_states_from_reference_motion(env_ids)
+        else:
+            self._reset_dofs(env_ids)
+            self._reset_root_states(env_ids)
+        self.simulator.reset_idx(env_ids)
+
+        # reset buffers
+        self.llast_actions[env_ids] = 0.
+        self.last_actions[env_ids] = 0.
+        self.actions[env_ids] = 0.
+        self.feet_air_time[env_ids] = 0.
+        self.episode_length_buf[env_ids] = 0
+        self.reset_buf[env_ids] = 1
+        self.fail_buf[env_ids] = 0
+
+        # fill extras
+        self.extras["episode"] = {}
+        for key in self.episode_sums.keys():
+            self.extras["episode"]['rew_' + key] = torch.mean(
+                self.episode_sums[key][env_ids]) / self.max_episode_length_s
+            self.episode_sums[key][env_ids] = 0.
+        # log additional curriculum info
+        if self.cfg.terrain.curriculum:
+            self.extras["episode"]["terrain_level"] = torch.mean(
+                self.simulator.terrain_levels.float())
+        if self.cfg.commands.curriculum:
+            self.extras["episode"]["max_command_x"] = self.command_ranges["lin_vel_x"][1]
+        # send timeout info to the algorithm
+        if self.cfg.env.send_timeouts:
+            self.extras["time_outs"] = self.time_out_buf
+
         # clear obs history for the envs that are reset
         for i in range(self.obs_history_deque.maxlen):
             self.obs_history_deque[i][env_ids] *= 0
         for i in range(self.critic_obs_deque.maxlen):
             self.critic_obs_deque[i][env_ids] *= 0
     
-    def _reset_dofs(self, env_ids):
+    def _reset_dofs_from_reference_motion(self, env_ids):
         # reset dofs to match the reference motion at the current frame index
         dof_pos = self.motion_loader.get_ref_dof_pos(env_ids)
         dof_vel = self.motion_loader.get_ref_dof_vel(env_ids)
@@ -101,11 +148,11 @@ class G1DeepMimic(LeggedRobot):
                                   dof_pos, 
                                   dof_vel)
 
-    def _reset_root_states(self, env_ids):
+    def _reset_root_states_from_reference_motion(self, env_ids):
         # reset root states to match the reference motion at the current frame index
         
         root_pos = self.motion_loader.get_ref_base_pos(env_ids) + self.simulator.env_origins[env_ids]
-        root_pos[:, 2] += 0.05 # add a small vertical offset to avoid initial penetration
+        root_pos[:, 2] = self.simulator.base_init_pos[2] # set the vertical position to the default value to avoid initial penetration
         root_rot = self.motion_loader.get_ref_base_quat(env_ids)
         root_lin_vel = self.motion_loader.get_ref_base_lin_vel(env_ids)
         root_ang_vel = self.motion_loader.get_ref_base_ang_vel(env_ids)
@@ -171,20 +218,20 @@ class G1DeepMimic(LeggedRobot):
         """Get the reference motion features for the current frame index.
         """
         ref_motion_obs = []
-        current_frame_time = self.motion_loader.frame_time
+        current_frame_idx = self.motion_loader.frame_index
         for i in range(self.cfg.env.ref_motion_frame_stack):
-            frame_time = current_frame_time + i * self.motion_loader.time_between_frames
-            over_length_env_ids = (frame_time >= self.motion_loader.trajectory_length_s).nonzero(as_tuple=False).flatten()
-            frame_time[over_length_env_ids] = frame_time[over_length_env_ids] % self.motion_loader.trajectory_length_s
-            ref_motion_obs.append(self._get_single_frame_ref_motion_obs(frame_time))
+            frame_idx = current_frame_idx + i
+            over_length_env_ids = (frame_idx >= self.motion_loader.trajectory_num_frames).nonzero(as_tuple=False).flatten()
+            frame_idx[over_length_env_ids] = frame_idx[over_length_env_ids] % self.motion_loader.trajectory_num_frames
+            ref_motion_obs.append(self._get_single_frame_ref_motion_obs(frame_idx))
         ref_motion_obs = torch.cat(ref_motion_obs, dim=-1)
         return ref_motion_obs
     
-    def _get_single_frame_ref_motion_obs(self, frame_time):
-        """Get the reference motion features for the given frame time.
+    def _get_single_frame_ref_motion_obs(self, frame_idx):
+        """Get the reference motion features for the given frame index.
         """
-        ref_base_quat = self.motion_loader.get_ref_base_quat_at_time(frame_time)
-        ref_key_body_pos_relative_to_base = self.motion_loader.get_ref_key_body_pos_at_time(frame_time)
+        ref_base_quat = self.motion_loader.get_ref_base_quat_at_idx(frame_idx)
+        ref_key_body_pos_relative_to_base = self.motion_loader.get_ref_key_body_pos_at_idx(frame_idx)
         key_body_pos_b = quat_rotate_inverse(
             # repeat the quaternion for each key body point, [N,4]->[N,num_key_bodies,4]
             ref_base_quat.unsqueeze(1).repeat(1, ref_key_body_pos_relative_to_base.shape[1], 1),
@@ -192,21 +239,22 @@ class G1DeepMimic(LeggedRobot):
         )
         ref_base_lin_vel_b = quat_rotate_inverse(
             ref_base_quat,
-            self.motion_loader.get_ref_base_lin_vel_at_time(frame_time)
+            self.motion_loader.get_ref_base_lin_vel_at_idx(frame_idx)
         )
         ref_base_ang_vel_b = quat_rotate_inverse(
             ref_base_quat,
-            self.motion_loader.get_ref_base_ang_vel_at_time(frame_time)
+            self.motion_loader.get_ref_base_ang_vel_at_idx(frame_idx)
         )
         ref_motion_obs = torch.cat((
             ref_base_lin_vel_b * self.obs_scales.lin_vel,
             ref_base_ang_vel_b * self.obs_scales.ang_vel,
             ref_base_quat,
-            (self.motion_loader.get_ref_dof_pos_at_time(frame_time) - 
+            (self.motion_loader.get_ref_dof_pos_at_idx(frame_idx) - 
              self.simulator.default_dof_pos) * self.obs_scales.dof_pos,
-            self.motion_loader.get_ref_dof_vel_at_time(frame_time) * self.obs_scales.dof_vel,
+            self.motion_loader.get_ref_dof_vel_at_idx(frame_idx) * self.obs_scales.dof_vel,
             key_body_pos_b.flatten(start_dim=1),
         ), dim=-1)
+        
         return ref_motion_obs
         
     def _reward_tracking_ref_dof_pos(self):

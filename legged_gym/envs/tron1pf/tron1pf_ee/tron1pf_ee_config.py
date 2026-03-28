@@ -74,7 +74,7 @@ class TRON1PF_EECfg( LeggedRobotEECfg ):
 
     class asset( LeggedRobotEECfg.asset ):
         # Common: 
-        name = "tron1_pf"
+        name = "tron1pf"
         file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/limx_dynamics/PF_TRON1A/urdf/robot.urdf'
         obtain_link_contact_states = True
         contact_state_link_names = ["hip", "knee", "foot"]

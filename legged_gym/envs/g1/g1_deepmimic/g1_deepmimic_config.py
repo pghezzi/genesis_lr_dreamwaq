@@ -17,28 +17,15 @@ class G1DeepMimicCfg(G1Flat29DofCommonCfg):
         num_privileged_obs = int(num_single_critic_obs * c_frame_stack)
         num_actions = 29
         # reference motion file, should be a .pkl file containing a dictionary
-        motion_file = 'unitree_g1/02_01_walk_stageii_60hz_isaacgym.pkl'
+        motion_file = 'unitree_g1/isaacgym/02_01_walk_stageii_60hz_isaacgym.pkl'
         episode_length_s = 10
         debug_draw_key_body_points = True # draw key body points for mimic tasks
         max_projected_gravity = -0.3
+    
+    class init_state(G1Flat29DofCommonCfg.init_state):
+        reference_state_initialization = True
+        reference_state_initialization_prob = 0.7
         
-    class domain_rand(G1Flat29DofCommonCfg.domain_rand):
-        randomize_friction = True
-        friction_range = [0.2, 1.25]
-        randomize_base_mass = True
-        added_mass_range = [-1., 2.]
-        push_robots = True
-        push_interval_s = 10
-        max_push_vel_xy = 0.5
-        randomize_com_displacement = True
-        com_pos_x_range = [-0.05, 0.05]
-        com_pos_y_range = [-0.05, 0.05]
-        com_pos_z_range = [-0.05, 0.05]
-        # Apply random push forces to the links of the robot
-        push_links = True
-        max_push_force = 10.0 # [N], maximum magnitude of the random push force applied to each link
-        push_links_interval_s = 2.0 # time interval between random pushes
-
     class rewards(G1Flat29DofCommonCfg.rewards):
         soft_dof_pos_limit = 0.9
         base_height_target = 0.78
@@ -64,6 +51,23 @@ class G1DeepMimicCfg(G1Flat29DofCommonCfg):
             collision = -1.0
             action_rate = -0.01
             feet_slip = -0.5
+    
+    class domain_rand(G1Flat29DofCommonCfg.domain_rand):
+        randomize_friction = True
+        friction_range = [0.2, 1.25]
+        randomize_base_mass = True
+        added_mass_range = [-1., 2.]
+        push_robots = True
+        push_interval_s = 10
+        max_push_vel_xy = 0.5
+        randomize_com_displacement = True
+        com_pos_x_range = [-0.05, 0.05]
+        com_pos_y_range = [-0.05, 0.05]
+        com_pos_z_range = [-0.05, 0.05]
+        # Apply random push forces to the links of the robot
+        push_links = True
+        max_push_force = 10.0 # [N], maximum magnitude of the random push force applied to each link
+        push_links_interval_s = 2.0 # time interval between random pushes
     
     class normalization(G1Flat29DofCommonCfg.normalization):
         clip_actions = 100.0

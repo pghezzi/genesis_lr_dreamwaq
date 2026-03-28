@@ -17,7 +17,7 @@ class K1DeepMimicCfg(K1FlatCommonCfg):
         num_privileged_obs = int(num_single_critic_obs * c_frame_stack)
         num_actions = 22
         # reference motion file, should be a .pkl file containing a dictionary
-        motion_file = 'booster_k1/isaacgym/02_01_stageii_walk_isaacgym.pkl'
+        motion_file = 'booster_k1/isaacgym/B4_-_Stand_to_Walk_backwards_stageii_isaacgym.pkl'
         episode_length_s = 10
         debug_draw_key_body_points = True # draw key body points for mimic tasks
         max_projected_gravity = -0.3
