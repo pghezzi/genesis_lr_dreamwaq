@@ -32,6 +32,7 @@ A [legged_gym](https://github.com/leggedrobotics/legged_gym) based framework for
   | SPO (Simple Policy Optimization) | [Simple Policy Optimization](https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://github.com/MyRepositories-hub/Simple-Policy-Optimization&ved=2ahUKEwjL9vLX7auSAxVZlFYBHWkFBkIQFnoECBgQAQ&usg=AOvVaw1nGHIXtdYwpu3WV9lUgRWN) | [`legged_robot_config.py`](https://github.com/lupinjia/LeggedGym-Ex/tree/main/legged_gym/envs/base/legged_robot_config.py) |
   | CTS (Concurrent Teacher Student) | [CTS: Concurrent Teacher-Student Reinforcement Learning for Legged Locomotion](https://clearlab-sustech.github.io/concurrentTS/) | [go2_cts](https://github.com/lupinjia/LeggedGym-Ex/tree/main/legged_gym/envs/go2/go2_cts) |
   | DeepMimic | [DeepMimic: Example-Guided Deep Reinforcement Learning of Physics-Based Character Skills](https://arxiv.org/abs/1804.02717) | [g1_deepmimic](https://github.com/lupinjia/LeggedGym-Ex/tree/main/legged_gym/envs/g1/g1_deepmimic) |
+  | AMP (Adversarial Motion Priors) | [AMP: Adversarial Motion Priors for Stylized Physics-Based Character Control](https://arxiv.org/abs/2104.02180) | [k1_amp](https://github.com/lupinjia/LeggedGym-Ex/tree/main/legged_gym/envs/k1/k1_amp) |
 
 ## 🛠 Installation and Usage
 
@@ -45,7 +46,7 @@ Please refer to the [doc of this repo](https://genesis-lr-doc.readthedocs.io/en/
 | TRON1_PF | <img src="https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/tron1_pf_ee_demo.gif?raw=true" width="428"> | [video](https://www.bilibili.com/video/BV1MdePzcEvk/?spm_id_from=333.1387.homepage.video_card.click&vd_source=50fc92fb0e7291031bbb72e3c05b2edc) |
 | TRON1_SF | <img src="https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/tron1_sf_demo.gif?raw=true" width="428"> | |
 | Unitree G1 DeepMimic | <img src="https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/g1_mimic_demo.gif?raw=true" width="428"> | |
-| Booster K1 | <img src="https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/booster_k1_demo.gif?raw=true" width="428"> | |
+| Booster K1 | <img src="https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/booster_k1_demo.gif?raw=true" width="428"> | [video](https://www.bilibili.com/video/BV1GyXgBmEa9/) |
 
 
 ## 🙏 Acknowledgements
@@ -64,8 +65,8 @@ Please refer to the [doc of this repo](https://genesis-lr-doc.readthedocs.io/en/
 - [x] Add support for IsaacSim simulator (2026/02/15)
 - [x] Add support for DeepMimic Implementation (2026/02/28)
 - [x] Add support for Booster K1 Robot (2026/03/18)
+- [x] Add support for AMP Implementation (2026/03/28)
 - [ ] Add support for warp-based depth camera
-- [ ] Add support for AMP Implementation
 - [ ] Add support for TRON1_WF
 
 ## Contacts
