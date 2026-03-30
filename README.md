@@ -42,11 +42,11 @@ Please refer to the [doc of this repo](https://genesis-lr-doc.readthedocs.io/en/
 
 | Robot | Sim | Real |
 |--- | --- | --- |
-| Unitree Go2 | <img src="https://raw.githubusercontent.com/lupinjia/demo_imgs/refs/heads/master/ee_demo.gif" width="428"> | [video](https://www.bilibili.com/video/BV1FPedzZEdi/) |
-| TRON1_PF | <img src="https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/tron1_pf_ee_demo.gif?raw=true" width="428"> | [video](https://www.bilibili.com/video/BV1MdePzcEvk/?spm_id_from=333.1387.homepage.video_card.click&vd_source=50fc92fb0e7291031bbb72e3c05b2edc) |
-| TRON1_SF | <img src="https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/tron1_sf_demo.gif?raw=true" width="428"> | |
-| Unitree G1 DeepMimic | <img src="https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/g1_mimic_demo.gif?raw=true" width="428"> | |
-| Booster K1 | <img src="https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/booster_k1_demo.gif?raw=true" width="428"> | [video](https://www.bilibili.com/video/BV1GyXgBmEa9/) |
+| Unitree Go2 | <img src="https://github.com/lupinjia/leggedgym-ex-doc/blob/main/source/_static/images/ee_demo.gif?raw=true" width="428"> | [video](https://www.bilibili.com/video/BV1FPedzZEdi/) |
+| TRON1_PF | <img src="https://github.com/lupinjia/leggedgym-ex-doc/blob/main/source/_static/images/tron1_pf_ee_demo.gif?raw=true" width="428"> | [video](https://www.bilibili.com/video/BV1MdePzcEvk/?spm_id_from=333.1387.homepage.video_card.click&vd_source=50fc92fb0e7291031bbb72e3c05b2edc) |
+| TRON1_SF | <img src="https://github.com/lupinjia/leggedgym-ex-doc/blob/main/source/_static/images/tron1_sf_demo.gif?raw=true" width="428"> | |
+| Unitree G1 DeepMimic | <img src="https://github.com/lupinjia/leggedgym-ex-doc/blob/main/source/_static/images/g1_mimic_demo.gif?raw=true" width="428"> | |
+| Booster K1 | <img src="https://github.com/lupinjia/leggedgym-ex-doc/blob/main/source/_static/images/booster_k1_demo.gif?raw=true" width="428"> | [video](https://www.bilibili.com/video/BV1GyXgBmEa9/) |
 
 
 ## 🙏 Acknowledgements
@@ -73,4 +73,4 @@ Please refer to the [doc of this repo](https://genesis-lr-doc.readthedocs.io/en/
 
 You can add our Feishu group to get latest update or ask questions:
 
-<img src="https://github.com/lupinjia/genesis_lr_doc/blob/main/source/_static/images/feishu_group_qrcode.png?raw=true" width="350">
+<img src="https://github.com/lupinjia/leggedgym-ex-doc/blob/main/source/_static/images/feishu_group_qrcode.png?raw=true" width="350">
