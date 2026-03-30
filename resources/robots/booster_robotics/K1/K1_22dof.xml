@@ -1,10 +1,7 @@
 <mujoco model="K1">
-  <compiler angle="radian" meshdir="meshes/" autolimits="true"/>
+  <compiler angle="radian" meshdir="meshes" autolimits="true"/>
 
-  <option timestep="0.001" tolerance="1e-6" impratio="10" solver="Newton"/>
-  <default>
-    <geom solimp="0.90 0.95 0.001" solref="0.001 1"/>
-  </default>
+  <option cone="elliptic" impratio="100"/>
 
   <asset>
     <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="512"/>
@@ -40,7 +37,6 @@
   <worldbody>
     <light directional="true" diffuse=".4 .4 .4" specular="0.1 0.1 0.1" pos="0 0 5.0" dir="0 0 -1" castshadow="false" />
     <light directional="true" diffuse=".6 .6 .6" specular="0.2 0.2 0.2" pos="0 0 4" dir="0 0 -1" />
-    <geom name="ground" type="plane" pos="0 0 0" size="0 0 1" material="matplane" condim="1" friction="0.4 0.005 0.0001"/>
 
     <body name="Trunk" pos="0 0 1.0">
       <site name='imu' size='0.01' pos='0.0 0.0 0.0' />
@@ -48,19 +44,19 @@
       <joint name="world_joint" type="free" limited="false" actuatorfrclimited="false"/>
       <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.75294 0.75294 0.75294 1" mesh="Trunk"/>
       <!-- <geom type="mesh" rgba="0.75294 0.75294 0.75294 1" mesh="Trunk"/> -->
-      <geom size="0.06 0.08 0.1" pos="0 0 0.1" type="box" rgba="0.75294 0.75294 0.75294 0.0"/>
-      <geom size="0.05 0.05" pos="0 0 -0.06" quat="0.707105 0.707108 0 0" type="cylinder" rgba="0.75294 0.75294 0.75294 1"/>
+      <geom name="Trunk_collision" size="0.06 0.08 0.1" pos="0 0 0.1" type="box" rgba="0.75294 0.75294 0.75294 0.0"/>
+      <geom name="waist_collision" size="0.05 0.05" pos="0 0 -0.06" quat="0.707105 0.707108 0 0" type="cylinder" rgba="0.75294 0.75294 0.75294 1"/>
       <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" mesh="K1logo"/>
       <body name="Head_1" pos="0.0056 0 0.2149">
         <inertial pos="-0.00069503 -0.00038527 0.031688" quat="0.993827 -0.00957801 0.00894723 -0.110168" mass="0.3" diaginertia="0.000429546 0.000420659 0.000125795"/>
         <joint name="AAHead_yaw" pos="0 0 0" axis="0 0 1" range="-1 1" armature="0.002"/>
         <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.75294 0.75294 0.75294 1" mesh="Head_1"/>
-        <geom type="mesh" rgba="0.75294 0.75294 0.75294 1" mesh="Head_1"/>
+        <geom name="Head_1_collision" size="0.03 0.025" pos="0 0 0.03" euler="1.57 0 0" type="cylinder"/>
         <body name="Head_2" pos="0 0 0.033">
           <inertial pos="0.011042 -0.00092871 0.080698" quat="0.996402 -0.00118413 -0.0779414 -0.0332651" mass="0.7" diaginertia="0.00603249 0.00577511 0.0017024"/>
           <joint name="Head_pitch" pos="0 0 0" axis="0 1 0" range="-0.349 0.855" armature="0.002"/>
           <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.75294 0.75294 0.75294 1" mesh="Head_2"/>
-          <geom type="mesh" rgba="0.75294 0.75294 0.75294 1" mesh="Head_2"/>
+          <geom name="Head_2_collision" size="0.065 0.08 0.055" pos="0 0 0.09" type="box"/>
         </body>
       </body>
       <body name="Left_Arm_1" pos="0 0.077 0.1845">
@@ -71,17 +67,19 @@
           <inertial pos="0.01729 0.018221 -4.329e-05" quat="0.413453 0.573635 -0.413453 0.573635" mass="0.09" diaginertia="0.000113 9.5e-05 6.5e-05"/>
           <joint name="Left_Shoulder_Roll" pos="0 0 0" axis="1 0 0" range="-1.74 1.57" armature="0.001"/>
           <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.75294 0.75294 0.75294 1" mesh="Left_Arm_2"/>
-          <geom size="0.035 0.034" pos="-0.007 0 0" quat="0.707105 0 0.707108 0" type="cylinder" rgba="0.75294 0.75294 0.75294 1"/>
+          <geom name="Left_Arm2_collision" size="0.035 0.034" pos="-0.007 0 0" quat="0.707105 0 0.707108 0" type="cylinder" rgba="0.75294 0.75294 0.75294 1"/>
           <body name="Left_Arm_3" pos="0 0.044428 0">
             <inertial pos="-0.0003979 0.072617 -0.00066218" quat="0.679502 0.689551 0.177403 -0.176989" mass="0.8" diaginertia="0.00606947 0.00606767 0.000385851"/>
             <joint name="Left_Elbow_Pitch" pos="0 0 0" axis="0 1 0" range="-2.27 2.27" armature="0.001"/>
             <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.75294 0.75294 0.75294 1" mesh="Left_Arm_3"/>
-            <geom type="mesh" rgba="0.75294 0.75294 0.75294 1" mesh="Left_Arm_3"/>
+            <geom name="Left_Arm3_collision1" size="0.03 0.045" pos="0 0.04 0" euler="1.57 0 0" type="cylinder"/>
+            <geom name="Left_Arm3_collision2" size="0.03 0.025" pos="0 0.12 -0.005" type="cylinder"/>
             <body name="left_hand_link" pos="0 0.1215 0">
               <inertial pos="-0.0015751 0.084637 0.0087033" quat="0.712106 0.700961 0.0264125 -0.0293496" mass="0.19" diaginertia="0.00205619 0.00202933 8.1482e-05"/>
               <joint name="Left_Elbow_Yaw" pos="0 0 0" axis="0 0 1" range="-2.44 0" armature="0.001"/>
               <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.75294 0.75294 0.75294 1" mesh="Left_Arm_4"/>
-              <geom type="mesh" rgba="0.75294 0.75294 0.75294 1" mesh="Left_Arm_4"/>
+              <geom name="Left_hand_collision1" size="0.02 0.065" pos="0 0.11 0" euler="1.57 0 0" type="cylinder"/>
+              <geom name="Left_hand_collision2" size="0.027" pos="0 0.2 0" type="sphere"/>
             </body>
           </body>
         </body>
@@ -94,17 +92,19 @@
           <inertial pos="0.017229 -0.018428 4.3784e-05" quat="0.573635 0.413453 -0.573635 0.413453" mass="0.09" diaginertia="0.000113 9.5e-05 6.5e-05"/>
           <joint name="Right_Shoulder_Roll" pos="0 0 0" axis="1 0 0" range="-1.57 1.74" armature="0.001"/>
           <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.75294 0.75294 0.75294 1" mesh="Right_Arm_2"/>
-          <geom size="0.035 0.034" pos="-0.007 0 0" quat="0.707105 0 0.707108 0" type="cylinder" rgba="0.75294 0.75294 0.75294 1"/>
+          <geom name="Right_Arm2_collision" size="0.035 0.034" pos="-0.007 0 0" quat="0.707105 0 0.707108 0" type="cylinder" rgba="0.75294 0.75294 0.75294 1"/>
           <body name="Right_Arm_3" pos="0 -0.044428 0">
             <inertial pos="-0.00039919 -0.072601 -0.00065629" quat="0.689551 0.679502 0.176989 -0.177403" mass="0.8" diaginertia="0.00607047 0.00606867 0.000386851"/>
             <joint name="Right_Elbow_Pitch" pos="0 0 0" axis="0 1 0" range="-2.27 2.27" armature="0.001"/>
             <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.75294 0.75294 0.75294 1" mesh="Right_Arm_3"/>
-            <geom type="mesh" rgba="0.75294 0.75294 0.75294 1" mesh="Right_Arm_3"/>
+            <geom name="Right_Arm3_collision1" size="0.03 0.045" pos="0 -0.04 0" euler="1.57 0 0" type="cylinder"/>
+            <geom name="Right_Arm3_collision2" size="0.03 0.025" pos="0 -0.12 -0.005" type="cylinder"/>
             <body name="right_hand_link" pos="0 -0.1215 0">
               <inertial pos="-0.0015177 -0.084536 0.0086733" quat="0.700925 0.712091 0.0296562 -0.0274245" mass="0.19" diaginertia="0.00205618 0.00203032 8.14943e-05"/>
               <joint name="Right_Elbow_Yaw" pos="0 0 0" axis="0 0 1" range="0 2.44" armature="0.001"/>
               <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.75294 0.75294 0.75294 1" mesh="Right_Arm_4"/>
-              <geom type="mesh" rgba="0.75294 0.75294 0.75294 1" mesh="Right_Arm_4"/>
+              <geom name="Right_hand_collision1" size="0.02 0.065" pos="0 -0.11 0" euler="1.57 0 0" type="cylinder"/>
+              <geom name="Right_hand_collision2" size="0.027" pos="0 -0.2 0" type="sphere"/>
             </body>
           </body>
         </body>
@@ -137,7 +137,6 @@
                   <inertial pos="0.011662 0.000244 -0.014364" quat="-0.00144487 0.663983 -0.00148176 0.747745" mass="0.494" diaginertia="0.0012267 0.00117 0.000247305"/>
                   <joint name="Left_Ankle_Roll" pos="0 0 0" axis="1 0 0" range="-0.345 0.345" armature="0.0565"/>
                   <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.75294 0.75294 0.75294 1.0" mesh="Left_Foot"/>
-                  <!-- <geom type="mesh" rgba="0.75294 0.75294 0.75294 1" mesh="Left_Foot" friction="0.1 0.005 0.0001"/> -->
                   <geom type="box" pos="0.026 0 -0.02" size="0.09 0.035 0.018" rgba="0.75294 0.75294 0.75294 0.0"/>
                 </body>
               </body>

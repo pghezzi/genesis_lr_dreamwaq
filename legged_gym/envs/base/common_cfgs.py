@@ -40,6 +40,7 @@ class Go2FlatCommonCfg(LeggedRobotCfg):
         # Common
         name = "go2"
         file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/unitree_robotics/go2/urdf/go2.urdf'
+        xml_file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/unitree_robotics/go2/go2.xml'
         foot_name = "foot"
         penalize_contacts_on = ["thigh", "calf"]
         terminate_after_contacts_on = ["base", "Head"]
@@ -155,6 +156,7 @@ class G1Flat12DofCommonCfg(LeggedRobotCfg):
     class asset(LeggedRobotCfg.asset):
         name = "g1"
         file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/unitree_robotics/g1_description/g1_12dof.urdf'
+        xml_file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/unitree_robotics/g1_description/g1_12dof.xml'
         foot_name = "ankle_roll"
         penalize_contacts_on = ["hip", "knee"]
         terminate_after_contacts_on = ["pelvis"]
@@ -239,6 +241,7 @@ class G1Flat29DofCommonCfg(LeggedRobotCfg):
     class asset(LeggedRobotCfg.asset):
         name = "g1"
         file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/unitree_robotics/g1_description/g1_29dof.urdf'
+        xml_file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/unitree_robotics/g1_description/g1_29dof.xml'
         foot_name = "ankle_roll"
         key_bodies = ["ankle_roll", "knee", "hip", 
                       "torso", "wrist_yaw", "shoulder_roll",
@@ -298,6 +301,7 @@ class K1FlatCommonCfg(LeggedRobotCfg):
     class asset(LeggedRobotCfg.asset):
         name = "k1"
         file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/booster_robotics/K1/K1_22dof.urdf'
+        xml_file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/booster_robotics/K1/K1_22dof.xml'
         foot_name = "foot"
         penalize_contacts_on = ["Trunk", "Shank", "Hip", "Arm", "Head"]
         terminate_after_contacts_on = []

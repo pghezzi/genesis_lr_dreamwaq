@@ -95,7 +95,8 @@ class LeggedRobotCfg(BaseConfig):
     class asset:
         # Common
         name = None
-        file = ""
+        file = "" # path of urdf file for robot, used in IsaacGym and IsaacLab
+        xml_file = "" # path of xml file for robot, used in Genesis.
         # name of the feet bodies, bodies containing this substring will be considered as feet
         foot_name = ""
         key_bodies = [] # list of important bodies to be tracked in mimic tasks

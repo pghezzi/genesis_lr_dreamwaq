@@ -63,15 +63,6 @@ class GenesisSimulator(Simulator):
         
     def reset_idx(self, env_ids):
         # domain randomization
-        if self._cfg.domain_rand.randomize_friction:
-            self._randomize_friction(env_ids)
-        # randomize restitution (only at startup; doing it on reset slows down training)
-        if self._cfg.domain_rand.randomize_restitution:
-            self._randomize_restitution(torch.arange(self._num_envs))
-        if self._cfg.domain_rand.randomize_base_mass:
-            self._randomize_base_mass(env_ids)
-        if self._cfg.domain_rand.randomize_com_displacement:
-            self._randomize_com_displacement(env_ids)
         if self._cfg.domain_rand.randomize_joint_armature:
             self._randomize_joint_armature(env_ids)
         if self._cfg.domain_rand.randomize_joint_friction:
@@ -332,22 +323,21 @@ class GenesisSimulator(Simulator):
 
     def _create_envs(self):
         # Create envs
-        asset_path = self._cfg.asset.file.format(
-            LEGGED_GYM_ROOT_DIR=LEGGED_GYM_ROOT_DIR)
-        asset_root = os.path.dirname(asset_path)
-        asset_file = os.path.basename(asset_path)
+        if self._cfg.asset.xml_file != "":
+            asset_path = self._cfg.asset.xml_file.format(
+                LEGGED_GYM_ROOT_DIR=LEGGED_GYM_ROOT_DIR)
+            asset_root = os.path.dirname(asset_path)
+            asset_file = os.path.basename(asset_path)
 
-        self._robot = self._scene.add_entity(
-            gs.morphs.URDF(
-                file=os.path.join(asset_root, asset_file),
-                merge_fixed_links=True,
-                links_to_keep=self._cfg.asset.links_to_keep,
-                pos=np.array(self._cfg.init_state.pos),
-                quat=np.array([1.0, 0.0, 0.0, 0.0]),  # wxyz
-                fixed=self._cfg.asset.fix_base_link,
-            ),
-            # visualize_contact=self._debug,
-        )
+            self._robot = self._scene.add_entity(
+                gs.morphs.MJCF(
+                    file=os.path.join(asset_root, asset_file),
+                    pos=np.array(self._cfg.init_state.pos),
+                    quat=np.array([1.0, 0.0, 0.0, 0.0]),  # wxyz
+                )
+            )
+        else:
+            raise NotImplementedError("Please specify xml file path for Genesis simulator!")
         
         # add camera if needed
         if self._cfg.sensor.add_depth:
@@ -421,16 +411,16 @@ class GenesisSimulator(Simulator):
             )
             
         self._init_domain_params()
-        # randomize friction
+        # randomize friction (only at startup; doing it on reset slows down training)
         if self._cfg.domain_rand.randomize_friction:
             self._randomize_friction(np.arange(self._num_envs))
         # randomize restitution (only at startup; doing it on reset slows down training)
         if self._cfg.domain_rand.randomize_restitution:
             self._randomize_restitution(torch.arange(self._num_envs))
-        # randomize base mass
+        # randomize base mass (only at startup; doing it on reset slows down training)
         if self._cfg.domain_rand.randomize_base_mass:
             self._randomize_base_mass(np.arange(self._num_envs))
-        # randomize COM displacement
+        # randomize COM displacement (only at startup; doing it on reset slows down training)
         if self._cfg.domain_rand.randomize_com_displacement:
             self._randomize_com_displacement(np.arange(self._num_envs))
         # randomize joint armature
