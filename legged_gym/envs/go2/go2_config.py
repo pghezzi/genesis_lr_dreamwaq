@@ -1,6 +1,6 @@
 from legged_gym import *
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfgPPO
-from legged_gym.envs.base.common_cfgs import Go2FlatCommonCfg
+from legged_gym.envs.base.common_cfgs import Go2FlatCommonCfg, get_simulator_suffix
 
 class GO2Cfg( Go2FlatCommonCfg ):
     
@@ -9,16 +9,6 @@ class GO2Cfg( Go2FlatCommonCfg ):
         num_observations = 45 # 48 for only sim, 45 for deployment
         num_privileged_obs = None
         num_actions = 12
-    
-    # use common terrain, init_state, control, and asset configs
-    class terrain( Go2FlatCommonCfg.terrain ):
-        pass
-    class init_state( Go2FlatCommonCfg.init_state ):
-        pass
-    class control( Go2FlatCommonCfg.control ):
-        pass
-    class asset( Go2FlatCommonCfg.asset ):
-        pass
         
     class rewards( Go2FlatCommonCfg.rewards ):
         soft_dof_pos_limit = 0.9
@@ -75,13 +65,7 @@ class GO2Cfg( Go2FlatCommonCfg ):
 
 class GO2CfgPPO( LeggedRobotCfgPPO ):
     class runner( LeggedRobotCfgPPO.runner ):
-        run_name = 'simple_rl'
-        if SIMULATOR == "genesis":
-            run_name += '_genesis'
-        elif SIMULATOR == "isaacgym":
-            run_name += '_isaacgym'
-        elif SIMULATOR == "isaaclab":
-            run_name += '_isaaclab'
+        run_name = 'simple_rl' + get_simulator_suffix()
         experiment_name = 'go2'
         save_interval = 200
         max_iterations = 1500

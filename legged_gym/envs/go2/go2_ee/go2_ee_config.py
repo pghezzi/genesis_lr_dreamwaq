@@ -1,6 +1,6 @@
 from legged_gym import *
 from legged_gym.envs.base.template_cfgs import LeggedRobotEECfgPPO
-from legged_gym.envs.base.common_cfgs import Go2RoughCommonCfg
+from legged_gym.envs.base.common_cfgs import Go2RoughCommonCfg, get_simulator_suffix
 
 class Go2EECfg( Go2RoughCommonCfg ):
     class env( Go2RoughCommonCfg.env ):
@@ -43,12 +43,7 @@ class Go2EECfg( Go2RoughCommonCfg ):
         randomize_pd_gain = True
         kp_range = [0.8, 1.2]
         kd_range = [0.8, 1.2]
-        randomize_joint_armature = False
-        randomize_joint_friction = False
-        randomize_joint_damping = False
-        joint_armature_range = [0.015, 0.025]  # [N*m*s/rad]
-        joint_friction_range = [0.01, 0.02]
-        joint_damping_range = [0.25, 0.3]
+
 
 class Go2EECfgPPO( LeggedRobotEECfgPPO ):
     class policy( LeggedRobotEECfgPPO.policy ):
@@ -58,13 +53,7 @@ class Go2EECfgPPO( LeggedRobotEECfgPPO ):
         estimator_lr = 2.e-4
         num_estimator_epochs = 1
     class runner( LeggedRobotEECfgPPO.runner ):
-        run_name = "ee"
-        if SIMULATOR == "genesis":
-            run_name += '_genesis'
-        elif SIMULATOR == "isaacgym":
-            run_name += '_isaacgym'
-        elif SIMULATOR == "isaaclab":
-            run_name += '_isaaclab'
+        run_name = "ee" + get_simulator_suffix()
         experiment_name = 'go2_rough'
         save_interval = 500
         max_iterations = 5000

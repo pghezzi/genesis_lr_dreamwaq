@@ -1,6 +1,5 @@
-from legged_gym import SIMULATOR
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfgPPO
-from legged_gym.envs.base.common_cfgs import Go2FlatCommonCfg
+from legged_gym.envs.base.common_cfgs import Go2FlatCommonCfg, get_simulator_suffix
 
 class GO2WTWCfg(Go2FlatCommonCfg):
     class env(Go2FlatCommonCfg.env):
@@ -97,13 +96,7 @@ class GO2WTWCfg(Go2FlatCommonCfg):
 
 class GO2WTWCfgPPO(LeggedRobotCfgPPO):
     class runner(LeggedRobotCfgPPO.runner):
-        run_name = 'wtw'
-        if SIMULATOR == "genesis":
-            run_name += '_genesis'
-        elif SIMULATOR == "isaacgym":
-            run_name += '_isaacgym'
-        elif SIMULATOR == "isaaclab":
-            run_name += '_isaaclab'
+        run_name = 'wtw' + get_simulator_suffix()
         experiment_name = 'go2_wtw'
         save_interval = 500
         max_iterations = 5000

@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 import xlsxwriter
 
+
 # Fix font issues
 plt.rcParams.update({
     'font.size': 10,
@@ -171,7 +172,7 @@ class Logger:
             mean = np.sum(np.array(values)) / self.num_episodes
             print(f" - {key}: {mean}")
         print(f"Total number of episodes: {self.num_episodes}")
-
+        
     def __del__(self):
         if self.plot_process is not None:
             self.plot_process.kill()

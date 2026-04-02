@@ -28,8 +28,9 @@
 #
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
 
-import numpy as np
+from typing import Any, Dict, List, Optional, Tuple, Union
 
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.distributions import Normal
@@ -38,18 +39,22 @@ from .actor_critic import ActorCritic, get_activation
 from rsl_rl.utils import unpad_trajectories
 
 class ActorCriticRecurrent(ActorCritic):
-    is_recurrent = True
-    def __init__(self,  num_actor_obs,
-                        num_critic_obs,
-                        num_actions,
-                        actor_hidden_dims=[256, 256, 256],
-                        critic_hidden_dims=[256, 256, 256],
-                        activation='elu',
-                        rnn_type='lstm',
-                        rnn_hidden_size=256,
-                        rnn_num_layers=1,
-                        init_noise_std=1.0,
-                        **kwargs):
+    is_recurrent: bool = True
+    
+    def __init__(
+        self,
+        num_actor_obs: int,
+        num_critic_obs: int,
+        num_actions: int,
+        actor_hidden_dims: List[int] = [256, 256, 256],
+        critic_hidden_dims: List[int] = [256, 256, 256],
+        activation: str = 'elu',
+        rnn_type: str = 'lstm',
+        rnn_hidden_size: int = 256,
+        rnn_num_layers: int = 1,
+        init_noise_std: float = 1.0,
+        **kwargs: Any
+    ) -> None:
         if kwargs:
             print("ActorCriticRecurrent.__init__ got unexpected arguments, which will be ignored: " + str(kwargs.keys()),)
 
@@ -69,7 +74,7 @@ class ActorCriticRecurrent(ActorCritic):
         print(f"Actor RNN: {self.memory_a}")
         print(f"Critic RNN: {self.memory_c}")
 
-    def reset(self, dones=None):
+    def reset(self, dones: Optional[torch.Tensor] = None) -> None:
         if dones is None:
             return
         # Some envs provide dones/reset_buf as int/long 0/1; we need a boolean mask
@@ -79,31 +84,52 @@ class ActorCriticRecurrent(ActorCritic):
         self.memory_a.reset(dones)
         self.memory_c.reset(dones)
 
-    def act(self, observations, masks=None, hidden_states=None):
+    def act(
+        self,
+        observations: torch.Tensor,
+        masks: Optional[torch.Tensor] = None,
+        hidden_states: Optional[Tuple[torch.Tensor, ...]] = None
+    ) -> torch.Tensor:
         input_a = self.memory_a(observations, masks, hidden_states)
         return super().act(input_a.squeeze(0))
 
-    def act_inference(self, observations):
+    def act_inference(self, observations: torch.Tensor) -> torch.Tensor:
         input_a = self.memory_a(observations)
         return super().act_inference(input_a.squeeze(0))
 
-    def evaluate(self, critic_observations, masks=None, hidden_states=None):
+    def evaluate(
+        self,
+        critic_observations: torch.Tensor,
+        masks: Optional[torch.Tensor] = None,
+        hidden_states: Optional[Tuple[torch.Tensor, ...]] = None
+    ) -> torch.Tensor:
         input_c = self.memory_c(critic_observations, masks, hidden_states)
         return super().evaluate(input_c.squeeze(0))
     
-    def get_hidden_states(self):
+    def get_hidden_states(self) -> Tuple[Optional[Tuple[torch.Tensor, ...]], Optional[Tuple[torch.Tensor, ...]]]:
         return self.memory_a.hidden_states, self.memory_c.hidden_states
 
 
 class Memory(torch.nn.Module):
-    def __init__(self, input_size, type='lstm', num_layers=1, hidden_size=256):
+    def __init__(
+        self,
+        input_size: int,
+        type: str = 'lstm',
+        num_layers: int = 1,
+        hidden_size: int = 256
+    ) -> None:
         super().__init__()
         # RNN
         rnn_cls = nn.GRU if type.lower() == 'gru' else nn.LSTM
-        self.rnn = rnn_cls(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers)
-        self.hidden_states = None
+        self.rnn: Union[nn.LSTM, nn.GRU] = rnn_cls(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers)
+        self.hidden_states: Optional[Tuple[torch.Tensor, ...]] = None
     
-    def forward(self, input, masks=None, hidden_states=None):
+    def forward(
+        self,
+        input: torch.Tensor,
+        masks: Optional[torch.Tensor] = None,
+        hidden_states: Optional[Tuple[torch.Tensor, ...]] = None
+    ) -> torch.Tensor:
         batch_mode = masks is not None
         if batch_mode:
             # batch mode (policy update): need saved hidden states
@@ -116,7 +142,7 @@ class Memory(torch.nn.Module):
             out, self.hidden_states = self.rnn(input.unsqueeze(0), self.hidden_states)
         return out
 
-    def reset(self, dones=None):
+    def reset(self, dones: Optional[torch.Tensor] = None) -> None:
         if dones is None or self.hidden_states is None:
             return
         # When the RNN is an LSTM, hidden_states is a tuple: (hidden_state, cell_state)

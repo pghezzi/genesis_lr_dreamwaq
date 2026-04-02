@@ -1,6 +1,6 @@
 from legged_gym import *
 from legged_gym.envs.base.template_cfgs import LeggedRobotTSDepthCfgPPO
-from legged_gym.envs.base.common_cfgs import Go2RoughCommonCfg
+from legged_gym.envs.base.common_cfgs import Go2RoughCommonCfg, get_simulator_suffix
 
 class Go2TSDepthCfg( Go2RoughCommonCfg ):
     class env( Go2RoughCommonCfg.env ):

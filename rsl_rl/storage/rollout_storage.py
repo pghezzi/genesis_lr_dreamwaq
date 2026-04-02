@@ -28,69 +28,82 @@
 #
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
 
+from __future__ import annotations
+
 import torch
 import numpy as np
+from typing import Optional, Tuple, List, Generator, Union
 
 from rsl_rl.utils import split_and_pad_trajectories
 
 class RolloutStorage:
     class Transition:
-        def __init__(self):
-            self.observations = None
-            self.critic_observations = None
-            self.actions = None
-            self.rewards = None
-            self.dones = None
-            self.values = None
-            self.actions_log_prob = None
-            self.action_mean = None
-            self.action_sigma = None
-            self.hidden_states = None
+        def __init__(self) -> None:
+            self.observations: Optional[torch.Tensor] = None
+            self.critic_observations: Optional[torch.Tensor] = None
+            self.actions: Optional[torch.Tensor] = None
+            self.rewards: Optional[torch.Tensor] = None
+            self.dones: Optional[torch.Tensor] = None
+            self.values: Optional[torch.Tensor] = None
+            self.actions_log_prob: Optional[torch.Tensor] = None
+            self.action_mean: Optional[torch.Tensor] = None
+            self.action_sigma: Optional[torch.Tensor] = None
+            self.hidden_states: Optional[Tuple[torch.Tensor, ...]] = None
         
-        def clear(self):
-            self.__init__()
+        def clear(self) -> None:
+            self.__init__()  # type: ignore[misc]
 
-    def __init__(self, num_envs, num_transitions_per_env, obs_shape, 
-                 privileged_obs_shape, actions_shape, device='cpu'):
+    def __init__(self, num_envs: int, num_transitions_per_env: int, obs_shape: Tuple[int, ...], 
+                 privileged_obs_shape: Tuple[Optional[int], ...], actions_shape: Tuple[int, ...], device: str = 'cpu') -> None:
 
-        self.device = device
+        self.device: str = device
 
-        self.obs_shape = obs_shape
-        self.privileged_obs_shape = privileged_obs_shape
-        self.actions_shape = actions_shape
+        self.obs_shape: Tuple[int, ...] = obs_shape
+        self.privileged_obs_shape: Tuple[Optional[int], ...] = privileged_obs_shape
+        self.actions_shape: Tuple[int, ...] = actions_shape
 
         # Core
-        self.observations = torch.zeros(num_transitions_per_env, num_envs, *obs_shape, device=self.device)
+        self.observations: torch.Tensor = torch.zeros(num_transitions_per_env, num_envs, *obs_shape, device=self.device)
+        self.privileged_observations: Optional[torch.Tensor]
         if privileged_obs_shape[0] is not None:
             self.privileged_observations = torch.zeros(num_transitions_per_env, num_envs, *privileged_obs_shape, device=self.device)
         else:
             self.privileged_observations = None
-        self.rewards = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
-        self.actions = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
-        self.dones = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device).byte()
+        self.rewards: torch.Tensor = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
+        self.actions: torch.Tensor = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
+        self.dones: torch.Tensor = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device).byte()
 
         # For PPO
-        self.actions_log_prob = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
-        self.values = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
-        self.returns = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
-        self.advantages = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
-        self.mu = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
-        self.sigma = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
+        self.actions_log_prob: torch.Tensor = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
+        self.values: torch.Tensor = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
+        self.returns: torch.Tensor = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
+        self.advantages: torch.Tensor = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
+        self.mu: torch.Tensor = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
+        self.sigma: torch.Tensor = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
 
-        self.num_transitions_per_env = num_transitions_per_env
-        self.num_envs = num_envs
+        self.num_transitions_per_env: int = num_transitions_per_env
+        self.num_envs: int = num_envs
 
         # rnn
-        self.saved_hidden_states_a = None
-        self.saved_hidden_states_c = None
+        self.saved_hidden_states_a: Optional[List[torch.Tensor]] = None
+        self.saved_hidden_states_c: Optional[List[torch.Tensor]] = None
 
-        self.step = 0
+        self.step: int = 0
 
-    def add_transitions(self, transition: Transition):
+    def add_transitions(self, transition: Transition) -> None:
         if self.step >= self.num_transitions_per_env:
             raise AssertionError("Rollout buffer overflow")
+        assert transition.observations is not None
+        assert transition.actions is not None
+        assert transition.rewards is not None
+        assert transition.dones is not None
+        assert transition.values is not None
+        assert transition.actions_log_prob is not None
+        assert transition.action_mean is not None
+        assert transition.action_sigma is not None
         self.observations[self.step].copy_(transition.observations)
-        if self.privileged_observations is not None: self.privileged_observations[self.step].copy_(transition.critic_observations)
+        if self.privileged_observations is not None and transition.critic_observations is not None: 
+            self.privileged_observations[self.step].copy_(transition.critic_observations)
         self.actions[self.step].copy_(transition.actions)
         self.rewards[self.step].copy_(transition.rewards.view(-1, 1))
         self.dones[self.step].copy_(transition.dones.view(-1, 1))
@@ -101,7 +114,7 @@ class RolloutStorage:
         self._save_hidden_states(transition.hidden_states)
         self.step += 1
 
-    def _save_hidden_states(self, hidden_states):
+    def _save_hidden_states(self, hidden_states: Optional[Tuple[torch.Tensor, ...]]) -> None:
         if hidden_states is None or hidden_states==(None, None):
             return
         # make a tuple out of GRU hidden state sto match the LSTM format
@@ -113,15 +126,17 @@ class RolloutStorage:
             self.saved_hidden_states_a = [torch.zeros(self.observations.shape[0], *hid_a[i].shape, device=self.device) for i in range(len(hid_a))]
             self.saved_hidden_states_c = [torch.zeros(self.observations.shape[0], *hid_c[i].shape, device=self.device) for i in range(len(hid_c))]
         # copy the states
+        assert self.saved_hidden_states_a is not None
+        assert self.saved_hidden_states_c is not None
         for i in range(len(hid_a)):
             self.saved_hidden_states_a[i][self.step].copy_(hid_a[i])
             self.saved_hidden_states_c[i][self.step].copy_(hid_c[i])
 
 
-    def clear(self):
+    def clear(self) -> None:
         self.step = 0
 
-    def compute_returns(self, last_values, gamma, lam):
+    def compute_returns(self, last_values: torch.Tensor, gamma: float, lam: float) -> None:
         advantage = 0
         for step in reversed(range(self.num_transitions_per_env)):
             if step == self.num_transitions_per_env - 1:
@@ -137,7 +152,7 @@ class RolloutStorage:
         self.advantages = self.returns - self.values
         self.advantages = (self.advantages - self.advantages.mean()) / (self.advantages.std() + 1e-8)
 
-    def get_statistics(self):
+    def get_statistics(self) -> Tuple[torch.Tensor, torch.Tensor]:
         done = self.dones
         done[-1] = 1
         flat_dones = done.permute(1, 0, 2).reshape(-1, 1)
@@ -145,7 +160,23 @@ class RolloutStorage:
         trajectory_lengths = (done_indices[1:] - done_indices[:-1])
         return trajectory_lengths.float().mean(), self.rewards.mean()
 
-    def mini_batch_generator(self, num_mini_batches, num_epochs=8):
+    def mini_batch_generator(self, num_mini_batches: int, num_epochs: int = 8) -> Generator[
+        Tuple[
+            torch.Tensor,  # obs_batch
+            torch.Tensor,  # critic_observations_batch
+            torch.Tensor,  # actions_batch
+            torch.Tensor,  # target_values_batch
+            torch.Tensor,  # advantages_batch
+            torch.Tensor,  # returns_batch
+            torch.Tensor,  # old_actions_log_prob_batch
+            torch.Tensor,  # old_mu_batch
+            torch.Tensor,  # old_sigma_batch
+            Tuple[None, None],  # hidden_states (placeholder)
+            None  # masks (placeholder)
+        ],
+        None,
+        None
+    ]:
         batch_size = self.num_envs * self.num_transitions_per_env
         mini_batch_size = batch_size // num_mini_batches
         indices = torch.randperm(num_mini_batches*mini_batch_size, requires_grad=False, device=self.device)
@@ -184,7 +215,23 @@ class RolloutStorage:
                        old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (None, None), None
 
     # for RNNs only
-    def reccurent_mini_batch_generator(self, num_mini_batches, num_epochs=8):
+    def reccurent_mini_batch_generator(self, num_mini_batches: int, num_epochs: int = 8) -> Generator[
+        Tuple[
+            torch.Tensor,  # obs_batch
+            torch.Tensor,  # critic_obs_batch
+            torch.Tensor,  # actions_batch
+            torch.Tensor,  # values_batch
+            torch.Tensor,  # advantages_batch
+            torch.Tensor,  # returns_batch
+            torch.Tensor,  # old_actions_log_prob_batch
+            torch.Tensor,  # old_mu_batch
+            torch.Tensor,  # old_sigma_batch
+            Union[torch.Tensor, Tuple[torch.Tensor, ...]],  # hid_a_batch
+            torch.Tensor  # masks_batch
+        ],
+        None,
+        None
+    ]:
 
         padded_obs_trajectories, trajectory_masks = split_and_pad_trajectories(self.observations, self.dones)
         if self.privileged_observations is not None: 
@@ -222,6 +269,8 @@ class RolloutStorage:
                 # then take only time steps after dones (flattens num envs and time dimensions),
                 # take a batch of trajectories and finally reshape back to [num_layers, batch, hidden_dim]
                 last_was_done = last_was_done.permute(1, 0)
+                assert self.saved_hidden_states_a is not None
+                assert self.saved_hidden_states_c is not None
                 hid_a_batch = [ saved_hidden_states.permute(2, 0, 1, 3)[last_was_done][first_traj:last_traj].transpose(1, 0).contiguous()
                                 for saved_hidden_states in self.saved_hidden_states_a ] 
                 hid_c_batch = [ saved_hidden_states.permute(2, 0, 1, 3)[last_was_done][first_traj:last_traj].transpose(1, 0).contiguous()

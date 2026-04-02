@@ -28,24 +28,29 @@
 #
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
 
-import numpy as np
+from typing import Any, Dict, List, Optional, Tuple, Union
 
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.distributions import Normal
 from torch.nn.modules import rnn
 
 class ActorCritic(nn.Module):
-    is_recurrent = False
-    def __init__(self,  num_actor_obs,
-                        num_critic_obs,
-                        num_actions,
-                        actor_hidden_dims=[256, 256, 256],
-                        critic_hidden_dims=[256, 256, 256],
-                        activation='elu',
-                        init_noise_std=1.0,
-                        clip_actions=100.0,
-                        **kwargs):
+    is_recurrent: bool = False
+    
+    def __init__(
+        self,
+        num_actor_obs: int,
+        num_critic_obs: int,
+        num_actions: int,
+        actor_hidden_dims: List[int] = [256, 256, 256],
+        critic_hidden_dims: List[int] = [256, 256, 256],
+        activation: str = 'elu',
+        init_noise_std: float = 1.0,
+        clip_actions: float = 100.0,
+        **kwargs: Any
+    ) -> None:
         if kwargs:
             print("ActorCritic.__init__ got unexpected arguments, which will be ignored: " + str([key for key in kwargs.keys()]))
         super().__init__()
@@ -84,8 +89,8 @@ class ActorCritic(nn.Module):
         print(f"Critic MLP: {self.critic}")
 
         # Action noise
-        self.std = nn.Parameter(init_noise_std * torch.ones(num_actions))
-        self.distribution = None
+        self.std: nn.Parameter = nn.Parameter(init_noise_std * torch.ones(num_actions))
+        self.distribution: Optional[Normal] = None
         # disable args validation for speedup
         Normal.set_default_validate_args = False
         
@@ -95,49 +100,49 @@ class ActorCritic(nn.Module):
 
     @staticmethod
     # not used at the moment
-    def init_weights(sequential, scales):
+    def init_weights(sequential: nn.Sequential, scales: List[float]) -> None:
         [torch.nn.init.orthogonal_(module.weight, gain=scales[idx]) for idx, module in
          enumerate(mod for mod in sequential if isinstance(mod, nn.Linear))]
 
 
-    def reset(self, dones=None):
+    def reset(self, dones: Optional[torch.Tensor] = None) -> None:
         pass
 
-    def forward(self):
+    def forward(self) -> None:
         raise NotImplementedError
     
     @property
-    def action_mean(self):
+    def action_mean(self) -> torch.Tensor:
         return self.distribution.mean
 
     @property
-    def action_std(self):
+    def action_std(self) -> torch.Tensor:
         return self.distribution.stddev
     
     @property
-    def entropy(self):
+    def entropy(self) -> torch.Tensor:
         return self.distribution.entropy().sum(dim=-1)
 
-    def update_distribution(self, observations):
+    def update_distribution(self, observations: torch.Tensor) -> None:
         mean = self.actor(observations)
         self.distribution = Normal(mean, mean*0. + self.std)
 
-    def act(self, observations, **kwargs):
+    def act(self, observations: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         self.update_distribution(observations)
         return self.distribution.sample()
     
-    def get_actions_log_prob(self, actions):
+    def get_actions_log_prob(self, actions: torch.Tensor) -> torch.Tensor:
         return self.distribution.log_prob(actions).sum(dim=-1)
 
-    def act_inference(self, observations):
+    def act_inference(self, observations: torch.Tensor) -> torch.Tensor:
         actions_mean = self.actor(observations)
         return actions_mean
 
-    def evaluate(self, critic_observations, **kwargs):
+    def evaluate(self, critic_observations: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         value = self.critic(critic_observations)
         return value
 
-def get_activation(act_name):
+def get_activation(act_name: str) -> Optional[nn.Module]:
     if act_name == "elu":
         return nn.ELU()
     elif act_name == "selu":
@@ -156,22 +161,22 @@ def get_activation(act_name):
         print("invalid activation function!")
         return None
 
-def init_orhtogonal(m):
+def init_orhtogonal(m: nn.Module) -> None:
     if isinstance(m, nn.Linear):
         nn.init.orthogonal_(m.weight, 0.01)
         m.bias.data.fill_(0.)
 
-def init_normal(module):
+def init_normal(module: nn.Module) -> None:
     if type(module) == nn.Linear:
         nn.init.normal_(module.weight, mean=0, std=0.01)
         nn.init.zeros_(module.bias)
 
-def init_constant(module):
+def init_constant(module: nn.Module) -> None:
     if type(module) == nn.Linear:
         nn.init.constant_(module.weight, 1)
         nn.init.zeros_(module.bias)
 
-def init_xavier(module):
+def init_xavier(module: nn.Module) -> None:
     if type(module) == nn.Linear:
         nn.init.xavier_uniform_(module.weight)
         nn.init.zeros_(module.bias)

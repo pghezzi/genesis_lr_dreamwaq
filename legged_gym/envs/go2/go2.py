@@ -2,7 +2,6 @@ from legged_gym import *
 
 import torch
 
-from legged_gym import LEGGED_GYM_ROOT_DIR
 from legged_gym.envs.base.legged_robot import LeggedRobot
 from legged_gym.utils.math_utils import torch_rand_float
 

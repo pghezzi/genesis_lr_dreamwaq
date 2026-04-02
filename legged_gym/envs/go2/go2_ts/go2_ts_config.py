@@ -1,6 +1,6 @@
 from legged_gym import *
 from legged_gym.envs.base.template_cfgs import LeggedRobotTSCfgPPO
-from legged_gym.envs.base.common_cfgs import Go2RoughCommonCfg
+from legged_gym.envs.base.common_cfgs import Go2RoughCommonCfg, get_simulator_suffix
 
 class Go2TSCfg( Go2RoughCommonCfg ):
     class env( Go2RoughCommonCfg.env ):
@@ -47,13 +47,7 @@ class Go2TSCfg( Go2RoughCommonCfg ):
         randomize_pd_gain = True
         kp_range = [0.8, 1.2]
         kd_range = [0.8, 1.2]
-        randomize_joint_armature = False
-        joint_armature_range = [0.015, 0.025]  # [N*m*s/rad]
-        randomize_joint_friction = False
-        joint_friction_range = [0.01, 0.02]
-        randomize_joint_damping = False
-        joint_damping_range = [0.25, 0.3]
-    
+        
 class Go2TSCfgPPO( LeggedRobotTSCfgPPO ):
     class policy( LeggedRobotTSCfgPPO.policy ):
         critic_hidden_dims = [1024, 256, 128]
@@ -69,13 +63,7 @@ class Go2TSCfgPPO( LeggedRobotTSCfgPPO ):
         encoder_lr = 2.e-4
         num_encoder_epochs = 2
     class runner( LeggedRobotTSCfgPPO.runner ):
-        run_name = "ts"
-        if SIMULATOR == "genesis":
-            run_name += '_genesis'
-        elif SIMULATOR == "isaacgym":
-            run_name += '_isaacgym'
-        elif SIMULATOR == "isaaclab":
-            run_name += '_isaaclab'
+        run_name = "ts" + get_simulator_suffix()
         experiment_name = 'go2_rough'
         save_interval = 500
         max_iterations = 3000

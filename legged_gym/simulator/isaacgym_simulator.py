@@ -1,7 +1,6 @@
 from legged_gym import *
 from legged_gym.simulator.simulator import Simulator
 from PIL import Image as im
-import cv2 as cv
 import torch
 import numpy as np
 import os
@@ -1061,6 +1060,7 @@ class IsaacGymSimulator(Simulator):
             pixel_values = ((depth + 0.5) * 255.0).cpu().numpy().astype(np.uint8)
             # image = im.fromarray(pixel_values, mode='L')
             # image.save("debug_depth_images/depth_frame%d.jpg" % self.frame_count)
+            import cv2 as cv
             cv.imshow("Depth Camera", pixel_values)
             cv.waitKey(1)
             # pixel_values = (depth + 0.5) * (far_clip - near_clip) + near_clip

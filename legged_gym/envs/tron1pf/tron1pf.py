@@ -3,10 +3,7 @@ from time import time
 import numpy as np
 
 import torch
-from torch import Tensor
-from typing import Tuple, Dict
 
-from legged_gym import LEGGED_GYM_ROOT_DIR
 from legged_gym.envs.base.legged_robot import LeggedRobot
 from collections import deque
 

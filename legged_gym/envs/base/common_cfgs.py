@@ -6,6 +6,22 @@
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg
 from legged_gym import SIMULATOR
 
+# =============================================================================
+# CONFIG MIXINS - Reusable configuration blocks
+# =============================================================================
+# These mixin classes can be combined to create robot-specific configs.
+# Mixins provide common patterns that reduce duplication across robot variants.
+
+def get_simulator_suffix():
+    """Helper function to get simulator suffix for run names."""
+    if SIMULATOR == "genesis":
+        return '_genesis'
+    elif SIMULATOR == "isaacgym":
+        return '_isaacgym'
+    elif SIMULATOR == "isaaclab":
+        return '_isaaclab'
+    return ''
+
 #----- Common configuration for Unitree Go2 on flat terrain -----#
 class Go2FlatCommonCfg(LeggedRobotCfg):
     class init_state(LeggedRobotCfg.init_state):

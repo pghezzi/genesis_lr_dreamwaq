@@ -1,6 +1,6 @@
 from legged_gym import *
 from legged_gym.envs.base.template_cfgs import LeggedRobotDreamwaqCfgPPO
-from legged_gym.envs.base.common_cfgs import Go2RoughCommonCfg
+from legged_gym.envs.base.common_cfgs import Go2RoughCommonCfg, get_simulator_suffix
 
 class Go2DreamwaqCfg( Go2RoughCommonCfg ):
     class env( Go2RoughCommonCfg.env ):
@@ -49,12 +49,7 @@ class Go2DreamwaqCfg( Go2RoughCommonCfg ):
         randomize_pd_gain = True
         kp_range = [0.8, 1.2]
         kd_range = [0.8, 1.2]
-        randomize_joint_armature = True
-        joint_armature_range = [0.015, 0.025]  # [N*m*s/rad]
-        randomize_joint_friction = False
-        joint_friction_range = [0.01, 0.02]
-        randomize_joint_damping = False
-        joint_damping_range = [0.25, 0.3]
+
 
 class Go2DreamwaqCfgPPO( LeggedRobotDreamwaqCfgPPO ):
     class policy( LeggedRobotDreamwaqCfgPPO.policy ):
@@ -66,13 +61,7 @@ class Go2DreamwaqCfgPPO( LeggedRobotDreamwaqCfgPPO ):
         num_encoder_epochs = 1
         vae_kld_weight = 2.0
     class runner( LeggedRobotDreamwaqCfgPPO.runner ):
-        run_name = 'dreamwaq'
-        if SIMULATOR == "genesis":
-            run_name += "_genesis"
-        elif SIMULATOR == "isaacgym":
-            run_name += "_isaacgym"
-        elif SIMULATOR == "isaaclab":
-            run_name += "_isaaclab"
+        run_name = 'dreamwaq' + get_simulator_suffix()
         experiment_name = 'go2_rough'
         save_interval = 500
         max_iterations = 3000

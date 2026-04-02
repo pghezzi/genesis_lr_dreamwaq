@@ -28,10 +28,13 @@
 #
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
 
+from __future__ import annotations
+
 import time
 import os
 from collections import deque
 import statistics
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import wandb
 from datetime import datetime
@@ -43,71 +46,106 @@ from rsl_rl.modules import ActorCritic, ActorCriticRecurrent
 from rsl_rl.env import VecEnv
 
 
+# Type aliases for configuration dictionaries
+RunnerConfig = Dict[str, Any]
+AlgorithmConfig = Dict[str, Any]
+PolicyConfig = Dict[str, Any]
+TrainConfig = Dict[str, Any]
+
+
 class OnPolicyRunner:
+    """On-policy RL training runner for PPO-style algorithms."""
 
-    def __init__(self,
-                 env: VecEnv,
-                 train_cfg,
-                 log_dir=None,
-                 device='cpu'):
+    def __init__(
+        self,
+        env: VecEnv,
+        train_cfg: TrainConfig,
+        log_dir: Optional[str] = None,
+        device: Union[str, torch.device] = "cpu",
+    ) -> None:
+        """Initialize the on-policy runner.
 
-        self.cfg=train_cfg["runner"]
-        self.alg_cfg = train_cfg["algorithm"]
-        self.policy_cfg = train_cfg["policy"]
-        self.all_cfg = train_cfg
-        self.wandb_run_name = (
+        Args:
+            env: Vectorized environment for training.
+            train_cfg: Training configuration containing runner, algorithm, and policy configs.
+            log_dir: Directory for logging and saving models.
+            device: Device to run training on (e.g., 'cpu', 'cuda').
+        """
+        self.cfg: RunnerConfig = train_cfg["runner"]
+        self.alg_cfg: AlgorithmConfig = train_cfg["algorithm"]
+        self.policy_cfg: PolicyConfig = train_cfg["policy"]
+        self.all_cfg: TrainConfig = train_cfg
+        self.wandb_run_name: str = (
             self.cfg["experiment_name"]
             + "_"
             + datetime.now().strftime("%b%d_%H-%M-%S")
             + "_"
             + self.cfg["run_name"]
         )
-        self.device = device
-        self.env = env
+        self.device: torch.device = torch.device(device)
+        self.env: VecEnv = env
         self._init_agent_and_algo()
-        self.num_steps_per_env = self.cfg["num_steps_per_env"]
-        self.save_interval = self.cfg["save_interval"]
+        self.num_steps_per_env: int = self.cfg["num_steps_per_env"]
+        self.save_interval: int = self.cfg["save_interval"]
         self._init_storage()
 
         # Log
-        self.log_dir = log_dir
-        self.sync_wandb = self.cfg["sync_wandb"] if "sync_wandb" in self.cfg else False
-        self.writer = None
-        self.tot_timesteps = 0
-        self.tot_time = 0
-        self.current_learning_iteration = 0
+        self.log_dir: Optional[str] = log_dir
+        self.sync_wandb: bool = self.cfg.get("sync_wandb", False)
+        self.writer: Optional[SummaryWriter] = None
+        self.tot_timesteps: int = 0
+        self.tot_time: float = 0.0
+        self.current_learning_iteration: int = 0
 
         self.env.reset()
     
-    def _init_agent_and_algo(self):
+    def _init_agent_and_algo(self) -> None:
+        """Initialize the actor-critic network and PPO algorithm."""
         if self.env.num_privileged_obs is not None:
-            num_critic_obs = self.env.num_privileged_obs 
+            num_critic_obs: int = self.env.num_privileged_obs 
         else:
             num_critic_obs = self.env.num_obs
-        actor_critic_class = eval(self.cfg["policy_class_name"]) # ActorCritic
-        actor_critic: ActorCritic = actor_critic_class( self.env.num_obs,
-                                                        num_critic_obs,
-                                                        self.env.num_actions,
-                                                        **self.policy_cfg).to(self.device)
-        alg_class = eval(self.cfg["algorithm_class_name"]) # PPO
+        actor_critic_class = eval(self.cfg["policy_class_name"])
+        actor_critic: ActorCritic = actor_critic_class(
+            self.env.num_obs,
+            num_critic_obs,
+            self.env.num_actions,
+            **self.policy_cfg
+        ).to(self.device)
+        alg_class = eval(self.cfg["algorithm_class_name"])
         self.alg: PPO = alg_class(actor_critic, device=self.device, **self.alg_cfg)
     
-    def _init_storage(self):
-        self.alg.init_storage(self.env.num_envs, self.num_steps_per_env, 
-                              [self.env.num_obs], [self.env.num_privileged_obs], 
-                              [self.env.num_actions])
+    def _init_storage(self) -> None:
+        """Initialize the rollout storage for the algorithm."""
+        self.alg.init_storage(
+            self.env.num_envs,
+            self.num_steps_per_env, 
+            (self.env.num_obs,),
+            (self.env.num_privileged_obs,), 
+            (self.env.num_actions,),
+        )
     
-    def learn(self, num_learning_iterations, init_at_random_ep_len=False):
+    def learn(
+        self,
+        num_learning_iterations: int,
+        init_at_random_ep_len: bool = False,
+    ) -> None:
+        """Run the training loop for a specified number of iterations.
+
+        Args:
+            num_learning_iterations: Number of learning iterations to run.
+            init_at_random_ep_len: Whether to initialize episode lengths randomly.
+        """
         self._pre_learn(init_at_random_ep_len)
         obs = self.env.get_observations()
         privileged_obs = self.env.get_privileged_observations()
         critic_obs = privileged_obs if privileged_obs is not None else obs
         obs, critic_obs = obs.to(self.device), critic_obs.to(self.device)
-        self.alg.actor_critic.train() # switch to train mode (for dropout for example)
+        self.alg.actor_critic.train()
 
-        ep_infos = []
-        rewbuffer = deque(maxlen=100)
-        lenbuffer = deque(maxlen=100)
+        ep_infos: List[Dict[str, Any]] = []
+        rewbuffer: deque = deque(maxlen=100)
+        lenbuffer: deque = deque(maxlen=100)
         cur_reward_sum = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
         cur_episode_length = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
 
@@ -120,7 +158,12 @@ class OnPolicyRunner:
                     actions = self.alg.act(obs, critic_obs)
                     obs, privileged_obs, rewards, dones, infos = self.env.step(actions)
                     critic_obs = privileged_obs if privileged_obs is not None else obs
-                    obs, critic_obs, rewards, dones = obs.to(self.device), critic_obs.to(self.device), rewards.to(self.device), dones.to(self.device)
+                    obs, critic_obs, rewards, dones = (
+                        obs.to(self.device),
+                        critic_obs.to(self.device),
+                        rewards.to(self.device),
+                        dones.to(self.device),
+                    )
                     self.alg.process_env_step(rewards, dones, infos)
                     
                     if self.log_dir is not None:
@@ -148,14 +191,20 @@ class OnPolicyRunner:
             if self.log_dir is not None:
                 self.log(locals())
             if it % self.save_interval == 0:
+                assert self.log_dir is not None
                 self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)))
             ep_infos.clear()
         
         self.current_learning_iteration += num_learning_iterations
+        assert self.log_dir is not None
         self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(self.current_learning_iteration)))
 
-    def _pre_learn(self, init_at_random_ep_len):
-        # initialize writer
+    def _pre_learn(self, init_at_random_ep_len: bool) -> None:
+        """Prepare for training by initializing logging and episode buffers.
+
+        Args:
+            init_at_random_ep_len: Whether to randomize initial episode lengths.
+        """
         if self.log_dir is not None and self.writer is None:
             if self.sync_wandb:
                 wandb.init(
@@ -166,9 +215,24 @@ class OnPolicyRunner:
                 )
             self.writer = SummaryWriter(log_dir=self.log_dir, flush_secs=10)
         if init_at_random_ep_len:
-            self.env.episode_length_buf = torch.randint_like(self.env.episode_length_buf, high=int(self.env.max_episode_length))
+            self.env.episode_length_buf = torch.randint_like(
+                self.env.episode_length_buf, high=int(self.env.max_episode_length)
+            )
     
-    def log(self, locs, width=80, pad=35):
+    def log(
+        self,
+        locs: Dict[str, Any],
+        width: int = 80,
+        pad: int = 35,
+    ) -> None:
+        """Log training metrics to tensorboard and console.
+
+        Args:
+            locs: Dictionary containing iteration metrics and buffers.
+            width: Width of the log output.
+            pad: Padding for log formatting.
+        """
+        assert self.writer is not None
         self.tot_timesteps += self.num_steps_per_env * self.env.num_envs
         self.tot_time += locs['collection_time'] + locs['learn_time']
         iteration_time = locs['collection_time'] + locs['learn_time']
@@ -203,11 +267,11 @@ class OnPolicyRunner:
             self.writer.add_scalar('Train/mean_reward/time', statistics.mean(locs['rewbuffer']), self.tot_time)
             self.writer.add_scalar('Train/mean_episode_length/time', statistics.mean(locs['lenbuffer']), self.tot_time)
 
-        str = f" \033[1m Learning iteration {locs['it']}/{self.current_learning_iteration + locs['num_learning_iterations']} \033[0m "
+        str_iter = f" \033[1m Learning iteration {locs['it']}/{self.current_learning_iteration + locs['num_learning_iterations']} \033[0m "
 
         if len(locs['rewbuffer']) > 0:
             log_string = (f"""{'#' * width}\n"""
-                          f"""{str.center(width, ' ')}\n\n"""
+                          f"""{str_iter.center(width, ' ')}\n\n"""
                           f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
                             'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n"""
                           f"""{'Value function loss:':>{pad}} {locs['mean_value_loss']:.4f}\n"""
@@ -215,18 +279,14 @@ class OnPolicyRunner:
                           f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n"""
                           f"""{'Mean reward:':>{pad}} {statistics.mean(locs['rewbuffer']):.2f}\n"""
                           f"""{'Mean episode length:':>{pad}} {statistics.mean(locs['lenbuffer']):.2f}\n""")
-                        #   f"""{'Mean reward/step:':>{pad}} {locs['mean_reward']:.2f}\n"""
-                        #   f"""{'Mean episode length/episode:':>{pad}} {locs['mean_trajectory_length']:.2f}\n""")
         else:
             log_string = (f"""{'#' * width}\n"""
-                          f"""{str.center(width, ' ')}\n\n"""
+                          f"""{str_iter.center(width, ' ')}\n\n"""
                           f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
                             'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n"""
                           f"""{'Value function loss:':>{pad}} {locs['mean_value_loss']:.4f}\n"""
                           f"""{'Surrogate loss:':>{pad}} {locs['mean_surrogate_loss']:.4f}\n"""
                           f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n""")
-                        #   f"""{'Mean reward/step:':>{pad}} {locs['mean_reward']:.2f}\n"""
-                        #   f"""{'Mean episode length/episode:':>{pad}} {locs['mean_trajectory_length']:.2f}\n""")
 
         log_string += ep_string
         log_string += (f"""{'-' * width}\n"""
@@ -237,15 +297,38 @@ class OnPolicyRunner:
                                locs['num_learning_iterations'] - locs['it']):.1f}s\n""")
         print(log_string)
 
-    def save(self, path, infos=None):
+    def save(
+        self,
+        path: str,
+        infos: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Save the model checkpoint to disk.
+
+        Args:
+            path: File path to save the checkpoint.
+            infos: Optional additional information to save with the checkpoint.
+        """
         torch.save({
             'model_state_dict': self.alg.actor_critic.state_dict(),
             'optimizer_state_dict': self.alg.optimizer.state_dict(),
             'iter': self.current_learning_iteration,
             'infos': infos,
-            }, path)
+        }, path)
 
-    def load(self, path, load_optimizer=True):
+    def load(
+        self,
+        path: str,
+        load_optimizer: bool = True,
+    ) -> Optional[Dict[str, Any]]:
+        """Load a model checkpoint from disk.
+
+        Args:
+            path: File path to load the checkpoint from.
+            load_optimizer: Whether to load the optimizer state.
+
+        Returns:
+            Optional infos dict stored in the checkpoint.
+        """
         loaded_dict = torch.load(path)
         self.alg.actor_critic.load_state_dict(loaded_dict['model_state_dict'])
         if load_optimizer:
@@ -253,8 +336,19 @@ class OnPolicyRunner:
         self.current_learning_iteration = loaded_dict['iter']
         return loaded_dict['infos']
 
-    def get_inference_policy(self, device=None):
-        self.alg.actor_critic.eval() # switch to evaluation mode (dropout for example)
+    def get_inference_policy(
+        self,
+        device: Optional[Union[str, torch.device]] = None,
+    ) -> Callable[[torch.Tensor], torch.Tensor]:
+        """Get the inference policy function.
+
+        Args:
+            device: Device to run inference on. If None, uses current device.
+
+        Returns:
+            Callable that takes observations and returns actions.
+        """
+        self.alg.actor_critic.eval()
         if device is not None:
             self.alg.actor_critic.to(device)
         return self.alg.actor_critic.act_inference

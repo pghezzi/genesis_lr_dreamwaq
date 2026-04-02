@@ -1,11 +1,7 @@
 from legged_gym import *
-from time import time
 import numpy as np
-import os
 
 import torch
-from torch import Tensor
-from typing import Tuple, Dict
 
 from legged_gym.envs.base.base_task import BaseTask
 from legged_gym.utils.math_utils import wrap_to_pi, torch_rand_float, quat_apply, quat_rotate_inverse

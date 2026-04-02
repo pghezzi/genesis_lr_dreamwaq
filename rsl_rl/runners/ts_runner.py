@@ -28,10 +28,13 @@
 #
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
 
+from __future__ import annotations
+
 import time
 import os
 from collections import deque
 import statistics
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import wandb
 from datetime import datetime
@@ -40,46 +43,72 @@ import torch
 from rsl_rl.algorithms import PPO_TS
 from rsl_rl.modules import ActorCriticTS
 from rsl_rl.env import VecEnv
-from .on_policy_runner import OnPolicyRunner
+from .on_policy_runner import OnPolicyRunner, TrainConfig
 
 
 class TSRunner(OnPolicyRunner):
+    """Teacher-Student runner for training with distillation."""
 
-    def __init__(self,
-                 env: VecEnv,
-                 train_cfg,
-                 log_dir=None,
-                 device='cpu'):
-        
+    def __init__(
+        self,
+        env: VecEnv,
+        train_cfg: TrainConfig,
+        log_dir: Optional[str] = None,
+        device: Union[str, torch.device] = "cpu",
+    ) -> None:
         super().__init__(env, train_cfg, log_dir, device)
     
-    def _init_agent_and_algo(self):
-        actor_critic_class = eval(self.cfg["policy_class_name"]) # ActorCriticTS
-        actor_critic: ActorCriticTS = actor_critic_class( self.env.num_obs,
-                                                        self.env.num_actions,
-                                                        self.env.num_privileged_obs,
-                                                        self.env.num_history_obs,
-                                                        self.env.num_latent_dims,
-                                                        self.env.num_critic_obs,
-                                                        **self.policy_cfg).to(self.device)
-        alg_class = eval(self.cfg["algorithm_class_name"]) # PPO
+    def _init_agent_and_algo(self) -> None:
+        """Initialize the TS actor-critic and PPO_TS algorithm."""
+        actor_critic_class = eval(self.cfg["policy_class_name"])
+        actor_critic: ActorCriticTS = actor_critic_class(
+            self.env.num_obs,
+            self.env.num_actions,
+            self.env.num_privileged_obs,
+            self.env.num_history_obs,  # type: ignore[attr-defined]
+            self.env.num_latent_dims,  # type: ignore[attr-defined]
+            self.env.num_critic_obs,  # type: ignore[attr-defined]
+            **self.policy_cfg
+        ).to(self.device)
+        alg_class = eval(self.cfg["algorithm_class_name"])
         self.alg: PPO_TS = alg_class(actor_critic, device=self.device, **self.alg_cfg)
         
-    def _init_storage(self):
-        self.alg.init_storage(self.env.num_envs, self.num_steps_per_env, 
-                              [self.env.num_obs], [self.env.num_privileged_obs], 
-                              [self.env.num_history_obs], [self.env.num_critic_obs], [self.env.num_actions])
+    def _init_storage(self) -> None:
+        """Initialize the TS rollout storage."""
+        self.alg.init_storage(
+            self.env.num_envs,
+            self.num_steps_per_env, 
+            (self.env.num_obs,),
+            (self.env.num_privileged_obs,), 
+            (self.env.num_history_obs,),  # type: ignore[attr-defined]
+            (self.env.num_critic_obs,),  # type: ignore[attr-defined]
+            (self.env.num_actions,),
+        )
     
-    def learn(self, num_learning_iterations, init_at_random_ep_len=False):
-        self._pre_learn(init_at_random_ep_len)
-        obs, privileged_obs, obs_history, critic_obs = self.env.get_observations()
-        obs, privileged_obs, obs_history, critic_obs = obs.to(self.device), privileged_obs.to(self.device), \
-            obs_history.to(self.device), critic_obs.to(self.device)
-        self.alg.actor_critic.train() # switch to train mode (for dropout for example)
+    def learn(
+        self,
+        num_learning_iterations: int,
+        init_at_random_ep_len: bool = False,
+    ) -> None:
+        """Run TS training loop for a specified number of iterations.
 
-        ep_infos = []
-        rewbuffer = deque(maxlen=100)
-        lenbuffer = deque(maxlen=100)
+        Args:
+            num_learning_iterations: Number of learning iterations to run.
+            init_at_random_ep_len: Whether to initialize episode lengths randomly.
+        """
+        self._pre_learn(init_at_random_ep_len)
+        obs, privileged_obs, obs_history, critic_obs = self.env.get_observations()  # type: ignore[misc]
+        obs, privileged_obs, obs_history, critic_obs = (
+            obs.to(self.device),
+            privileged_obs.to(self.device),
+            obs_history.to(self.device),
+            critic_obs.to(self.device),
+        )
+        self.alg.actor_critic.train()
+
+        ep_infos: List[Dict[str, Any]] = []
+        rewbuffer: deque = deque(maxlen=100)
+        lenbuffer: deque = deque(maxlen=100)
         cur_reward_sum = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
         cur_episode_length = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
 
@@ -90,9 +119,15 @@ class TSRunner(OnPolicyRunner):
             with torch.inference_mode():
                 for i in range(self.num_steps_per_env):
                     actions = self.alg.act(obs, privileged_obs, obs_history, critic_obs)
-                    obs, privileged_obs, obs_history, critic_obs, rewards, dones, infos = self.env.step(actions)
-                    obs, privileged_obs, obs_history, rewards, dones, critic_obs = obs.to(self.device), \
-                        privileged_obs.to(self.device), obs_history.to(self.device), rewards.to(self.device), dones.to(self.device), critic_obs.to(self.device)
+                    obs, privileged_obs, obs_history, critic_obs, rewards, dones, infos = self.env.step(actions)  # type: ignore[misc]
+                    obs, privileged_obs, obs_history, rewards, dones, critic_obs = (
+                        obs.to(self.device),
+                        privileged_obs.to(self.device),
+                        obs_history.to(self.device),
+                        rewards.to(self.device),
+                        dones.to(self.device),
+                        critic_obs.to(self.device),
+                    )
                     self.alg.process_env_step(rewards, dones, infos)
                     
                     if self.log_dir is not None:
@@ -120,13 +155,28 @@ class TSRunner(OnPolicyRunner):
             if self.log_dir is not None:
                 self.log(locals())
             if it % self.save_interval == 0:
+                assert self.log_dir is not None
                 self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)))
             ep_infos.clear()
         
         self.current_learning_iteration += num_learning_iterations
+        assert self.log_dir is not None
         self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(self.current_learning_iteration)))
 
-    def log(self, locs, width=80, pad=35):
+    def log(
+        self,
+        locs: Dict[str, Any],
+        width: int = 80,
+        pad: int = 35,
+    ) -> None:
+        """Log TS training metrics to tensorboard and console.
+
+        Args:
+            locs: Dictionary containing iteration metrics and buffers.
+            width: Width of the log output.
+            pad: Padding for log formatting.
+        """
+        assert self.writer is not None
         self.tot_timesteps += self.num_steps_per_env * self.env.num_envs
         self.tot_time += locs['collection_time'] + locs['learn_time']
         iteration_time = locs['collection_time'] + locs['learn_time']
@@ -163,11 +213,11 @@ class TSRunner(OnPolicyRunner):
             self.writer.add_scalar('Train/mean_reward/time', statistics.mean(locs['rewbuffer']), self.tot_time)
             self.writer.add_scalar('Train/mean_episode_length/time', statistics.mean(locs['lenbuffer']), self.tot_time)
 
-        str = f" \033[1m Learning iteration {locs['it']}/{self.current_learning_iteration + locs['num_learning_iterations']} \033[0m "
+        str_iter = f" \033[1m Learning iteration {locs['it']}/{self.current_learning_iteration + locs['num_learning_iterations']} \033[0m "
 
         if len(locs['rewbuffer']) > 0:
             log_string = (f"""{'#' * width}\n"""
-                          f"""{str.center(width, ' ')}\n\n"""
+                          f"""{str_iter.center(width, ' ')}\n\n"""
                           f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
                             'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n"""
                           f"""{'Value function loss:':>{pad}} {locs['mean_value_loss']:.4f}\n"""
@@ -176,18 +226,14 @@ class TSRunner(OnPolicyRunner):
                           f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n"""
                           f"""{'Mean reward:':>{pad}} {statistics.mean(locs['rewbuffer']):.2f}\n"""
                           f"""{'Mean episode length:':>{pad}} {statistics.mean(locs['lenbuffer']):.2f}\n""")
-                        #   f"""{'Mean reward/step:':>{pad}} {locs['mean_reward']:.2f}\n"""
-                        #   f"""{'Mean episode length/episode:':>{pad}} {locs['mean_trajectory_length']:.2f}\n""")
         else:
             log_string = (f"""{'#' * width}\n"""
-                          f"""{str.center(width, ' ')}\n\n"""
+                          f"""{str_iter.center(width, ' ')}\n\n"""
                           f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
                             'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n"""
                           f"""{'Value function loss:':>{pad}} {locs['mean_value_loss']:.4f}\n"""
                           f"""{'Surrogate loss:':>{pad}} {locs['mean_surrogate_loss']:.4f}\n"""
                           f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n""")
-                        #   f"""{'Mean reward/step:':>{pad}} {locs['mean_reward']:.2f}\n"""
-                        #   f"""{'Mean episode length/episode:':>{pad}} {locs['mean_trajectory_length']:.2f}\n""")
 
         log_string += ep_string
         log_string += (f"""{'-' * width}\n"""
@@ -198,8 +244,19 @@ class TSRunner(OnPolicyRunner):
                                locs['num_learning_iterations'] - locs['it']):.1f}s\n""")
         print(log_string)
 
-    def get_inference_policy(self, device=None):
-        self.alg.actor_critic.eval() # switch to evaluation mode (dropout for example)
+    def get_inference_policy(
+        self,
+        device: Optional[Union[str, torch.device]] = None,
+    ) -> Callable[[torch.Tensor], torch.Tensor]:
+        """Get the student policy for inference.
+
+        Args:
+            device: Device to run inference on. If None, uses current device.
+
+        Returns:
+            Callable that takes observations and returns actions using student policy.
+        """
+        self.alg.actor_critic.eval()
         if device is not None:
             self.alg.actor_critic.to(device)
         return self.alg.actor_critic.act_student

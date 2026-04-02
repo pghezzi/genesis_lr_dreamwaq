@@ -1,13 +1,17 @@
+from __future__ import annotations
+
+
 import time
 import os
 from collections import deque
 import statistics
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 import torch
 
-from .on_policy_runner import OnPolicyRunner
+from .on_policy_runner import OnPolicyRunner, TrainConfig
 from rsl_rl.algorithms import PPO_AMP
 from rsl_rl.modules import ActorCritic, ActorCriticRecurrent
 from rsl_rl.env import VecEnv
@@ -15,60 +19,88 @@ from rsl_rl.modules.amp_discriminator import AMPDiscriminator
 from legged_gym.utils.motion_loader import AMPLoader
 from rsl_rl.utils.utils import Normalizer
 
-class AMPRunner(OnPolicyRunner):
 
-    def __init__(self,
-                 env: VecEnv,
-                 train_cfg,
-                 log_dir=None,
-                 device='cpu'):
+class AMPRunner(OnPolicyRunner):
+    """Runner for training with Adversarial Motion Priors (AMP)."""
+
+    def __init__(
+        self,
+        env: VecEnv,
+        train_cfg: TrainConfig,
+        log_dir: Optional[str] = None,
+        device: Union[str, torch.device] = "cpu",
+    ) -> None:
         super().__init__(env, train_cfg, log_dir, device)
 
-    def _init_agent_and_algo(self):
+
+    def _init_agent_and_algo(self) -> None:
+        """Initialize the AMP actor-critic and PPO_AMP algorithm."""
         if self.env.num_privileged_obs is not None:
-            num_critic_obs = self.env.num_privileged_obs 
+            num_critic_obs: int = self.env.num_privileged_obs 
         else:
             num_critic_obs = self.env.num_obs
-        actor_critic_class = eval(self.cfg["policy_class_name"]) # ActorCritic
-        actor_critic: ActorCritic = actor_critic_class( self.env.num_obs,
-                                                        num_critic_obs,
-                                                        self.env.num_actions,
-                                                        **self.policy_cfg).to(self.device)
+        actor_critic_class = eval(self.cfg["policy_class_name"])
+        actor_critic: ActorCritic = actor_critic_class(
+            self.env.num_obs,
+            num_critic_obs,
+            self.env.num_actions,
+            **self.policy_cfg
+        ).to(self.device)
         amp_data = AMPLoader(
             self.device, 
             num_dof=self.env.num_actions,
-            num_key_bodies=len(self.env.simulator.key_body_indices),
-            time_between_frames=self.env.dt, 
+            num_key_bodies=len(self.env.simulator.key_body_indices),  # type: ignore[attr-defined]
+            time_between_frames=self.env.dt,  # type: ignore[attr-defined]
             preload_transitions=True,
             num_preload_transitions=self.cfg['amp_num_preload_transitions'],
-            motion_files=self.cfg["amp_motion_files"])
+            motion_files=self.cfg["amp_motion_files"]
+        )
         amp_normalizer = Normalizer(amp_data.observation_dim)
         discriminator = AMPDiscriminator(
             amp_data.observation_dim * 2,
             self.cfg['amp_reward_coef'],
-            self.cfg['amp_discr_hidden_dims'], self.device,
-            self.cfg['amp_task_reward_lerp']).to(self.device)
-        alg_class = eval(self.cfg["algorithm_class_name"]) # PPO_AMP
-        self.alg: PPO_AMP = alg_class(actor_critic, 
-                                      discriminator, 
-                                      amp_data, 
-                                      amp_normalizer, 
-                                      device=self.device,
-                                      **self.alg_cfg)
-    
-    def learn(self, num_learning_iterations, init_at_random_ep_len=False):
+            self.cfg['amp_discr_hidden_dims'],
+            self.device,
+            self.cfg['amp_task_reward_lerp']
+        ).to(self.device)
+        alg_class = eval(self.cfg["algorithm_class_name"])
+        self.alg: PPO_AMP = alg_class(
+            actor_critic, 
+            discriminator, 
+            amp_data, 
+            amp_normalizer, 
+            device=self.device,
+            **self.alg_cfg
+        )
+
+    def learn(
+        self,
+        num_learning_iterations: int,
+        init_at_random_ep_len: bool = False,
+    ) -> None:
+        """Run AMP training loop for a specified number of iterations.
+
+
+        Args:
+            num_learning_iterations: Number of learning iterations to run.
+            init_at_random_ep_len: Whether to initialize episode lengths randomly.
+        """
         self._pre_learn(init_at_random_ep_len)
         obs = self.env.get_observations()
         privileged_obs = self.env.get_privileged_observations()
-        amp_obs = self.env.get_amp_observations()
+        amp_obs = self.env.get_amp_observations()  # type: ignore[attr-defined]
         critic_obs = privileged_obs if privileged_obs is not None else obs
-        obs, critic_obs, amp_obs = obs.to(self.device), critic_obs.to(self.device), amp_obs.to(self.device)
-        self.alg.actor_critic.train() # switch to train mode (for dropout for example)
+        obs, critic_obs, amp_obs = (
+            obs.to(self.device),
+            critic_obs.to(self.device),
+            amp_obs.to(self.device),
+        )
+        self.alg.actor_critic.train()
         self.alg.discriminator.train()
 
-        ep_infos = []
-        rewbuffer = deque(maxlen=100)
-        lenbuffer = deque(maxlen=100)
+        ep_infos: List[Dict[str, Any]] = []
+        rewbuffer: deque = deque(maxlen=100)
+        lenbuffer: deque = deque(maxlen=100)
         cur_reward_sum = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
         cur_episode_length = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
 
@@ -79,18 +111,25 @@ class AMPRunner(OnPolicyRunner):
             with torch.inference_mode():
                 for i in range(self.num_steps_per_env):
                     actions = self.alg.act(obs, critic_obs, amp_obs)
-                    obs, privileged_obs, rewards, dones, infos, reset_env_ids, terminal_amp_states = self.env.step(actions)
-                    next_amp_obs = self.env.get_amp_observations()
+                    obs, privileged_obs, rewards, dones, infos, reset_env_ids, terminal_amp_states = self.env.step(actions)  # type: ignore[misc]
+                    next_amp_obs = self.env.get_amp_observations()  # type: ignore[attr-defined]
 
                     critic_obs = privileged_obs if privileged_obs is not None else obs
-                    obs, critic_obs, next_amp_obs, rewards, dones = obs.to(self.device), critic_obs.to(self.device), next_amp_obs.to(self.device), rewards.to(self.device), dones.to(self.device)
+                    obs, critic_obs, next_amp_obs, rewards, dones = (
+                        obs.to(self.device),
+                        critic_obs.to(self.device),
+                        next_amp_obs.to(self.device),
+                        rewards.to(self.device),
+                        dones.to(self.device),
+                    )
 
                     # Account for terminal states. Use amp states before reset_idx
                     next_amp_obs_with_term = torch.clone(next_amp_obs)
                     next_amp_obs_with_term[reset_env_ids] = terminal_amp_states
 
                     rewards, amp_reward = self.alg.discriminator.predict_amp_reward(
-                        amp_obs, next_amp_obs_with_term, rewards, normalizer=self.alg.amp_normalizer)
+                        amp_obs, next_amp_obs_with_term, rewards, normalizer=self.alg.amp_normalizer
+                    )
                     amp_obs = torch.clone(next_amp_obs)
                     self.alg.process_env_step(rewards, dones, infos, next_amp_obs_with_term)
                     
@@ -98,7 +137,7 @@ class AMPRunner(OnPolicyRunner):
                         # Book keeping
                         if 'episode' in infos:
                             # add amp reward to episode info for terminal logging
-                            infos['episode']['rew_amp'] = amp_reward / self.env.dt
+                            infos['episode']['rew_amp'] = amp_reward / self.env.dt  # type: ignore[attr-defined]
                             ep_infos.append(infos['episode'])
                         cur_reward_sum += rewards
                         cur_episode_length += 1
@@ -123,13 +162,30 @@ class AMPRunner(OnPolicyRunner):
             if self.log_dir is not None:
                 self.log(locals())
             if it % self.save_interval == 0:
+                assert self.log_dir is not None
                 self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)))
             ep_infos.clear()
         
         self.current_learning_iteration += num_learning_iterations
+        assert self.log_dir is not None
         self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(self.current_learning_iteration)))
 
-    def log(self, locs, width=80, pad=35):
+
+    def log(
+        self,
+        locs: Dict[str, Any],
+        width: int = 80,
+        pad: int = 35,
+    ) -> None:
+        """Log AMP training metrics to tensorboard and console.
+
+
+        Args:
+            locs: Dictionary containing iteration metrics and buffers.
+            width: Width of the log output.
+            pad: Padding for log formatting.
+        """
+        assert self.writer is not None
         self.tot_timesteps += self.num_steps_per_env * self.env.num_envs
         self.tot_time += locs['collection_time'] + locs['learn_time']
         iteration_time = locs['collection_time'] + locs['learn_time']
@@ -170,11 +226,11 @@ class AMPRunner(OnPolicyRunner):
             self.writer.add_scalar('Train/mean_reward/time', statistics.mean(locs['rewbuffer']), self.tot_time)
             self.writer.add_scalar('Train/mean_episode_length/time', statistics.mean(locs['lenbuffer']), self.tot_time)
 
-        str = f" \033[1m Learning iteration {locs['it']}/{self.current_learning_iteration + locs['num_learning_iterations']} \033[0m "
+        str_iter = f" \033[1m Learning iteration {locs['it']}/{self.current_learning_iteration + locs['num_learning_iterations']} \033[0m "
 
         if len(locs['rewbuffer']) > 0:
             log_string = (f"""{'#' * width}\n"""
-                          f"""{str.center(width, ' ')}\n\n"""
+                          f"""{str_iter.center(width, ' ')}\n\n"""
                           f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
                             'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n"""
                           f"""{'Value function loss:':>{pad}} {locs['mean_value_loss']:.4f}\n"""
@@ -187,18 +243,14 @@ class AMPRunner(OnPolicyRunner):
                           f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n"""
                           f"""{'Mean reward:':>{pad}} {statistics.mean(locs['rewbuffer']):.2f}\n"""
                           f"""{'Mean episode length:':>{pad}} {statistics.mean(locs['lenbuffer']):.2f}\n""")
-                        #   f"""{'Mean reward/step:':>{pad}} {locs['mean_reward']:.2f}\n"""
-                        #   f"""{'Mean episode length/episode:':>{pad}} {locs['mean_trajectory_length']:.2f}\n""")
         else:
             log_string = (f"""{'#' * width}\n"""
-                          f"""{str.center(width, ' ')}\n\n"""
+                          f"""{str_iter.center(width, ' ')}\n\n"""
                           f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
                             'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n"""
                           f"""{'Value function loss:':>{pad}} {locs['mean_value_loss']:.4f}\n"""
                           f"""{'Surrogate loss:':>{pad}} {locs['mean_surrogate_loss']:.4f}\n"""
                           f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n""")
-                        #   f"""{'Mean reward/step:':>{pad}} {locs['mean_reward']:.2f}\n"""
-                        #   f"""{'Mean episode length/episode:':>{pad}} {locs['mean_trajectory_length']:.2f}\n""")
 
         log_string += ep_string
         log_string += (f"""{'-' * width}\n"""
@@ -209,17 +261,40 @@ class AMPRunner(OnPolicyRunner):
                                locs['num_learning_iterations'] - locs['it']):.1f}s\n""")
         print(log_string)
 
-    def save(self, path, infos=None):
+    def save(
+        self,
+        path: str,
+        infos: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Save the AMP model checkpoint to disk.
+
+        Args:
+            path: File path to save the checkpoint.
+            infos: Optional additional information to save with the checkpoint.
+        """
         torch.save({
             'model_state_dict': self.alg.actor_critic.state_dict(),
             'optimizer_state_dict': self.alg.optimizer.state_dict(),
             'discriminator_state_dict': self.alg.discriminator.state_dict(),
             'amp_normalizer': self.alg.amp_normalizer,
             'iter': self.current_learning_iteration,
-            'infos': infos,
-            }, path)
+            'infos': infos
+        }, path)
 
-    def load(self, path, load_optimizer=True):
+    def load(
+        self,
+        path: str,
+        load_optimizer: bool = True
+    ) -> Optional[Dict[str, Any]]:
+        """Load an AMP model checkpoint from disk.
+
+        Args:
+            path: File path to load the checkpoint from.
+            load_optimizer: Whether to load the optimizer state.
+
+        Returns:
+            Optional infos dict stored in the checkpoint.
+        """
         loaded_dict = torch.load(path)
         self.alg.actor_critic.load_state_dict(loaded_dict['model_state_dict'])
         self.alg.discriminator.load_state_dict(loaded_dict['discriminator_state_dict'])
