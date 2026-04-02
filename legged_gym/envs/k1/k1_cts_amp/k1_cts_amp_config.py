@@ -19,18 +19,18 @@ class K1_CTS_AMPCfg(K1FlatCommonCfg):
         num_single_critic_obs = num_observations + 76
         num_critic_obs = int(c_frame_stack * num_single_critic_obs)
         num_privileged_obs = 70
-        num_latent_dims = 32
+        num_latent_dims = 70
         
         num_actions = 22
         amp_motion_files = MOTION_FILES
-        max_projected_gravity = -0.3
+        max_projected_gravity = -0.1
     
     class init_state(K1AMPCfg.init_state):
         pass
     class rewards(K1AMPCfg.rewards):
         pass
         class scales(K1AMPCfg.rewards.scales):
-            pass
+            tracking_ang_vel = 1.0
     
     class domain_rand(K1AMPCfg.domain_rand):
         pass
@@ -46,7 +46,7 @@ class K1_CTS_AMPCfgPPO(K1AMPCfgPPO):
         history_encoder_hidden_dims = [256, 128]       # for MLP
     class algorithm(K1AMPCfgPPO.algorithm):
         # for encoder training
-        encoder_lr = 1.e-3
+        encoder_lr = 4.e-4
         num_encoder_epochs = 1
         # Symmetry loss config
         symmetry_cfg = {

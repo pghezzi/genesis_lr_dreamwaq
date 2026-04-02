@@ -47,6 +47,7 @@ class K1AMPCfg(K1FlatCommonCfg):
             dof_power = -1.e-4
             collision = -1.0
             action_rate = -0.01
+            action_smoothness = -0.01
             # regularization
             feet_distance = -100.0
             hip_yaw_roll_pos = -0.2

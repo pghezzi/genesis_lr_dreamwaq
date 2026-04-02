@@ -94,7 +94,7 @@ def print_debug_info(env, robot_index):
     # print(f"feet distance: {torch.norm(env.simulator.feet_pos[robot_index, 0, [0, 1]] - env.simulator.feet_pos[robot_index, 1, [0, 1]]).item()}")
     # print(f"actions: {env.simulator.dof_pos[robot_index].cpu().numpy()}")
     # print(f"command: {env.commands[robot_index].cpu().numpy()}")
-    # print(f"dr_ctrl_delay: {env.simulator.dr_ctrl_delay[robot_index].item()}")
+    print(f"dr_ctrl_delay: {env.simulator.dr_ctrl_delay[robot_index].item()}")
     pass
 
 def interaction_loop(env, policy, args, task_type):
