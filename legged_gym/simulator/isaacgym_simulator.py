@@ -1,7 +1,6 @@
 from legged_gym import *
 from legged_gym.simulator.simulator import Simulator
 from PIL import Image as im
-import cv2 as cv
 import torch
 import numpy as np
 import os

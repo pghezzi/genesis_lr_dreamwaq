@@ -188,7 +188,8 @@ class PPO_AMP(PPO):
                     # Note: If we did augmentation before then we don't need to augment again
                     if not self.symmetry_cfg["use_data_augmentation"]:
                         data_augmentation_func = self.symmetry_cfg["data_augmentation_func"]
-                        obs_batch, _, _ = data_augmentation_func(obs=obs_batch, actions=None, critic_obs=None)
+                        obs_batch, _, _ = data_augmentation_func(obs=obs_batch, actions=None, 
+                                                                    critic_obs=None)
                         # Compute number of augmentations per sample
                         num_aug = int(obs_batch.shape[0] / original_batch_size)
                     

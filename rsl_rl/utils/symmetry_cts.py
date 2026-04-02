@@ -6,9 +6,15 @@ import torch
 
 @torch.no_grad()
 def compute_symmetric_states_k1(
-    obs: torch.Tensor | None = None,
-    actions: torch.Tensor | None = None,
+    teacher_obs: torch.Tensor | None = None,
+    teacher_actions: torch.Tensor | None = None,
+    teacher_privileged_obs: torch.Tensor | None = None,
+    student_obs: torch.Tensor | None = None,
+    student_actions: torch.Tensor | None = None,
+    student_privileged_obs: torch.Tensor | None = None,
+    student_obs_history: torch.Tensor | None = None,
     critic_obs: torch.Tensor | None = None,
+
 ):
     """Augments the given observations and actions by applying symmetry transformations.
 
@@ -18,36 +24,95 @@ def compute_symmetric_states_k1(
     diverse data without requiring additional data collection.
 
     Args:
-        env: The environment instance.
         obs: The original observation tensor dictionary. Defaults to None.
         actions: The original actions tensor. Defaults to None.
+        critic_obs: The original critic observation tensor. Defaults to None.
+        privileged_obs: The original privileged observation tensor 
+                        (input of privilege_encoder in teacher-student framework). Defaults to None.
 
     Returns:
         Augmented observations and actions tensors, or None if the respective input was None.
+    
+    Attention:
+        The symmetry functions are designed based on the specific structure of the observations and actions for the BoosterK1 22 dof robot. 
+        If the structure of the observations or actions changes, the symmetry functions may need to be updated accordingly.
+    
     """
-    if obs is not None:
-        batch_size = obs.shape[0]
+    if teacher_obs is not None:
+        batch_size = teacher_obs.shape[0]
         # since we have 2 different symmetries, we need to augment the batch size by 2
-        obs_aug = obs.repeat(2, 1)  # create a new tensor with shape (2 * batch_size, obs_dim)
+        teacher_obs_aug = teacher_obs.repeat(2, 1)  # create a new tensor with shape (2 * batch_size, obs_dim)
 
         # policy observation group
         # -- original
-        obs_aug[:batch_size] = obs[:]
+        teacher_obs_aug[:batch_size] = teacher_obs[:]
         # -- left-right
-        obs_aug[batch_size : 2 * batch_size] = _transform_policy_obs_left_right_k1(obs)
+        teacher_obs_aug[batch_size : 2 * batch_size] = _transform_policy_obs_left_right_k1(teacher_obs)
     else:
-        obs_aug = None
-
-    if actions is not None:
-        batch_size = actions.shape[0]
+        teacher_obs_aug = None
+    
+    if student_obs is not None:
+        batch_size = student_obs.shape[0]
         # since we have 2 different symmetries, we need to augment the batch size by 2
-        actions_aug = torch.zeros(batch_size * 2, actions.shape[1], device=actions.device)
+        student_obs_aug = student_obs.repeat(2, 1)  # create a new tensor with shape (2 * batch_size, obs_dim)
         # -- original
-        actions_aug[:batch_size] = actions[:]
+        student_obs_aug[:batch_size] = student_obs[:]
         # -- left-right
-        actions_aug[batch_size : 2 * batch_size] = _transform_actions_left_right(actions)
+        student_obs_aug[batch_size : 2 * batch_size] = _transform_policy_obs_left_right_k1(student_obs)
     else:
-        actions_aug = None
+        student_obs_aug = None
+
+    if teacher_actions is not None:
+        batch_size = teacher_actions.shape[0]
+        # since we have 2 different symmetries, we need to augment the batch size by 2
+        teacher_actions_aug = torch.zeros(batch_size * 2, teacher_actions.shape[1], device=teacher_actions.device)
+        # -- original
+        teacher_actions_aug[:batch_size] = teacher_actions[:]
+        # -- left-right
+        teacher_actions_aug[batch_size : 2 * batch_size] = _transform_actions_left_right(teacher_actions)
+    else:
+        teacher_actions_aug = None
+    
+    if student_actions is not None:
+        batch_size = student_actions.shape[0]
+        # since we have 2 different symmetries, we need to augment the batch size by 2
+        student_actions_aug = torch.zeros(batch_size * 2, student_actions.shape[1], device=student_actions.device)
+        # -- original
+        student_actions_aug[:batch_size] = student_actions[:]
+        # -- left-right
+        student_actions_aug[batch_size : 2 * batch_size] = _transform_actions_left_right(student_actions)
+    else:
+        student_actions_aug = None
+    
+    if teacher_privileged_obs is not None:
+        batch_size = teacher_privileged_obs.shape[0]
+        teacher_privileged_obs_aug = teacher_privileged_obs.repeat(2, 1)  # create a new tensor with shape (2 * batch_size, obs_dim)
+        # -- original
+        teacher_privileged_obs_aug[:batch_size] = teacher_privileged_obs[:]
+        # -- left-right
+        teacher_privileged_obs_aug[batch_size : 2 * batch_size] = _transform_privileged_obs_left_right_k1(teacher_privileged_obs)
+    else:
+        teacher_privileged_obs_aug = None
+    
+    if student_privileged_obs is not None:
+        batch_size = student_privileged_obs.shape[0]
+        student_privileged_obs_aug = student_privileged_obs.repeat(2, 1)  # create a new tensor with shape (2 * batch_size, obs_dim)
+        # -- original
+        student_privileged_obs_aug[:batch_size] = student_privileged_obs[:]
+        # -- left-right
+        student_privileged_obs_aug[batch_size : 2 * batch_size] = _transform_privileged_obs_left_right_k1(student_privileged_obs)
+    else:
+        student_privileged_obs_aug = None
+    
+    if student_obs_history is not None:
+        batch_size = student_obs_history.shape[0]
+        student_obs_history_aug = student_obs_history.repeat(2, 1)  # obs_history already flattened
+        # -- original
+        student_obs_history_aug[:batch_size] = student_obs_history[:]
+        # -- left-right
+        student_obs_history_aug[batch_size : 2 * batch_size] = _transform_policy_obs_history_left_right_k1(student_obs_history)
+    else:
+        student_obs_history_aug = None
     
     if critic_obs is not None:
         batch_size = critic_obs.shape[0]
@@ -58,8 +123,9 @@ def compute_symmetric_states_k1(
         critic_obs_aug[batch_size : 2 * batch_size] = _transform_critic_obs_left_right_k1(critic_obs)
     else:
         critic_obs_aug = None
-
-    return obs_aug, actions_aug, critic_obs_aug
+    
+    return teacher_obs_aug, teacher_actions_aug, teacher_privileged_obs_aug, \
+        student_obs_aug, student_actions_aug, student_privileged_obs_aug, student_obs_history_aug, critic_obs_aug
 
 
 """
@@ -78,7 +144,6 @@ def _transform_policy_obs_left_right_k1(obs: torch.Tensor) -> torch.Tensor:
     along the relevant dimension.
 
     Args:
-        env: The environment instance from which the observation is obtained.
         obs: The observation tensor to be transformed.
 
     Returns:
@@ -89,8 +154,73 @@ def _transform_policy_obs_left_right_k1(obs: torch.Tensor) -> torch.Tensor:
     device = obs.device
     joint_num = 22  # K1 22 dof
 
-    # policy_obs_term_dim = env.observation_manager.group_obs_term_dim["policy"]
-    # [(15,), (15,), (15,), (145,), (145,), (145,)]
+    VEL_CMD_DIM = 3
+    PROJ_GRAV_DIM = 3
+    ANG_VEL_DIM = 3
+    JOINT_POS_DIM = joint_num
+    JOINT_VEL_DIM = joint_num
+    LAST_ACTIONS_DIM = joint_num
+
+    end_idx = 0
+    
+    # velocity command
+    start_idx = end_idx
+    end_idx = start_idx + VEL_CMD_DIM
+    obs[:, start_idx:end_idx] = obs[:, start_idx:end_idx] * torch.tensor([1, -1, -1], device=device)
+        
+    # projected gravity
+    start_idx = end_idx
+    end_idx = start_idx + PROJ_GRAV_DIM
+    obs[:, start_idx:end_idx] = obs[:, start_idx:end_idx] * torch.tensor([1, -1, 1], device=device)
+        
+    # ang vel
+    start_idx = end_idx
+    end_idx = start_idx + ANG_VEL_DIM
+    obs[:, start_idx:end_idx] = obs[:, start_idx:end_idx] * torch.tensor([-1, 1, -1], device=device)
+
+    # joint pos
+    start_idx = end_idx
+    end_idx = start_idx + JOINT_POS_DIM
+    obs[:, start_idx:end_idx] = _switch_k1_22dof_joints_left_right(obs[:, start_idx:end_idx])
+
+    # joint vel
+    start_idx = end_idx
+    end_idx = start_idx + JOINT_VEL_DIM
+    obs[:, start_idx:end_idx] = _switch_k1_22dof_joints_left_right(obs[:, start_idx:end_idx])
+
+    # last actions
+    start_idx = end_idx
+    end_idx = start_idx + LAST_ACTIONS_DIM
+    obs[:, start_idx:end_idx] = _switch_k1_22dof_joints_left_right(obs[:, start_idx:end_idx])
+
+    return obs
+
+
+"""
+Symmetry functions for observations history.
+"""
+
+def _transform_policy_obs_history_left_right_k1(obs: torch.Tensor) -> torch.Tensor:
+    """Apply a left-right symmetry transformation to the observation tensor.
+
+    This function modifies the given observation tensor by applying transformations
+    that represent a symmetry with respect to the left-right axis. This includes
+    negating certain components of the linear and angular velocities, projected gravity,
+    velocity commands, and flipping the joint positions, joint velocities, and last actions
+    for the ANYmal robot. Additionally, if height-scan data is present, it is flipped
+    along the relevant dimension.
+
+    Args:
+        obs: The observation tensor to be transformed.
+
+    Returns:
+        The transformed observation tensor with left-right symmetry applied.
+    """
+    # copy observation tensor
+    obs = obs.clone()
+    device = obs.device
+    joint_num = 22  # K1 22 dof
+
     HISTORY_LEN = 5
     VEL_CMD_DIM = 3
     PROJ_GRAV_DIM = 3
@@ -100,33 +230,34 @@ def _transform_policy_obs_left_right_k1(obs: torch.Tensor) -> torch.Tensor:
     LAST_ACTIONS_DIM = joint_num
 
     end_idx = 0
-    # velocity command
+    
     for h in range(HISTORY_LEN):
+        # velocity command
         start_idx = end_idx
         end_idx = start_idx + VEL_CMD_DIM
         obs[:, start_idx:end_idx] = obs[:, start_idx:end_idx] * torch.tensor([1, -1, -1], device=device)
-    # projected gravity
-    for h in range(HISTORY_LEN):
+        
+        # projected gravity
         start_idx = end_idx
         end_idx = start_idx + PROJ_GRAV_DIM
         obs[:, start_idx:end_idx] = obs[:, start_idx:end_idx] * torch.tensor([1, -1, 1], device=device)
-    # ang vel
-    for h in range(HISTORY_LEN):
+        
+        # ang vel
         start_idx = end_idx
         end_idx = start_idx + ANG_VEL_DIM
         obs[:, start_idx:end_idx] = obs[:, start_idx:end_idx] * torch.tensor([-1, 1, -1], device=device)
-    # joint pos
-    for h in range(HISTORY_LEN):
+
+        # joint pos
         start_idx = end_idx
         end_idx = start_idx + JOINT_POS_DIM
         obs[:, start_idx:end_idx] = _switch_k1_22dof_joints_left_right(obs[:, start_idx:end_idx])
-    # joint vel
-    for h in range(HISTORY_LEN):
+
+        # joint vel
         start_idx = end_idx
         end_idx = start_idx + JOINT_VEL_DIM
         obs[:, start_idx:end_idx] = _switch_k1_22dof_joints_left_right(obs[:, start_idx:end_idx])
-    # last actions
-    for h in range(HISTORY_LEN):
+
+        # last actions
         start_idx = end_idx
         end_idx = start_idx + LAST_ACTIONS_DIM
         obs[:, start_idx:end_idx] = _switch_k1_22dof_joints_left_right(obs[:, start_idx:end_idx])
@@ -159,8 +290,6 @@ def _transform_critic_obs_left_right_k1(obs: torch.Tensor) -> torch.Tensor:
     device = obs.device
     joint_num = 22  # K1 22 dof
 
-    # policy_obs_term_dim = env.observation_manager.group_obs_term_dim["policy"]
-    # [(15,), (15,), (15,), (145,), (145,), (145,)]
     HISTORY_LEN = 5
     VEL_CMD_DIM = 3
     PROJ_GRAV_DIM = 3
@@ -169,46 +298,89 @@ def _transform_critic_obs_left_right_k1(obs: torch.Tensor) -> torch.Tensor:
     JOINT_VEL_DIM = joint_num
     LAST_ACTIONS_DIM = joint_num
     LIN_VEL_DIM = 3
+    KEY_BODY_POS_DIM = 5 * 3  # Assuming 5 key bodies, each with x, y, z positions
 
     end_idx = 0
-    # velocity command
     for h in range(HISTORY_LEN):
+        # velocity command
         start_idx = end_idx
         end_idx = start_idx + VEL_CMD_DIM
         obs[:, start_idx:end_idx] = obs[:, start_idx:end_idx] * torch.tensor([1, -1, -1], device=device)
-    # projected gravity
-    for h in range(HISTORY_LEN):
+        
+        # projected gravity
         start_idx = end_idx
         end_idx = start_idx + PROJ_GRAV_DIM
         obs[:, start_idx:end_idx] = obs[:, start_idx:end_idx] * torch.tensor([1, -1, 1], device=device)
-    # ang vel
-    for h in range(HISTORY_LEN):
+        
+        # ang vel
         start_idx = end_idx
         end_idx = start_idx + ANG_VEL_DIM
         obs[:, start_idx:end_idx] = obs[:, start_idx:end_idx] * torch.tensor([-1, 1, -1], device=device)
-    # joint pos
-    for h in range(HISTORY_LEN):
+
+        # joint pos
         start_idx = end_idx
         end_idx = start_idx + JOINT_POS_DIM
         obs[:, start_idx:end_idx] = _switch_k1_22dof_joints_left_right(obs[:, start_idx:end_idx])
-    # joint vel
-    for h in range(HISTORY_LEN):
+
+        # joint vel
         start_idx = end_idx
         end_idx = start_idx + JOINT_VEL_DIM
         obs[:, start_idx:end_idx] = _switch_k1_22dof_joints_left_right(obs[:, start_idx:end_idx])
-    # last actions
-    for h in range(HISTORY_LEN):
+
+        # last actions
         start_idx = end_idx
         end_idx = start_idx + LAST_ACTIONS_DIM
         obs[:, start_idx:end_idx] = _switch_k1_22dof_joints_left_right(obs[:, start_idx:end_idx])
-    # base lin vel
-    for h in range(HISTORY_LEN):
+
+        # base lin vel
         start_idx = end_idx
         end_idx = start_idx + LIN_VEL_DIM
         obs[:, start_idx:end_idx] = obs[:, start_idx:end_idx] * torch.tensor([1, -1, 1], device=device)
-    
+        
+        # key body pos
+        start_idx = end_idx
+        end_idx = start_idx + KEY_BODY_POS_DIM
+        obs[:, start_idx:end_idx] = _switch_k1_22dof_key_body_pos_left_right(obs[:, start_idx:end_idx])
+        
     return obs
 
+"""
+Symmetry functions for privileged observations.
+"""
+
+def _transform_privileged_obs_left_right_k1(obs: torch.Tensor) -> torch.Tensor:
+    """Apply a left-right symmetry transformation to the privileged observation tensor.
+
+    This function modifies the given privileged observation tensor by applying transformations
+    that represent a symmetry with respect to the left-right axis. The specific transformations
+    applied depend on the structure of the privileged observations for the BoosterK1 22 dof robot.
+
+    Args:
+        obs: The privileged observation tensor to be transformed.
+
+    Returns:
+        The transformed privileged observation tensor with left-right symmetry applied.
+    """
+    # copy observation tensor
+    obs = obs.clone()
+    device = obs.device
+
+    LIN_VEL_DIM = 3
+    KEY_BODY_POS_DIM = 5 * 3  # Assuming 5 key bodies, each with x, y, z positions
+    
+    end_idx = 0
+    
+    # base lin vel
+    start_idx = end_idx
+    end_idx = start_idx + LIN_VEL_DIM
+    obs[:, start_idx:end_idx] = obs[:, start_idx:end_idx] * torch.tensor([1, -1, 1], device=device)
+    
+    # key body pos
+    start_idx = end_idx
+    end_idx = start_idx + KEY_BODY_POS_DIM
+    obs[:, start_idx:end_idx] = _switch_k1_22dof_key_body_pos_left_right(obs[:, start_idx:end_idx])
+
+    return obs
 
 """
 Symmetry functions for actions.
@@ -286,6 +458,35 @@ def _switch_k1_22dof_joints_left_right(joint_data: torch.Tensor) -> torch.Tensor
 
     return joint_data_switched
 
+def _switch_k1_22dof_key_body_pos_left_right(key_body_pos: torch.Tensor) -> torch.Tensor:
+    """Applies a left-right symmetry transformation to the key body positions tensor."""
+
+    # Key bodies of K1 22 dof are defined as:
+    # "Head_2"
+    # "left_hand_link", "right_hand_link",
+    # "left_foot_link", "right_foot_link",
+
+    key_body_pos_switched = key_body_pos.clone()
+    num_key_bodies = 4
+    start_idx = 1 # skip head
+
+    for i in range(num_key_bodies // 2):
+        left_idx = start_idx + i * 2
+        right_idx = start_idx + i * 2 + 1
+
+        # Swap left and right key body positions
+        key_body_pos_switched[..., left_idx * 3 : left_idx * 3 + 3] = key_body_pos[
+            ..., right_idx * 3 : right_idx * 3 + 3
+        ]
+        key_body_pos_switched[..., right_idx * 3 : right_idx * 3 + 3] = key_body_pos[
+            ..., left_idx * 3 : left_idx * 3 + 3
+        ]
+
+        # Flip the y-coordinate to reflect left-right symmetry
+        key_body_pos_switched[..., left_idx * 3 + 1] *= -1.0
+        key_body_pos_switched[..., right_idx * 3 + 1] *= -1.0
+
+    return key_body_pos_switched
 
 # def _switch_g1_29dof_key_body_pos_left_right(key_body_pos: torch.Tensor) -> torch.Tensor:
 #     """Applies a left-right symmetry transformation to the key body positions tensor."""

@@ -36,7 +36,6 @@ from rsl_rl.algorithms.ppo import PPO
 from rsl_rl.modules import ActorCriticCTS
 from rsl_rl.storage import RolloutStorageCTS
 from rsl_rl.storage.replay_buffer import ReplayBuffer
-import itertools
 
 '''
 PPO with concurrent teacher-student architecture, refer to https://clearlab-sustech.github.io/concurrentTS/, 
@@ -70,7 +69,8 @@ class PPO_CTS_AMP(PPO):
                  num_encoder_epochs=1, # number of epochs for history encoder via supervised learning
                  num_teacher=1,
                  amp_replay_buffer_size=100000,
-                 disc_lr=1e-4
+                 disc_lr=1e-4,
+                 symmetry_cfg : dict = None,
                  ):
 
         super().__init__(
@@ -123,6 +123,8 @@ class PPO_CTS_AMP(PPO):
         self.disc_optimizer = optim.Adam(disc_params, lr=disc_lr)
         
         self.transition = RolloutStorageCTS.Transition()
+        # symmetry config
+        self.symmetry_cfg = symmetry_cfg
 
     def init_storage(self, num_envs, num_transitions_per_env, actor_obs_shape, 
                      privileged_obs_shape, obs_history_shape, critic_obs_shape, action_shape):
@@ -186,6 +188,8 @@ class PPO_CTS_AMP(PPO):
         mean_grad_pen_loss = 0
         mean_policy_pred = 0
         mean_expert_pred = 0
+        # symmetry metrics
+        mean_symmetry_loss = 0 if self.symmetry_cfg else None
         generator = self._get_data_generator()
         amp_policy_generator = self.amp_storage.feed_forward_generator(
             self.num_learning_epochs * self.num_mini_batches,
@@ -203,6 +207,108 @@ class PPO_CTS_AMP(PPO):
             student_old_actions_log_prob_batch, student_advantages_batch, \
             critic_obs_batch, target_values_batch, returns_batch, hid_states_batch, masks_batch = sample
             
+            num_aug = 1  # Number of augmentations per sample. Starts at 1 for no augmentation.
+            teacher_original_batch_size = teacher_obs_batch.shape[0]
+            student_original_batch_size = student_obs_batch.shape[0]
+            
+            # Perform symmetric augmentation for teacher and student
+            if self.symmetry_cfg and self.symmetry_cfg["use_data_augmentation"]:
+                    # Augmentation using symmetry
+                    data_augmentation_func = self.symmetry_cfg["data_augmentation_func"]
+                    # Returned shape: [batch_size * num_aug, ...]
+                    teacher_obs_batch, teacher_actions_batch, teacher_privileged_obs_batch, \
+                        student_obs_batch, student_actions_batch, student_privileged_obs_batch, student_obs_histories_batch,\
+                        critic_obs_batch = data_augmentation_func(
+                            teacher_obs=teacher_obs_batch,
+                            teacher_actions=teacher_actions_batch,
+                            teacher_privileged_obs=teacher_privileged_obs_batch,
+                            student_obs=student_obs_batch,
+                            student_actions=student_actions_batch,
+                            student_privileged_obs=student_privileged_obs_batch,
+                            student_obs_history=student_obs_histories_batch,
+                            critic_obs=critic_obs_batch,
+                            )
+                    if int(teacher_obs_batch.shape[0] / teacher_original_batch_size) != \
+                         int(student_obs_batch.shape[0] / student_original_batch_size):
+                        raise ValueError("Number of augmentations for teacher and student do not match. Check the symmetry function output.")
+                    # Compute number of augmentations per sample
+                    num_aug = int(teacher_obs_batch.shape[0] / teacher_original_batch_size)
+                    # Repeat the rest of the teacher batch
+                    teacher_old_actions_log_prob_batch = teacher_old_actions_log_prob_batch.repeat(num_aug, 1)
+                    teacher_advantages_batch = teacher_advantages_batch.repeat(num_aug, 1)
+                    # Repeat the rest of the student batch
+                    student_old_actions_log_prob_batch = student_old_actions_log_prob_batch.repeat(num_aug, 1)
+                    student_advantages_batch = student_advantages_batch.repeat(num_aug, 1)
+                    # Repeat the critic batch
+                    returns_batch = returns_batch.repeat(num_aug, 1)
+                    target_values_batch = target_values_batch.repeat(num_aug, 1)
+                
+            
+            loss, teacher_surrogate_loss, student_surrogate_loss, value_loss = self._compute_rl_loss(
+                teacher_original_batch_size, student_original_batch_size, teacher_obs_batch, teacher_privileged_obs_batch, \
+                teacher_actions_batch, teacher_old_actions_log_prob_batch,
+                teacher_advantages_batch, teacher_old_mu_batch, teacher_old_sigma_batch, student_obs_batch, 
+                student_obs_histories_batch, student_actions_batch, student_old_actions_log_prob_batch, student_advantages_batch,
+                critic_obs_batch, target_values_batch, returns_batch, hid_states_batch, masks_batch)
+
+            
+            # Symmetry loss
+            if self.symmetry_cfg:
+                # Obtain the symmetric actions
+                # Note: If we did augmentation before then we don't need to augment again
+                if not self.symmetry_cfg["use_data_augmentation"]:
+                    data_augmentation_func = self.symmetry_cfg["data_augmentation_func"]
+                    teacher_obs_batch, _, teacher_privileged_obs_batch, \
+                        student_obs_batch, _, _, student_obs_histories_batch, _ = data_augmentation_func(
+                            teacher_obs=teacher_obs_batch,
+                            teacher_actions=None,
+                            teacher_privileged_obs=teacher_privileged_obs_batch,
+                            student_obs=student_obs_batch,
+                            student_actions=None,
+                            student_privileged_obs=None,
+                            student_obs_history=student_obs_histories_batch,
+                            critic_obs=None,
+                            )
+                    # Compute number of augmentations per sample
+                    num_aug = int(teacher_obs_batch.shape[0] / teacher_original_batch_size)
+                    
+                # Actions predicted by the actor for symmetrically-augmented observations
+                mean_teacher_actions_batch = self.actor_critic.act_teacher(teacher_obs_batch.detach().clone(),
+                                                                   teacher_privileged_obs_batch.detach().clone())
+                mean_student_actions_batch = self.actor_critic.act_student(student_obs_batch.detach().clone(),
+                                                                   student_obs_histories_batch.detach().clone())
+                # Compute the symmetrically augmented actions
+                # Note: We are assuming the first augmentation is the original one. We do not use the action_batch from
+                # earlier since that action was sampled from the distribution. However, the symmetry loss is computed
+                # using the mean of the distribution.
+                teacher_action_mean_orig = mean_teacher_actions_batch[:teacher_original_batch_size]
+                student_action_mean_orig = mean_student_actions_batch[:student_original_batch_size]
+                _, teacher_actions_mean_symm_batch, _, \
+                    _, student_actions_mean_symm_batch, _, _, _ = data_augmentation_func(
+                            teacher_obs=None,
+                            teacher_actions=teacher_action_mean_orig,
+                            teacher_privileged_obs=None,
+                            student_obs=None,
+                            student_actions=student_action_mean_orig,
+                            student_privileged_obs=None,
+                            student_obs_history=None,
+                            critic_obs=None,
+                            )
+                teacher_symmetry_loss = torch.nn.MSELoss()(
+                    mean_teacher_actions_batch[teacher_original_batch_size:], 
+                    teacher_actions_mean_symm_batch.detach()[teacher_original_batch_size:]
+                )
+                student_symmetry_loss = torch.nn.MSELoss()(
+                    mean_student_actions_batch[student_original_batch_size:], 
+                    student_actions_mean_symm_batch.detach()[student_original_batch_size:]
+                )
+                symmetry_loss = teacher_symmetry_loss + student_symmetry_loss
+                # Add the loss to the total loss
+                if self.symmetry_cfg["use_mirror_loss"]:
+                    loss += self.symmetry_cfg["mirror_loss_coeff"] * symmetry_loss
+                else:
+                    symmetry_loss = symmetry_loss.detach()
+                        
             # Discriminator loss.
             policy_state, policy_next_state = sample_amp_policy
             expert_state, expert_next_state = sample_amp_expert
@@ -214,13 +320,7 @@ class PPO_CTS_AMP(PPO):
             nn.utils.clip_grad_norm_(self.discriminator.parameters(), self.max_grad_norm)
             self.disc_optimizer.step()
             
-            loss, teacher_surrogate_loss, student_surrogate_loss, value_loss = self._compute_rl_loss(
-                teacher_obs_batch, teacher_privileged_obs_batch, teacher_actions_batch, teacher_old_actions_log_prob_batch,
-                teacher_advantages_batch, teacher_old_mu_batch, teacher_old_sigma_batch, student_obs_batch, 
-                student_obs_histories_batch, student_actions_batch, student_old_actions_log_prob_batch, student_advantages_batch,
-                critic_obs_batch, target_values_batch, returns_batch, hid_states_batch, masks_batch)
-
-            # Gradient step
+            # Update actor-critic
             self.optimizer.zero_grad()
             loss.backward()
             nn.utils.clip_grad_norm_(
@@ -238,6 +338,10 @@ class PPO_CTS_AMP(PPO):
             mean_grad_pen_loss += grad_pen_loss.item()
             mean_policy_pred += policy_d.mean().item()
             mean_expert_pred += expert_d.mean().item()
+            # Symmetry loss
+            if mean_symmetry_loss is not None:
+                mean_symmetry_loss += symmetry_loss.item()
+
         
         generator = self._get_data_generator()
         for teacher_obs_batch, teacher_privileged_obs_batch, teacher_actions_batch, \
@@ -265,14 +369,16 @@ class PPO_CTS_AMP(PPO):
         mean_grad_pen_loss /= num_updates
         mean_policy_pred /= num_updates
         mean_expert_pred /= num_updates
+        if mean_symmetry_loss is not None:
+            mean_symmetry_loss /= num_updates
         mean_reconstruction_loss /= (num_updates * self.num_encoder_epochs)
         self.storage.clear()
 
         return mean_value_loss, mean_teacher_surrogate_loss, mean_student_surrogate_loss, \
             mean_reconstruction_loss, mean_amp_loss, mean_grad_pen_loss, \
-            mean_policy_pred, mean_expert_pred
+            mean_policy_pred, mean_expert_pred, mean_symmetry_loss
 
-    def _compute_rl_loss(self, teacher_obs_batch, teacher_privileged_obs_batch, teacher_actions_batch, teacher_old_actions_log_prob_batch,
+    def _compute_rl_loss(self, teacher_original_batch_size, student_original_batch_size, teacher_obs_batch, teacher_privileged_obs_batch, teacher_actions_batch, teacher_old_actions_log_prob_batch,
                          teacher_advantages_batch, teacher_old_mu_batch, teacher_old_sigma_batch, student_obs_batch, 
                          student_obs_histories_batch, student_actions_batch, student_old_actions_log_prob_batch, 
                          student_advantages_batch, critic_obs_batch, target_values_batch, returns_batch, hid_states_batch, masks_batch):
@@ -281,9 +387,9 @@ class PPO_CTS_AMP(PPO):
                 teacher_obs_batch, None, teacher_privileged_obs_batch, act_type='teacher', masks=masks_batch, hidden_states=hid_states_batch[0])
         teacher_actions_log_prob_batch = self.actor_critic.get_actions_log_prob(
                 teacher_actions_batch)
-        teacher_entropy_batch = self.actor_critic.entropy
-        teacher_mu_batch = self.actor_critic.action_mean
-        teacher_sigma_batch = self.actor_critic.action_std
+        teacher_entropy_batch = self.actor_critic.entropy[:teacher_original_batch_size]
+        teacher_mu_batch = self.actor_critic.action_mean[:teacher_original_batch_size]
+        teacher_sigma_batch = self.actor_critic.action_std[:teacher_original_batch_size]
             
         ## Teacher KL, adapt learning rate
         if self.desired_kl != None and self.schedule == 'adaptive':
@@ -317,7 +423,7 @@ class PPO_CTS_AMP(PPO):
             student_obs_batch, student_obs_histories_batch, None, act_type='student', masks=masks_batch, hidden_states=hid_states_batch[0])
         student_actions_log_prob_batch = self.actor_critic.get_actions_log_prob(
             student_actions_batch)
-        student_entropy_batch = self.actor_critic.entropy
+        student_entropy_batch = self.actor_critic.entropy[:student_original_batch_size]
             
         ## Surrogate loss
         ratio = torch.exp(student_actions_log_prob_batch -
@@ -326,7 +432,8 @@ class PPO_CTS_AMP(PPO):
         surrogate_clipped = -torch.squeeze(student_advantages_batch) * torch.clamp(ratio, 1.0 - self.clip_param,
                                                                                1.0 + self.clip_param)
         student_surrogate_loss = torch.max(surrogate, surrogate_clipped).mean()
-            
+        
+        # Value
         value_batch = self.actor_critic.evaluate(
                 critic_obs_batch, masks=masks_batch, hidden_states=hid_states_batch[1])
         # Value function loss

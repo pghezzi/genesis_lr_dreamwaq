@@ -2,11 +2,11 @@ from legged_gym.envs.base.template_cfgs import LeggedRobotAMPCfgPPO
 from legged_gym import LEGGED_GYM_ROOT_DIR
 from legged_gym.envs.base.common_cfgs import K1FlatCommonCfg
 from legged_gym import SIMULATOR
-from legged_gym.utils.symmetry import compute_symmetric_states_k1
+from rsl_rl.utils.symmetry import compute_symmetric_states_k1
 
 import glob
 
-MOTION_FILES = glob.glob(LEGGED_GYM_ROOT_DIR + f"/resources/reference_motion/booster_k1/{SIMULATOR}/*")
+MOTION_FILES = glob.glob(LEGGED_GYM_ROOT_DIR + f"/resources/reference_motion/booster_k1/{SIMULATOR}_run/*")
 
 class K1AMPCfg(K1FlatCommonCfg):
     class env(K1FlatCommonCfg.env):
@@ -15,7 +15,7 @@ class K1AMPCfg(K1FlatCommonCfg):
         num_single_obs = 75
         num_observations = int(num_single_obs * frame_stack)
         c_frame_stack = 5
-        num_single_critic_obs = num_single_obs + 60
+        num_single_critic_obs = num_single_obs + 75
         num_privileged_obs = int(num_single_critic_obs * c_frame_stack)
         num_actions = 22
         amp_motion_files = MOTION_FILES
@@ -24,7 +24,7 @@ class K1AMPCfg(K1FlatCommonCfg):
     class init_state(K1FlatCommonCfg.init_state):
         # whether to initialize the robot with the reference motion
         reference_state_initialization = True
-        reference_state_initialization_prob = 0.6
+        reference_state_initialization_prob = 0.0
     
     class rewards(K1FlatCommonCfg.rewards):
         soft_dof_pos_limit = 0.99
@@ -49,11 +49,12 @@ class K1AMPCfg(K1FlatCommonCfg):
             action_rate = -0.01
             # regularization
             feet_distance = -100.0
-            hip_yaw_roll_pos = -0.1
-            arm_pos = -0.02
+            hip_yaw_roll_pos = -0.2
+            arm_pos = -0.01
             feet_slip = -0.5
             foot_clearance = 0.5
             foot_flat = 0.2
+            foot_landing_vel = -0.15
             biped_periodic_gait = 1.0
             feet_contact_stand_still = 0.5
             dof_close_to_default_stand_still = -0.5
@@ -84,12 +85,14 @@ class K1AMPCfg(K1FlatCommonCfg):
         randomize_pd_gain = True
         kp_range = [0.8, 1.2]
         kd_range = [0.8, 1.2]
+        randomize_ctrl_delay = True
+        ctrl_delay_step_range = [0, 4]
     
     class commands(K1FlatCommonCfg.commands):
         curriculum = True
         max_curriculum = 1.
         resampling_time = 10.0
-        heading_command = True
+        heading_command = False
         zero_cmd_prob = 0.4
         class ranges:
             lin_vel_x = [-0.5, 0.5] # min max [m/s]
