@@ -9,15 +9,15 @@ class K1DeepMimicCfg(K1FlatCommonCfg):
     class env(K1FlatCommonCfg.env):
         frame_stack = 5
         ref_motion_frame_stack = 2
-        ref_motion_single_obs = 66
-        num_single_obs = 85 + int(ref_motion_single_obs * ref_motion_frame_stack)
+        ref_motion_single_obs = 69
+        num_single_obs = 88 + int(ref_motion_single_obs * ref_motion_frame_stack)
         num_observations = int(num_single_obs * frame_stack)
         c_frame_stack = 5
         num_single_critic_obs = num_single_obs + 17
         num_privileged_obs = int(num_single_critic_obs * c_frame_stack)
         num_actions = 22
         # reference motion file, should be a .pkl file containing a dictionary
-        motion_file = 'booster_k1/isaacgym/B4_-_Stand_to_Walk_backwards_stageii_isaacgym.pkl'
+        motion_file = f'booster_k1/{SIMULATOR}_run/C1_-_stand_to_run_stageii_{SIMULATOR}.pkl'
         episode_length_s = 10
         debug_draw_key_body_points = True # draw key body points for mimic tasks
         max_projected_gravity = -0.3

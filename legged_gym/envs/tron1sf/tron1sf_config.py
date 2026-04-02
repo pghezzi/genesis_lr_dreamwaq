@@ -76,6 +76,7 @@ class TRON1SFCfg( LeggedRobotCfg ):
         # Common
         name = "tron1sf"
         file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/limx_dynamics/SF_TRON1A/urdf/robot.urdf'
+        xml_file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/limx_dynamics/SF_TRON1A/xml/robot.xml'
         foot_name = "ankle"
         penalize_contacts_on = ["knee", "hip", "base", "abad"]
         terminate_after_contacts_on = []

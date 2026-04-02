@@ -17,7 +17,7 @@ class G1DeepMimicCfg(G1Flat29DofCommonCfg):
         num_privileged_obs = int(num_single_critic_obs * c_frame_stack)
         num_actions = 29
         # reference motion file, should be a .pkl file containing a dictionary
-        motion_file = 'unitree_g1/isaacgym/02_01_walk_stageii_60hz_isaacgym.pkl'
+        motion_file = f'unitree_g1/{SIMULATOR}_run/C1_-_stand_to_run_stageii_{SIMULATOR}.pkl'
         episode_length_s = 10
         debug_draw_key_body_points = True # draw key body points for mimic tasks
         max_projected_gravity = -0.3
