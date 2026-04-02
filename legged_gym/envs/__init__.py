@@ -106,7 +106,7 @@ task_registry.register("k1", K1Robot, K1Cfg(), K1CfgPPO())
 task_registry.register("k1_deepmimic", K1DeepMimic, K1DeepMimicCfg(), K1DeepMimicCfgPPO())
 task_registry.register("k1_motion_vis", K1MotionVis, K1MotionVisCfg(), LeggedRobotCfgPPO()) # for motion visualization, not for training
 task_registry.register("k1_amp", K1AMP, K1AMPCfg(), K1AMPCfgPPO())
-# task_registry.register("k1_cts_amp", K1_CTS_AMP, K1_CTS_AMPCfg(), K1_CTS_AMPCfgPPO()) # unvalidated
+task_registry.register("k1_cts_amp", K1_CTS_AMP, K1_CTS_AMPCfg(), K1_CTS_AMPCfgPPO()) # unvalidated
 task_registry.register("g1", G1Robot, G1RoughCfg(), G1RoughCfgPPO())
 task_registry.register("g1_deepmimic", G1DeepMimic, G1DeepMimicCfg(), G1DeepMimicCfgPPO())
 task_registry.register("g1_motion_vis", G1MotionVis, G1MotionVisCfg(), LeggedRobotCfgPPO()) # for motion visualization, not for training

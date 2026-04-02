@@ -8,6 +8,8 @@ class K1AMP(LeggedRobotAMP):
     
     def compute_observations(self):
         
+        key_body_pos_relative_to_base = self.simulator.key_body_pos - \
+                self.simulator.base_pos.unsqueeze(1)
         self._calc_periodic_reward_obs()
         obs_buf = torch.cat((
             self.commands[:, :3] * self.commands_scale,
@@ -30,6 +32,7 @@ class K1AMP(LeggedRobotAMP):
         single_critic_obs = torch.cat((
             obs_buf,                                               # num_obs
             self.simulator.base_lin_vel * self.obs_scales.lin_vel, # 3
+            key_body_pos_relative_to_base.flatten(start_dim=1),    # num_key_bodies * 3
             domain_randomization_info,                             # 51
             self.simulator.feet_pos[:, :, 2],                      # 2
             self.clock_input,                                      # 4
@@ -347,3 +350,14 @@ class K1AMP(LeggedRobotAMP):
         contacts = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2] > 0.1
         slip_penalty = torch.sum(foot_vel_xy_norm * contacts, dim=1)
         return slip_penalty
+    
+    def _reward_foot_landing_vel(self):
+        z_vels = self.simulator.feet_vel[:, :, 2]
+        contacts = self.simulator.link_contact_forces[:, self.simulator.feet_indices, 2] > 0.1
+        about_to_land = ((self.simulator.feet_pos[:, :, 2] -
+                          self.cfg.rewards.foot_height_offset) <
+                         self.cfg.rewards.about_landing_threshold) & (~contacts) & (z_vels < 0.0)
+        landing_z_vels = torch.where(
+            about_to_land, z_vels, torch.zeros_like(z_vels))
+        reward = torch.sum(torch.square(landing_z_vels), dim=1)
+        return reward

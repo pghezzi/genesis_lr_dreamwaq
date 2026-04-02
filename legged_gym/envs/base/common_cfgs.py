@@ -321,7 +321,8 @@ class K1FlatCommonCfg(LeggedRobotCfg):
         foot_name = "foot"
         penalize_contacts_on = ["Trunk", "Shank", "Hip", "Arm", "Head"]
         terminate_after_contacts_on = []
-        key_bodies = ["left_hand_link", "right_hand_link",
+        key_bodies = ["Head_2",
+                      "left_hand_link", "right_hand_link",
                       "left_foot_link", "right_foot_link"]
         base_link_name = "Trunk"
         dof_names = [

@@ -182,4 +182,9 @@ def dr_normalize(x, min_val, max_val):
     """ 根据输入的Tensor和最小值最大值范围, 将Tensor中的值归一化到-1到1之间。 
         normalization for domain randomization parameters, which may have different ranges.
     """
-    return 2 * (x - min_val) / (max_val - min_val) - 1
+    range_val = max_val - min_val
+    if abs(range_val) < 1e-12:
+        return torch.zeros_like(x)
+
+    normalized = 2 * (x - min_val) / range_val - 1
+    return torch.clamp(normalized, -1.0, 1.0)
