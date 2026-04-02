@@ -2,12 +2,14 @@
 """
 Internal helper script - runs a single task for smoke testing.
 This is called by test_all_tasks.py for each task in a separate subprocess.
+Supports IsaacGym, Genesis, and IsaacLab simulators.
 """
 
 import sys
 import argparse
 
-import isaacgym
+# Import legged_gym which automatically detects and imports the correct simulator
+# based on Python version and SIMULATOR environment variable
 from legged_gym import *
 from legged_gym.envs import *
 from legged_gym.utils import task_registry
@@ -35,6 +37,12 @@ def main():
         
         train_args = get_args()
         sys.argv = original_argv
+        
+        # Initialize Genesis if using Genesis simulator
+        if SIMULATOR == "genesis":
+            gs.init(
+                backend=gs.cpu if args.cpu else gs.gpu,
+                logging_level='warning')
         
         # Create environment
         env, env_cfg = task_registry.make_env(name=args.task, args=train_args)
