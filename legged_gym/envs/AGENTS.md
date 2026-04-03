@@ -95,3 +95,42 @@ task_registry.register("go2", GO2, GO2Cfg(), GO2CfgPPO())
 | k1 | LeggedRobot | basic, amp, cts_amp, deepmimic, motion_vis |
 | tron1pf | LeggedRobot | basic, ee |
 | tron1sf | LeggedRobot | basic |
+
+## METHOD-SPECIFIC PATTERNS
+
+### Teacher-Student (go2_ts)
+- **Files**: `actor_critic_ts.py`, `ppo_ts.py`, `legged_robot_ts.py`
+- **Key Components**: Privilege encoder + History encoder
+- **Privileged Info**: Friction, mass, CoM bias, pushes, PD scales
+- **Observation History**: Stack of last N observations (default: 20)
+- **Training**: Concurrent RL + supervised encoder learning
+- **Command**: `python -m legged_gym.scripts.train --task=go2_ts --headless`
+
+### Explicit Estimator (go2_ee)
+- **Files**: `actor_critic_ee.py`, `ppo_ee.py`
+- **Key Components**: Estimator network predicts explicit values
+- **Predictions**: Base linear velocity, foot contact, foot height
+- **Usage**: Real-world deployment where velocity estimation needed
+- **Command**: `python -m legged_gym.scripts.train --task=go2_ee --headless`
+
+### Walk These Ways (go2_wtw)
+- **Files**: `go2_wtw.py`, `go2_wtw_config.py`
+- **Behavior Params**: Gait period, base height, foot clearance, pitch, gait type
+- **Observation**: Clock input (4 dims) + theta (phase offsets)
+- **Reward**: Periodic gait reward using von Mises distribution
+- **Curriculum**: Behavior parameter range widens with performance
+- **Command**: `python -m legged_gym.scripts.train --task=go2_wtw --headless`
+
+### DeepMimic (g1_deepmimic)
+- **Files**: `g1_deepmimic.py`, `motion_loader.py`
+- **Motion Data**: Process reference motions first
+- **Processing**: `python -m legged_gym.scripts.process_reference_motion --task=g1_motion_vis --motion_file=motion.pkl`
+- **Training**: Uses reference motion observations + tracking rewards
+- **Command**: `python -m legged_gym.scripts.train --task=g1_deepmimic --headless`
+
+### AMP (k1_amp)
+- **Files**: `actor_critic_amp.py`, `ppo_amp.py`, `amp_discriminator.py`
+- **Key Components**: Policy + Discriminator (adversarial training)
+- **Motion Data**: Reference motions for style
+- **Training**: Adversarial motion priors for stylized control
+- **Command**: `python -m legged_gym.scripts.train --task=k1_amp --headless`

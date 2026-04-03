@@ -82,3 +82,62 @@ Example: `PPO_TS` uses `ActorCriticTS`, `RolloutStorageTS`, `TSRunner`.
 1. **Storage Mismatch**: Using base `RolloutStorage` with `PPO_TS` (needs teacher/student buffers)
 2. **Missing Registration**: New runner not added to `runners/__init__.py`
 3. **Device Mismatch**: Tensors must all be on same device as runner
+
+## ALGORITHM CONFIGURATION
+
+### PPO Parameters (cfg.algorithm)
+```python
+value_loss_coef = 1.0          # Value function loss weight
+use_clipped_value_loss = True  # Clip value updates
+clip_param = 0.2               # PPO clipping epsilon
+entropy_coef = 0.01            # Entropy bonus weight
+num_learning_epochs = 5        # Gradient updates per iteration
+num_mini_batches = 4           # Mini-batches per update
+learning_rate = 1.e-3          # Adam learning rate
+schedule = 'adaptive'          # 'adaptive' or 'fixed'
+gamma = 0.99                   # Discount factor
+lam = 0.95                     # GAE lambda
+desired_kl = 0.01              # Target KL divergence
+max_grad_norm = 1.0            # Gradient clipping
+use_spo = False                # Simple Policy Optimization
+```
+
+### Policy Network (cfg.policy)
+```python
+init_noise_std = 1.0
+actor_hidden_dims = [512, 256, 128]
+critic_hidden_dims = [512, 256, 128]
+activation = 'elu'  # 'elu', 'relu', 'selu', 'tanh'
+
+# RNN (optional)
+rnn_type = 'lstm'
+rnn_hidden_size = 512
+rnn_num_layers = 1
+```
+
+### Runner Parameters (cfg.runner)
+```python
+num_steps_per_env = 24    # Rollout length
+max_iterations = 1500     # Total training iterations
+save_interval = 50        # Checkpoint frequency
+experiment_name = 'test'  # Log directory name
+resume = False            # Resume from checkpoint
+load_run = -1             # Run ID to load (-1 = latest)
+checkpoint = -1           # Checkpoint ID (-1 = latest)
+```
+
+### Method-Specific Configurations
+
+**Teacher-Student (PPO_TS)**:
+- `num_encoder_epochs`: History encoder training epochs
+- `history_encoder_type`: Encoder architecture ('MLP' or 'TCN')
+- `history_encoder_hidden_dims`: History network dimensions
+- `privilege_encoder_hidden_dims`: Privilege network dimensions
+
+**Explicit Estimator (PPO_EE)**:
+- `estimator_target`: Target variables for estimation
+- `estimator_hidden_dims`: Estimator network dimensions
+
+**DreamWaQ (PPO_DreamWaQ)**:
+- `depth_encoder_dims`: Depth encoder network dimensions
+- `use_terrain_imagination`: Enable terrain imagination module
