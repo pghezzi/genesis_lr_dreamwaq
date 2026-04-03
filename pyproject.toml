@@ -37,8 +37,8 @@ genesis = [
     "genesis-world==0.4.3"
 ]
 isaaclab = [
-    "isaaclab==2.3.2.post1",
-    "isaacsim==5.1.0.0"
+    "isaaclab",
+    "isaacsim"
 ]
 
 [tool.setuptools]
