@@ -87,7 +87,7 @@ class K1AMPCfg(K1FlatCommonCfg):
         kp_range = [0.8, 1.2]
         kd_range = [0.8, 1.2]
         randomize_ctrl_delay = True
-        ctrl_delay_step_range = [0, 4]
+        ctrl_delay_step_range = [2, 3]
     
     class commands(K1FlatCommonCfg.commands):
         curriculum = True
@@ -103,6 +103,10 @@ class K1AMPCfg(K1FlatCommonCfg):
     
     class viewer(K1FlatCommonCfg.viewer):
         pos = [1.0, 1.0, 0.5]
+    
+    class noise(K1FlatCommonCfg.noise):
+        class noise_scales(K1FlatCommonCfg.noise.noise_scales):
+            dof_pos = 0.08
 
 class K1AMPCfgPPO(LeggedRobotAMPCfgPPO):
     class policy(LeggedRobotAMPCfgPPO.policy):
