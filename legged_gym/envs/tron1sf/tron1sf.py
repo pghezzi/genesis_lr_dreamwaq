@@ -248,7 +248,7 @@ class TRON1SF(LeggedRobot):
     
     def _reward_feet_air_time(self):
         # Reward long steps
-        contact = self.simulator.link_contact_forces[:, self.simulator.feet_indices, 2] > 1.
+        contact = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2] > 1.
         contact_filt = torch.logical_or(contact, self.last_contacts)
         self.last_contacts = contact
         first_contact = (self.feet_air_time > 0.) * contact_filt
@@ -266,7 +266,7 @@ class TRON1SF(LeggedRobot):
                          self.cfg.rewards.foot_distance_threshold - feet_xy_distance)
         
     def _reward_no_fly(self):
-        contacts = self.simulator.link_contact_forces[:, self.simulator.feet_indices, 2] > 1.0
+        contacts = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2] > 1.0
         single_contact = torch.sum(1.*contacts, dim=1)==1
         return 1.*single_contact
     
@@ -279,7 +279,7 @@ class TRON1SF(LeggedRobot):
     def _reward_keep_ankle_pitch_zero_in_air(self):
         """Reward keeping ankle pitch close to zero when in the air
         """
-        contacts = self.simulator.link_contact_forces[:, self.simulator.feet_indices, 2] > 1.0
+        contacts = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2] > 1.0
         ankle_pitch = torch.abs(self.simulator.dof_pos[:, 3]) * ~(contacts[:, 0]) + torch.abs(
             self.simulator.dof_pos[:, 7]) * ~contacts[:, 1]
         return torch.exp(-torch.abs(ankle_pitch) / 0.2)

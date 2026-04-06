@@ -28,9 +28,9 @@ class IsaacLabSimulator(Simulator):
         self._last_base_lin_vel[:] = self._base_lin_vel[:]
         self._last_base_ang_vel[:] = self._base_ang_vel[:]
         self._last_feet_vel[:] = self._robot.data.body_link_vel_w[:, self.feet_indices, :3]
+        actions = self._pre_simulator_step(actions)
         for _ in range(self._cfg.control.decimation):
             self._last_dof_vel[:] = self._robot.data.joint_vel[:] # for computing velocity-target-based PD control
-            actions = self._pre_simulator_step(actions)
             self._compute_torques(actions)
             self._robot.write_data_to_sim()
             self._sim.step(render=False)
@@ -42,17 +42,17 @@ class IsaacLabSimulator(Simulator):
     def post_physics_step(self):
         # Cache robot data reference to avoid repeated attribute lookups
         robot_data = self._robot.data
-        self._base_pos[:] = robot_data.root_link_pos_w[:]
+        self._base_pos[:] = robot_data.root_pos_w[:]
         self._check_base_pos_out_of_bound()       # check if the pos of the robot is out of terrain bounds
-        self._base_pos[:] = robot_data.root_link_pos_w[:]
+        self._base_pos[:] = robot_data.root_pos_w[:]
         # convert wxyz to xyzw
-        root_quat = robot_data.root_link_quat_w
+        root_quat = robot_data.root_quat_w
         self._base_quat[:, -1] = root_quat[:, 0]
         self._base_quat[:, :3] = root_quat[:, 1:]
         self._base_euler[:] = get_euler_xyz(self._base_quat)
         self._projected_gravity[:] = quat_rotate_inverse(self._base_quat, self._global_gravity)[:]
-        self._base_lin_vel[:] = quat_rotate_inverse(self._base_quat, robot_data.root_link_lin_vel_w)[:]
-        self._base_ang_vel[:] = quat_rotate_inverse(self._base_quat, robot_data.root_link_ang_vel_w)[:]
+        self._base_lin_vel[:] = quat_rotate_inverse(self._base_quat, robot_data.root_lin_vel_w)[:]
+        self._base_ang_vel[:] = quat_rotate_inverse(self._base_quat, robot_data.root_ang_vel_w)[:]
         # Cache body link data to avoid multiple accesses
         body_link_pos = robot_data.body_link_pos_w
         body_link_vel = robot_data.body_link_vel_w
@@ -82,14 +82,14 @@ class IsaacLabSimulator(Simulator):
         self._robot.reset(env_ids)
         self._contact_sensors.reset(env_ids)
         
-        self._base_pos[:] = self._robot.data.root_link_pos_w[:]
+        self._base_pos[:] = self._robot.data.root_pos_w[:]
         # convert wxyz to xyzw
-        self._base_quat[:, -1] = self._robot.data.root_link_quat_w[:, 0]
-        self._base_quat[:, :3] = self._robot.data.root_link_quat_w[:, 1:]
+        self._base_quat[:, -1] = self._robot.data.root_quat_w[:, 0]
+        self._base_quat[:, :3] = self._robot.data.root_quat_w[:, 1:]
         self._base_euler[:] = get_euler_xyz(self._base_quat)
         self._projected_gravity[:] = quat_rotate_inverse(self._base_quat, self._global_gravity)[:]
-        self._base_lin_vel[:] = quat_rotate_inverse(self._base_quat, self._robot.data.root_link_lin_vel_w)[:]
-        self._base_ang_vel[:] = quat_rotate_inverse(self._base_quat, self._robot.data.root_link_ang_vel_w)[:]
+        self._base_lin_vel[:] = quat_rotate_inverse(self._base_quat, self._robot.data.root_lin_vel_w)[:]
+        self._base_ang_vel[:] = quat_rotate_inverse(self._base_quat, self._robot.data.root_ang_vel_w)[:]
         self._feet_pos[:] = self._robot.data.body_link_pos_w[:, self._feet_indices, :]
         self._key_body_pos[:] = self._robot.data.body_link_pos_w[:, self._key_body_indices, :]
         self._feet_vel[:] = self._robot.data.body_link_vel_w[:, self._feet_indices, :3]
@@ -128,7 +128,7 @@ class IsaacLabSimulator(Simulator):
         quat_sim = base_quat.clone()
         quat_sim[:, 0] = base_quat[:, 3]  # w
         quat_sim[:, 1:] = base_quat[:, :3]  # xyz
-        self._robot.write_root_link_state_to_sim(
+        self._robot.write_root_state_to_sim(
             torch.cat((
                 base_pos,
                 quat_sim,
@@ -151,15 +151,14 @@ class IsaacLabSimulator(Simulator):
         
     def push_robots(self):
         max_push_vel_xy = self._cfg.domain_rand.max_push_vel_xy
-        cur_root_vel = self._robot.data.root_link_vel_w[:, :3]
+        cur_vel_w = self._robot.data.root_vel_w
         push_vel = torch_rand_float(-max_push_vel_xy,
                                     max_push_vel_xy, (self._num_envs, 2), device=self._device)
         self._rand_push_vels[:, :2] = push_vel.detach().clone()
-        cur_root_vel[:, :2] += push_vel
-        root_vel = torch.cat([cur_root_vel, self._robot.data.root_link_vel_w[:, 3:6]], dim=-1)
-        self._robot.write_root_link_velocity_to_sim(root_vel)
+        cur_vel_w[:, :2] += push_vel
+        self._robot.write_root_velocity_to_sim(cur_vel_w)
         self._last_base_lin_vel[:] = self._base_lin_vel[:]
-        self._base_lin_vel[:] = quat_rotate_inverse(self._base_quat, self._robot.data.root_link_lin_vel_w)[:]
+        self._base_lin_vel[:] = quat_rotate_inverse(self._base_quat, self._robot.data.root_lin_vel_w)[:]
     
     def push_links(self):
         max_force = self._cfg.domain_rand.max_push_force
@@ -274,11 +273,18 @@ class IsaacLabSimulator(Simulator):
         prim_paths = self._cloner.generate_paths("/World/envs/env", self._num_envs)
         self._stage.DefinePrim(source_env_path, "Xform")
         
+        if self._cfg.asset.name == "go2" or self._cfg.asset.name == "g1":
+            solver_pos_iteration = 4
+            solver_vel_iteration = 0
+        elif self._cfg.asset.name == "k1":
+            solver_pos_iteration = 8
+            solver_vel_iteration = 4
+        
         articulation_props = sim_utils.ArticulationRootPropertiesCfg(
                     enabled_self_collisions=not self._cfg.asset.self_collisions, 
                     fix_root_link=self._cfg.asset.fix_base_link,
-                    solver_position_iteration_count=self._sim_params["physx"]["num_position_iterations"],
-                    solver_velocity_iteration_count=self._sim_params["physx"]["num_velocity_iterations"],)
+                    solver_position_iteration_count=solver_pos_iteration,
+                    solver_velocity_iteration_count=solver_vel_iteration,)
         
         rigid_props = sim_utils.RigidBodyPropertiesCfg(max_depenetration_velocity=self._sim_params["physx"]["max_depenetration_velocity"],
                                                        angular_damping=self._cfg.asset.angular_damping,
@@ -382,6 +388,7 @@ class IsaacLabSimulator(Simulator):
         self._get_env_origins()
         
         self._dof_names = self._robot.joint_names
+        print(f"All dof names: {self._dof_names}")
         # find the indices (in the robot's joint list) of joints specified in self._cfg.asset.dof_names
         self._dof_indices = [self._dof_names.index(name) for name in self._cfg.asset.dof_names]
         print(f"dof indices: {self._dof_indices}")
@@ -488,14 +495,14 @@ class IsaacLabSimulator(Simulator):
         # randomize pd gain
         if self._cfg.domain_rand.randomize_pd_gain:
             self._randomize_pd_gain(torch.arange(self._num_envs))
-    
+        
     def _init_buffers(self):
-        self._base_pos = torch.zeros_like(self._robot.data.root_link_pos_w)
-        self._base_lin_vel = torch.zeros_like(self._robot.data.root_link_lin_vel_b)
-        self._base_ang_vel = torch.zeros_like(self._robot.data.root_link_ang_vel_b)
+        self._base_pos = torch.zeros_like(self._robot.data.root_pos_w)
+        self._base_lin_vel = torch.zeros_like(self._robot.data.root_lin_vel_b)
+        self._base_ang_vel = torch.zeros_like(self._robot.data.root_ang_vel_b)
         self._last_dof_vel = torch.zeros_like(self._robot.data.joint_vel)
-        self._last_base_lin_vel = torch.zeros_like(self._robot.data.root_link_lin_vel_b)
-        self._last_base_ang_vel = torch.zeros_like(self._robot.data.root_link_ang_vel_b)
+        self._last_base_lin_vel = torch.zeros_like(self._robot.data.root_lin_vel_b)
+        self._last_base_ang_vel = torch.zeros_like(self._robot.data.root_ang_vel_b)
         self._p_gains = torch.zeros(self._num_actions, dtype=torch.float, device=self._device, requires_grad=False)
         self._d_gains = torch.zeros(self._num_actions, dtype=torch.float, device=self._device, requires_grad=False)
         self._base_quat = torch.zeros(
@@ -546,6 +553,7 @@ class IsaacLabSimulator(Simulator):
                 self._d_gains[i] = 0.
                 if self._cfg.control.control_type in ["P", "V"]:
                     print(f"PD gain of joint {name} were not defined, setting them to zero")
+        print(f"p_gains: {self._p_gains}")
         
         # control delay
         if self._cfg.domain_rand.randomize_ctrl_delay:
@@ -695,9 +703,9 @@ class IsaacLabSimulator(Simulator):
             # reset base position to initial position
             base_pos[env_ids] = self._robot.data.default_root_state[env_ids, :3]
             base_pos[env_ids] += self._env_origins[env_ids]
-            self._robot.write_root_link_pose_to_sim(
+            self._robot.write_root_pose_to_sim(
                 torch.cat([base_pos[env_ids], 
-                            self._robot.data.root_link_quat_w[env_ids]], dim=-1), 
+                            self._robot.data.root_quat_w[env_ids]], dim=-1), 
                 env_ids=env_ids)
     
     def _compute_torques(self, actions):
@@ -714,23 +722,25 @@ class IsaacLabSimulator(Simulator):
         #pd controller
         actions_scaled = actions * self._cfg.control.action_scale
         control_type = self._cfg.control.control_type
+        # convert from specified joint order to simulator's joint order
         if control_type=="P":
             torques = self._kp_scale * self._p_gains * \
-                (actions_scaled + self._robot.data.default_joint_pos[:, self._dof_indices] \
-                    - self._robot.data.joint_pos[:, self._dof_indices]) \
-                    - self._kd_scale * self._d_gains*self._robot.data.joint_vel[:, self._dof_indices]
+                (actions_scaled[:, self._dof_indices] + self._robot.data.default_joint_pos \
+                    - self._robot.data.joint_pos) \
+                    - self._kd_scale * self._d_gains*self._robot.data.joint_vel
         elif control_type=="V":
             torques = self._kp_scale * self._p_gains * \
-                (actions_scaled - self._robot.data.joint_vel[:, self._dof_indices]) - \
-                    self._kd_scale * self._d_gains * self._robot.data.joint_acc[:, self._dof_indices]
+                (actions_scaled[:, self._dof_indices] - self._robot.data.joint_vel) - \
+                    self._kd_scale * self._d_gains * self._robot.data.joint_acc
         elif control_type=="T":
             torques = actions_scaled
         else:
             raise NameError(f"Unknown controller type: {control_type}")
         
+        # print(f"torques applied: {torques[0]}")
+        # sequence of torque is the same of as the DOF order in the robot articulation
         self._robot.set_joint_effort_target(
-                torch.clip(torques, -self.torque_limits, self.torque_limits),
-                self._dof_indices
+                torch.clip(torques, -self.torque_limits, self.torque_limits)
             )
         return
     
@@ -1043,6 +1053,7 @@ class IsaacLabSimulator(Simulator):
         Returns:
             Tensor: Torques applied to the robot's joints.
         """
+        # convert from simulation order to specified order
         return self._robot.data.computed_torque[:, self._dof_indices]
     
     @property
@@ -1062,3 +1073,15 @@ class IsaacLabSimulator(Simulator):
             Tensor: (1, num_dofs)
         """
         return self._robot.data.default_joint_pos[0, self._dof_indices].unsqueeze(0)
+    
+    @property
+    def dr_kp_scale(self):
+        return dr_normalize(self._kp_scale[:, self._dof_indices],
+                            self._cfg.domain_rand.kp_range[0],
+                            self._cfg.domain_rand.kp_range[1])
+    
+    @property
+    def dr_kd_scale(self):
+        return dr_normalize(self._kd_scale[:, self._dof_indices],
+                            self._cfg.domain_rand.kd_range[0],
+                            self._cfg.domain_rand.kd_range[1])

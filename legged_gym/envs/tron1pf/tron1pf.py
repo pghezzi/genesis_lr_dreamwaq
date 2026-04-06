@@ -128,7 +128,7 @@ class TRON1PF(LeggedRobot):
     
     def _reward_feet_air_time(self):
         # Reward long steps
-        contact = self.simulator.link_contact_forces[:, self.simulator.feet_indices, 2] > 1.
+        contact = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2] > 1.
         contact_filt = torch.logical_or(contact, self.last_contacts)
         self.last_contacts = contact
         first_contact = (self.feet_air_time > 0.) * contact_filt
@@ -146,6 +146,6 @@ class TRON1PF(LeggedRobot):
                          self.cfg.rewards.foot_distance_threshold - feet_xy_distance)
     
     def _reward_no_fly(self):
-        contacts = self.simulator.link_contact_forces[:, self.simulator.feet_indices, 2] > 0.1
+        contacts = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2] > 0.1
         single_contact = torch.sum(1.*contacts, dim=1)==1
         return 1.*single_contact

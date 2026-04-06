@@ -19,7 +19,6 @@ class K1AMPCfg(K1FlatCommonCfg):
         num_privileged_obs = int(num_single_critic_obs * c_frame_stack)
         num_actions = 22
         amp_motion_files = MOTION_FILES
-        max_projected_gravity = -0.3
     
     class init_state(K1FlatCommonCfg.init_state):
         # whether to initialize the robot with the reference motion
@@ -57,8 +56,8 @@ class K1AMPCfg(K1FlatCommonCfg):
             foot_flat = 0.2
             foot_landing_vel = -0.15
             biped_periodic_gait = 1.0
-            feet_contact_stand_still = 0.5
-            dof_close_to_default_stand_still = -0.5
+            # feet_contact_stand_still = 0.5
+            # dof_close_to_default_stand_still = -0.5
         
         class periodic_reward_framework:
             '''Periodic reward framework in OSU's paper(https://arxiv.org/abs/2011.01387)'''
@@ -77,7 +76,7 @@ class K1AMPCfg(K1FlatCommonCfg):
         randomize_base_mass = True
         added_mass_range = [-1., 2.]
         push_robots = True
-        push_interval_s = 8
+        push_interval_s = 15
         max_push_vel_xy = 0.5
         randomize_com_displacement = True
         com_pos_x_range = [-0.02, 0.02]
@@ -87,14 +86,14 @@ class K1AMPCfg(K1FlatCommonCfg):
         kp_range = [0.8, 1.2]
         kd_range = [0.8, 1.2]
         randomize_ctrl_delay = True
-        ctrl_delay_step_range = [2, 3]
+        ctrl_delay_step_range = [0, 1]
     
     class commands(K1FlatCommonCfg.commands):
         curriculum = True
         max_curriculum = 1.
         resampling_time = 10.0
         heading_command = False
-        zero_cmd_prob = 0.4
+        zero_cmd_prob = 0.2
         class ranges:
             lin_vel_x = [-0.5, 0.5] # min max [m/s]
             lin_vel_y = [-0.4, 0.4]   # min max [m/s]

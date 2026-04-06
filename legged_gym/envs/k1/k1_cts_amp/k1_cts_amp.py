@@ -289,7 +289,7 @@ class K1_CTS_AMP(LeggedRobotCTS):
         if foot_type == "left":
             q_frc = torch.norm(
                 self.simulator.link_contact_forces[:, 
-                                    self.simulator.feet_indices[0], :], dim=-1).view(-1, 1)
+                                    self.simulator.feet_contact_indices[0], :], dim=-1).view(-1, 1)
             q_spd = torch.norm(
                 self.simulator.feet_vel[:, 0, :], dim=-1).view(-1, 1) # sequence of feet_pos is FL, FR, RL, RR
             # size: num_envs; need to reshape to (num_envs, 1), or there will be error due to broadcasting
@@ -298,7 +298,7 @@ class K1_CTS_AMP(LeggedRobotCTS):
         elif foot_type == "right":
             q_frc = torch.norm(
                 self.simulator.link_contact_forces[:, 
-                                    self.simulator.feet_indices[1], :], dim=-1).view(-1, 1)
+                                    self.simulator.feet_contact_indices[1], :], dim=-1).view(-1, 1)
             q_spd = torch.norm(
                 self.simulator.feet_vel[:, 1, :], dim=-1).view(-1, 1)
             # modulo phi over 1.0 to get cicular phi in [0, 1.0]
@@ -382,7 +382,7 @@ class K1_CTS_AMP(LeggedRobotCTS):
     def _reward_foot_flat(self):
         """Encourage foot to be flat when contact with the ground
         """
-        foot_contact = torch.norm(self.simulator.link_contact_forces[:, self.simulator.feet_indices, :], dim=-1) > 1.0
+        foot_contact = torch.norm(self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, :], dim=-1) > 1.0
         foot_quat = self.simulator.feet_quat
         # calculate world z axis in foot frame
         z_axis_world = torch.tensor([0., 0., 1.], device=self.device).repeat(foot_quat.shape[0], foot_quat.shape[1], 1)

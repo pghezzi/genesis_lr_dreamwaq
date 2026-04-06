@@ -51,6 +51,6 @@ class BipedalWalker(LeggedRobot):
         self.simulator.reset_dofs(env_ids, dof_pos, dof_vel)
     
     def _reward_no_fly(self):
-        contacts = self.simulator.link_contact_forces[:, self.simulator.feet_indices, 2] > 0.1
+        contacts = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2] > 0.1
         single_contact = torch.sum(1.*contacts, dim=1)==1
         return 1.*single_contact

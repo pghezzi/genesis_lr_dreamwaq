@@ -50,12 +50,12 @@ class IsaacGymSimulator(Simulator):
         self._last_base_lin_vel[:] = self._base_lin_vel[:]
         self._last_base_ang_vel[:] = self._base_ang_vel[:]
         self._last_feet_vel[:] = self._rigid_body_states[:, self._feet_indices, 7:10]
+        actions = self._pre_simulator_step(actions)
         for _ in range(self._cfg.control.decimation):
             self._last_dof_vel[:] = self._dof_vel[:] # for computing velocity-target-based PD control
-            actions = self._pre_simulator_step(actions)
             self._torques = self._compute_torques(actions).view(self._torques.shape)
             self._gym.set_dof_actuation_force_tensor(self._sim, 
-                                                gymtorch.unwrap_tensor(self._torques[:, self._dof_indices]))
+                                                gymtorch.unwrap_tensor(self._torques))
             self._gym.simulate(self._sim)
             if (self._device == "cpu"):
                 self._gym.fetch_results(self._sim, True)
@@ -542,7 +542,9 @@ class IsaacGymSimulator(Simulator):
         # joint positions offsets and PD gains
         self._default_dof_pos = torch.zeros(self._num_dof, dtype=torch.float, device=self._device, requires_grad=False)
         for i in range(self._num_dof):
-            name = self._cfg.asset.dof_names[i]
+            # self._p_gains use the joint sequence in simulation
+            name = self._dof_names[i]
+            # default_dof_pos use the joint sequence in simulation
             self._default_dof_pos[i] = self._cfg.init_state.default_joint_angles[name]
             found = False
             for dof_name in self._cfg.control.stiffness.keys():
@@ -745,14 +747,15 @@ class IsaacGymSimulator(Simulator):
         #pd controller
         actions_scaled = actions * self._cfg.control.action_scale
         control_type = self._cfg.control.control_type
+        # convert actions from policy joint sequence to simulation joint sequence
         if control_type=="P":
-            torques = self._kp_scale * self._p_gains * (actions_scaled + \
-                self._default_dof_pos[:, self._dof_indices] - self._dof_pos[:, self._dof_indices]) - \
-                    self._kd_scale * self._d_gains * self._dof_vel[:, self._dof_indices]
+            torques = self._kp_scale * self._p_gains * (actions_scaled[:, self._dof_indices] + \
+                self._default_dof_pos - self._dof_pos) - \
+                    self._kd_scale * self._d_gains * self._dof_vel
         elif control_type=="V":
-            torques = self._kp_scale * self._p_gains * (actions_scaled - \
-                self._dof_vel[:, self._dof_indices]) - self._kd_scale * self._d_gains * \
-                    (self._dof_vel[:, self._dof_indices] - self._last_dof_vel[:, self._dof_indices])/self._sim_params.dt
+            torques = self._kp_scale * self._p_gains * (actions_scaled[:, self._dof_indices] - \
+                self._dof_vel) - self._kd_scale * self._d_gains * \
+                    (self._dof_vel - self._last_dof_vel)/self._sim_params.dt
         elif control_type=="T":
             torques = actions_scaled
         else:
@@ -1342,6 +1345,10 @@ class IsaacGymSimulator(Simulator):
     @property
     def last_dof_vel(self):
         return self._last_dof_vel[:, self._dof_indices]
+    
+    @property
+    def torques(self):
+        return self._torques[:, self._dof_indices]
     
     @property
     def torque_limits(self):

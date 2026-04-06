@@ -1,6 +1,6 @@
 from legged_gym import *
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfgPPO
-from legged_gym.envs.base.common_cfgs import K1FlatCommonCfg
+from legged_gym.envs.base.common_cfgs import K1FlatCommonCfg, get_simulator_suffix
 
 
 class K1Cfg(K1FlatCommonCfg):
@@ -9,10 +9,9 @@ class K1Cfg(K1FlatCommonCfg):
         num_single_obs = 75
         num_observations = int(num_single_obs * frame_stack)
         c_frame_stack = 5
-        num_single_critic_obs = num_single_obs + 3 + 51 + 4
+        num_single_critic_obs = num_single_obs + 3 + 51 + 4 + 1
         num_privileged_obs = int(num_single_critic_obs * c_frame_stack)
         num_actions = 22
-        max_projected_gravity = -0.3
 
     class rewards(K1FlatCommonCfg.rewards):
         soft_dof_pos_limit = 0.99
@@ -38,11 +37,11 @@ class K1Cfg(K1FlatCommonCfg):
             collision = -1.0
             action_rate = -0.01
             dof_close_to_default = -0.1
-            dof_close_to_default_stand_still = -0.5
+            # dof_close_to_default_stand_still = -0.5
             foot_clearance = 0.4
             foot_flat = 0.2
             biped_periodic_gait = 1.0
-            feet_contact_stand_still = 0.5
+            # feet_contact_stand_still = 0.5
             foot_landing_vel = -0.15
         
         class periodic_reward_framework:
@@ -71,17 +70,24 @@ class K1Cfg(K1FlatCommonCfg):
         randomize_pd_gain = True
         kp_range = [0.8, 1.2]
         kd_range = [0.8, 1.2]
+        randomize_ctrl_delay = True
+        ctrl_delay_step_range = [0, 1]
     
     class commands(K1FlatCommonCfg.commands):
         curriculum = True
         max_curriculum = 1.
         resampling_time = 5.0
         heading_command = False
+        zero_cmd_prob = 0.3
         class ranges:
             lin_vel_x = [-0.5, 0.5] # min max [m/s]
             lin_vel_y = [-0.5, 0.5]   # min max [m/s]
             ang_vel_yaw = [-1, 1]    # min max [rad/s]
             heading = [-3.14, 3.14]
+    
+    class noise(K1FlatCommonCfg.noise):
+        class noise_scales(K1FlatCommonCfg.noise.noise_scales):
+            dof_pos = 0.08
 
 class K1CfgPPO(LeggedRobotCfgPPO):
     class policy:
@@ -93,5 +99,5 @@ class K1CfgPPO(LeggedRobotCfgPPO):
         policy_class_name = "ActorCritic"
         max_iterations = 5000
         save_interval = 100
-        run_name = ''
+        run_name = '' + get_simulator_suffix()
         experiment_name = 'k1_flat'

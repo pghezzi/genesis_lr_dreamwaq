@@ -20,13 +20,14 @@ class GenesisSimulator(Simulator):
         self._last_base_lin_vel[:] = self._base_lin_vel[:]
         self._last_base_ang_vel[:] = self._base_ang_vel[:]
         self._last_feet_vel[:] = self._feet_vel[:]
+        actions = self._pre_simulator_step(actions)
         for _ in range(self._cfg.control.decimation):
             self._last_dof_vel[:] = self._dof_vel[:]
-            actions = self._pre_simulator_step(actions)
             self._torques = self._compute_torques(actions)
             self._robot.control_dofs_force(
                 self._torques, self._dof_indices)
             self._scene.step()
+            # dof_pos and dof_vel use joint sequence of policy
             self._dof_pos[:] = self._robot.get_dofs_position(
                 self._dof_indices)
             self._dof_vel[:] = self._robot.get_dofs_velocity(
@@ -498,6 +499,7 @@ class GenesisSimulator(Simulator):
             self._link_contact_states = torch.zeros(
                 self._num_envs, len(self._contact_state_link_indices), dtype=torch.float, device=self._device, requires_grad=False)
         
+        # default_dof_pos use joint sequence of policy
         self._default_dof_pos = torch.tensor(
             [self._cfg.init_state.default_joint_angles[name]
                 for name in self._cfg.asset.dof_names],
@@ -509,6 +511,7 @@ class GenesisSimulator(Simulator):
         stiffness = self._cfg.control.stiffness
         damping = self._cfg.control.damping
 
+        # p_gains use joint sequence of policy
         self._p_gains, self._d_gains = [], []
         for dof_name in self._cfg.asset.dof_names:
             for key in stiffness.keys():

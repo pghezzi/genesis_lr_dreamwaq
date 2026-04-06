@@ -212,7 +212,7 @@ class K1AMP(LeggedRobotAMP):
         if foot_type == "left":
             q_frc = torch.norm(
                 self.simulator.link_contact_forces[:, 
-                                    self.simulator.feet_indices[0], :], dim=-1).view(-1, 1)
+                                    self.simulator.feet_contact_indices[0], :], dim=-1).view(-1, 1)
             q_spd = torch.norm(
                 self.simulator.feet_vel[:, 0, :], dim=-1).view(-1, 1) # sequence of feet_pos is FL, FR, RL, RR
             # size: num_envs; need to reshape to (num_envs, 1), or there will be error due to broadcasting
@@ -221,7 +221,7 @@ class K1AMP(LeggedRobotAMP):
         elif foot_type == "right":
             q_frc = torch.norm(
                 self.simulator.link_contact_forces[:, 
-                                    self.simulator.feet_indices[1], :], dim=-1).view(-1, 1)
+                                    self.simulator.feet_contact_indices[1], :], dim=-1).view(-1, 1)
             q_spd = torch.norm(
                 self.simulator.feet_vel[:, 1, :], dim=-1).view(-1, 1)
             # modulo phi over 1.0 to get cicular phi in [0, 1.0]
@@ -317,7 +317,7 @@ class K1AMP(LeggedRobotAMP):
     def _reward_foot_flat(self):
         """Encourage foot to be flat when contact with the ground
         """
-        foot_contact = torch.norm(self.simulator.link_contact_forces[:, self.simulator.feet_indices, :], dim=-1) > 1.0
+        foot_contact = torch.norm(self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, :], dim=-1) > 1.0
         foot_quat = self.simulator.feet_quat
         # calculate world z axis in foot frame
         z_axis_world = torch.tensor([0., 0., 1.], device=self.device).repeat(foot_quat.shape[0], foot_quat.shape[1], 1)
@@ -329,8 +329,8 @@ class K1AMP(LeggedRobotAMP):
     def _reward_hip_yaw_roll_pos(self):
         """Encourage hip yaw to be close to default position
         """
-        hip_yaw = self.simulator.dof_pos[:, [11,12,17,18]]
-        return torch.sum(torch.square(hip_yaw - self.simulator.default_dof_pos[:, [11,12,17,18]]), dim=1)
+        hip_yaw_roll = self.simulator.dof_pos[:, [11,12,17,18]]
+        return torch.sum(torch.square(hip_yaw_roll - self.simulator.default_dof_pos[:, [11,12,17,18]]), dim=1)
     
     def _reward_arm_pos(self):
         """Encourage arm joints to be close to default position
@@ -353,7 +353,7 @@ class K1AMP(LeggedRobotAMP):
     
     def _reward_foot_landing_vel(self):
         z_vels = self.simulator.feet_vel[:, :, 2]
-        contacts = self.simulator.link_contact_forces[:, self.simulator.feet_indices, 2] > 0.1
+        contacts = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2] > 0.1
         about_to_land = ((self.simulator.feet_pos[:, :, 2] -
                           self.cfg.rewards.foot_height_offset) <
                          self.cfg.rewards.about_landing_threshold) & (~contacts) & (z_vels < 0.0)

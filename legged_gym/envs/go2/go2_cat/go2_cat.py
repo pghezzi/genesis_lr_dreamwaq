@@ -156,8 +156,8 @@ class Go2CaT(LeggedRobotTS):
             dim=-1) > 10.0, dim=1)
         
         # Feet stumble constraint
-        cstr_feet_stumble = torch.any(torch.norm(self.simulator.link_contact_forces[:, self.simulator.feet_indices, :], dim=-1) > \
-            4 * torch.abs(self.simulator.link_contact_forces[:, self.simulator.feet_indices, 2]), dim=1)
+        cstr_feet_stumble = torch.any(torch.norm(self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, :], dim=-1) > \
+            4 * torch.abs(self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2]), dim=1)
 
         # Joint position limit constraint
         cstr_dof_pos = torch.any(self.simulator.dof_pos < self.simulator.dof_pos_limits[:, 0], dim=-1) * \
@@ -302,7 +302,7 @@ class Go2CaT(LeggedRobotTS):
     
     def _reward_feet_air_time(self):
         # Reward long steps
-        contact = self.simulator.link_contact_forces[:, self.simulator.feet_indices, 2] > 1.
+        contact = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2] > 1.
         contact_filt = torch.logical_or(contact, self.last_contacts)
         self.last_contacts = contact
         first_contact = (self.feet_air_time > 0.) * contact_filt

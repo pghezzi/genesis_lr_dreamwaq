@@ -312,7 +312,7 @@ class TRON1PF_EE(LeggedRobotEE):
         if foot_type == "left":
             q_frc = torch.norm(
                 self.simulator.link_contact_forces[:, 
-                                    self.simulator.feet_indices[0], :], dim=-1).view(-1, 1)
+                                    self.simulator.feet_contact_indices[0], :], dim=-1).view(-1, 1)
             q_spd = torch.norm(
                 self.simulator.feet_vel[:, 0, :], dim=-1).view(-1, 1) # sequence of feet_pos is FL, FR, RL, RR
             # size: num_envs; need to reshape to (num_envs, 1), or there will be error due to broadcasting
@@ -321,7 +321,7 @@ class TRON1PF_EE(LeggedRobotEE):
         elif foot_type == "right":
             q_frc = torch.norm(
                 self.simulator.link_contact_forces[:, 
-                                    self.simulator.feet_indices[1], :], dim=-1).view(-1, 1)
+                                    self.simulator.feet_contact_indices[1], :], dim=-1).view(-1, 1)
             q_spd = torch.norm(
                 self.simulator.feet_vel[:, 1, :], dim=-1).view(-1, 1)
             # modulo phi over 1.0 to get cicular phi in [0, 1.0]

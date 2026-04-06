@@ -23,7 +23,6 @@ class K1_CTS_AMPCfg(K1FlatCommonCfg):
         
         num_actions = 22
         amp_motion_files = MOTION_FILES
-        max_projected_gravity = -0.1
     
     class init_state(K1AMPCfg.init_state):
         pass

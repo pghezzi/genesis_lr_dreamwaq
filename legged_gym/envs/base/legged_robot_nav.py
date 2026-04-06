@@ -550,7 +550,7 @@ class LeggedRobotNav(BaseTask):
 
     def _reward_feet_air_time(self):
         # Reward long steps
-        contact = self.simulator.link_contact_forces[:, self.simulator.feet_indices, 2] > 1.
+        contact = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2] > 1.
         contact_filt = torch.logical_or(contact, self.last_contacts)
         self.last_contacts = contact
         first_contact = (self.feet_air_time > 0.) * contact_filt
@@ -590,7 +590,7 @@ class LeggedRobotNav(BaseTask):
         duration_mask = (self.episode_length_buf.float() * self.dt) > (self.max_episode_length_s - 1.0)
         position_mask = torch.norm(self.target_pos_world[:, :2] - self.simulator.base_pos[:, :2], dim=1) < 0.25
         orientation_mask = torch.abs(wrap_to_pi(self.target_orientation_world - self.simulator.base_euler[:, 2])) < 0.5
-        contacts = self.simulator.link_contact_forces[:, self.simulator.feet_indices, 2] > 1.0
+        contacts = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2] > 1.0
         four_contacts = torch.sum(1.*contacts, dim=1)==4
         return 1.*four_contacts * duration_mask.float() * position_mask.float() * orientation_mask.float()
     
@@ -619,7 +619,7 @@ class LeggedRobotNav(BaseTask):
     
     def _reward_foot_landing_vel(self):
         z_vels = self.simulator.feet_vel[:, :, 2]
-        contacts = self.simulator.link_contact_forces[:, self.simulator.feet_indices, 2] > 0.1
+        contacts = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2] > 0.1
         about_to_land = ((self.simulator.feet_pos[:, :, 2] -
                           self.cfg.rewards.foot_height_offset) <
                          self.cfg.rewards.about_landing_threshold) & (~contacts) & (z_vels < 0.0)
@@ -633,7 +633,7 @@ class LeggedRobotNav(BaseTask):
             self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
     
     def _reward_no_fly(self):
-        contacts = self.simulator.link_contact_forces[:, self.simulator.feet_indices, 2] > 0.1
+        contacts = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2] > 0.1
         single_contact = torch.sum(1.*contacts, dim=1)==1
         return 1.*single_contact
 
@@ -646,6 +646,6 @@ class LeggedRobotNav(BaseTask):
     
     def _reward_feet_stumble(self):
         # Penalize feet hitting vertical surfaces
-        rew = torch.any(torch.norm(self.simulator.link_contact_forces[:, self.simulator.feet_indices, :2], dim=2) >\
-             4 *torch.abs(self.simulator.link_contact_forces[:, self.simulator.feet_indices, 2]), dim=1)
+        rew = torch.any(torch.norm(self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, :2], dim=2) >\
+             4 *torch.abs(self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2]), dim=1)
         return rew.float()
