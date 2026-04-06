@@ -39,8 +39,7 @@ class GenesisSimulator(Simulator):
         self._check_base_pos_out_of_bound()       # check if the pos of the robot is out of terrain bounds
         self._base_pos[:] = self._robot.get_pos()
         self._base_quat_gs[:] = self._robot.get_quat()
-        self._base_quat[:,-1] = self._robot.get_quat()[:,0]   # wxyz to xyzw
-        self._base_quat[:,:3] = self._robot.get_quat()[:,1:4] # wxyz to xyzw
+        self._base_quat[:] = self._base_quat_gs[:,[1,2,3,0]]   # wxyz to xyzw
         self._base_euler[:] = get_euler_xyz(self._base_quat)
         self._base_lin_vel[:] = quat_rotate_inverse(self._base_quat, self._robot.get_vel())
         self._base_ang_vel[:] = quat_rotate_inverse(self._base_quat, self._robot.get_ang())
@@ -117,8 +116,7 @@ class GenesisSimulator(Simulator):
 
         # base quat
         self._base_quat[env_ids, :] = base_quat[:]
-        self._base_quat_gs[env_ids, 0] = self._base_quat[env_ids, 3]  # xyzw to wxyz
-        self._base_quat_gs[env_ids, 1:4] = self._base_quat[env_ids, 0:3] # xyzw to wxyz
+        self._base_quat_gs[env_ids] = self._base_quat[env_ids, [3, 0, 1, 2]]  # xyzw to wxyz
         self._robot.set_quat(
             self._base_quat_gs[env_ids], zero_velocity=False, envs_idx=env_ids)
         self._robot.zero_all_dofs_velocity(env_ids)
@@ -891,4 +889,5 @@ class GenesisSimulator(Simulator):
     
     @property
     def feet_quat(self):
-        return self._robot.get_links_quat()[:, self._feet_indices, :]
+        feet_quat = self._robot.get_links_quat()[:, self._feet_indices, :]
+        return feet_quat[..., [3, 0, 1, 2]] # from wxyz to xyzw

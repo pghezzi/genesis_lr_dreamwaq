@@ -47,8 +47,7 @@ class IsaacLabSimulator(Simulator):
         self._base_pos[:] = robot_data.root_pos_w[:]
         # convert wxyz to xyzw
         root_quat = robot_data.root_quat_w
-        self._base_quat[:, -1] = root_quat[:, 0]
-        self._base_quat[:, :3] = root_quat[:, 1:]
+        self._base_quat[:] = root_quat[:, [1,2,3,0]] # convert from (w,x,y,z) to (x,y,z,w)
         self._base_euler[:] = get_euler_xyz(self._base_quat)
         self._projected_gravity[:] = quat_rotate_inverse(self._base_quat, self._global_gravity)[:]
         self._base_lin_vel[:] = quat_rotate_inverse(self._base_quat, robot_data.root_lin_vel_w)[:]
@@ -61,8 +60,9 @@ class IsaacLabSimulator(Simulator):
         self._feet_vel[:] = body_link_vel[:, self._feet_indices, :3]
         # Link contact state
         if self._cfg.asset.obtain_link_contact_states:
-            self._link_contact_states = 1. * (torch.norm(
-                self._contact_sensors.data.net_forces_w[:, self._contact_state_link_indices, :], dim=-1) > 1.)
+            # use the max value of history of contact forces to determine contact state
+            self._link_contact_states = 1. * (torch.max(torch.norm(
+                self._contact_sensors.data.net_forces_w_history[:, :, self._contact_state_link_indices, :], dim=-1), dim=1)[0] > 10.)
         # update terrain heights info
         if self._cfg.terrain.measure_heights:
             self._update_surrounding_heights()
@@ -84,8 +84,7 @@ class IsaacLabSimulator(Simulator):
         
         self._base_pos[:] = self._robot.data.root_pos_w[:]
         # convert wxyz to xyzw
-        self._base_quat[:, -1] = self._robot.data.root_quat_w[:, 0]
-        self._base_quat[:, :3] = self._robot.data.root_quat_w[:, 1:]
+        self._base_quat[:] = self._robot.data.root_quat_w[:, [1,2,3,0]] # convert from (w,x,y,z) to (x,y,z,w)
         self._base_euler[:] = get_euler_xyz(self._base_quat)
         self._projected_gravity[:] = quat_rotate_inverse(self._base_quat, self._global_gravity)[:]
         self._base_lin_vel[:] = quat_rotate_inverse(self._base_quat, self._robot.data.root_lin_vel_w)[:]
@@ -95,8 +94,9 @@ class IsaacLabSimulator(Simulator):
         self._feet_vel[:] = self._robot.data.body_link_vel_w[:, self._feet_indices, :3]
         # Link contact state
         if self._cfg.asset.obtain_link_contact_states:
-            self._link_contact_states = 1. * (torch.norm(
-                self._contact_sensors.data.net_forces_w[:, self._contact_state_link_indices, :], dim=-1) > 1.)
+            # use the max value of history of contact forces to determine contact state
+            self._link_contact_states = 1. * (torch.max(torch.norm(
+                self._contact_sensors.data.net_forces_w_history[:, :, self._contact_state_link_indices, :], dim=-1), dim=1)[0] > 10.)
         # update terrain heights info
         if self._cfg.terrain.measure_heights:
             self._update_surrounding_heights()
@@ -126,8 +126,7 @@ class IsaacLabSimulator(Simulator):
                           base_ang_vel_w):
         # base quat
         quat_sim = base_quat.clone()
-        quat_sim[:, 0] = base_quat[:, 3]  # w
-        quat_sim[:, 1:] = base_quat[:, :3]  # xyz
+        quat_sim[:] = base_quat[:, [3, 0, 1, 2]] # convert from (x,y,z,w) to (w,x,y,z)
         self._robot.write_root_state_to_sim(
             torch.cat((
                 base_pos,
@@ -354,8 +353,8 @@ class IsaacLabSimulator(Simulator):
         # Add contact sensors
         contact_sensor_cfg = ContactSensorCfg(
             prim_path="/World/envs/env_.*/" + self._cfg.asset.name + "/.*", # track all links of the robot, but only the ones specified in cfg will be used for termination and penalty
-            update_period=self._control_dt,                      # update every control step
-            history_length=1,                       # keep contact history of last 2 steps
+            update_period=self._control_dt,         # update every control step
+            history_length=3,                       # keep contact history of last 3 steps
             debug_vis=not self._headless,           # visualize contact points if not headless
         )
         
@@ -1039,12 +1038,12 @@ class IsaacLabSimulator(Simulator):
         Returns:
             Tensor: Contact forces of all links of the robot.
         """
-        # return self._contact_sensors.data.force_matrix_w.sum(dim=-2)
-        return self._contact_sensors.data.net_forces_w
+        return self._contact_sensors.data.net_forces_w_history
     
     @property
     def feet_quat(self):
-        return self._robot.data.body_link_quat_w[:, self._feet_indices, :]
+        feet_quat_sim = self._robot.data.body_link_quat_w[:, self._feet_indices, :]
+        return feet_quat_sim[..., [1, 2, 3, 0]] # convert from (w,x,y,z) to (x,y,z,w)
     
     @property
     def torques(self):

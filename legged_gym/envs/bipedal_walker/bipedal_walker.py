@@ -12,9 +12,18 @@ class BipedalWalker(LeggedRobot):
     def check_termination(self):
         """ Check if environments need to be reset
         """
-        fail_buf = torch.any(
-            torch.norm(self.simulator.link_contact_forces[:, self.simulator.termination_contact_indices, :], dim=-1)
-            > 10.0, dim=1)
+        # if the dim of link_contact_forces is 4, then it has history. shape [N, T, B, 3] (N: num_envs, T: history length, B: number of links with contact sensors)
+        if len(self.simulator.link_contact_forces.shape) == 4:
+            self.terminated_bodies_force_norm = torch.max(torch.norm(self.simulator.link_contact_forces[:, :, self.simulator.termination_contact_indices, :], dim=-1), dim=1)[0]
+            self.penalized_bodies_force_norm = torch.max(torch.norm(self.simulator.link_contact_forces[:, :, self.simulator.penalized_contact_indices, :], dim=-1), dim=1)[0]
+            self.feet_force_norm = torch.max(torch.norm(self.simulator.link_contact_forces[:, :, self.simulator.feet_contact_indices, :], dim=-1), dim=1)[0]
+            self.feet_max_force_z = torch.max(self.simulator.link_contact_forces[:, :, self.simulator.feet_contact_indices, 2], dim=1)[0]
+        else:
+            self.terminated_bodies_force_norm = torch.norm(self.simulator.link_contact_forces[:, self.simulator.termination_contact_indices, :], dim=-1)
+            self.penalized_bodies_force_norm = torch.norm(self.simulator.link_contact_forces[:, self.simulator.penalized_contact_indices, :], dim=-1)
+            self.feet_force_norm = torch.norm(self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, :], dim=-1)
+            self.feet_max_force_z = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2]
+        fail_buf = torch.any(self.terminated_bodies_force_norm > 10.0, dim=1)
         fail_buf |= self.simulator.projected_gravity[:, 2] > self.cfg.env.max_projected_gravity
         # hip saggital and transversal angle limits
         hip_saggital_indices = [1, 6] # 髋部侧摆自由度
@@ -51,6 +60,6 @@ class BipedalWalker(LeggedRobot):
         self.simulator.reset_dofs(env_ids, dof_pos, dof_vel)
     
     def _reward_no_fly(self):
-        contacts = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2] > 0.1
+        contacts = self.feet_max_force_z > 10.0
         single_contact = torch.sum(1.*contacts, dim=1)==1
         return 1.*single_contact

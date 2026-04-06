@@ -215,9 +215,18 @@ class LeggedRobot(BaseTask):
             - time_out_buf: Indicates episodes that timed out (not actual failures).
             - reset_buf: Indicates environments needing reset.
         """
-        fail_buf = torch.any(
-            torch.norm(self.simulator.link_contact_forces[:, self.simulator.termination_contact_indices, :], dim=-1)
-            > 10.0, dim=1)
+        # if the dim of link_contact_forces is 4, then it has history. shape [N, T, B, 3] (N: num_envs, T: history length, B: number of links with contact sensors)
+        if len(self.simulator.link_contact_forces.shape) == 4:
+            self.terminated_bodies_force_norm = torch.max(torch.norm(self.simulator.link_contact_forces[:, :, self.simulator.termination_contact_indices, :], dim=-1), dim=1)[0]
+            self.penalized_bodies_force_norm = torch.max(torch.norm(self.simulator.link_contact_forces[:, :, self.simulator.penalized_contact_indices, :], dim=-1), dim=1)[0]
+            self.feet_force_norm = torch.max(torch.norm(self.simulator.link_contact_forces[:, :, self.simulator.feet_contact_indices, :], dim=-1), dim=1)[0]
+            self.feet_max_force_z = torch.max(self.simulator.link_contact_forces[:, :, self.simulator.feet_contact_indices, 2], dim=1)[0]
+        else:
+            self.terminated_bodies_force_norm = torch.norm(self.simulator.link_contact_forces[:, self.simulator.termination_contact_indices, :], dim=-1)
+            self.penalized_bodies_force_norm = torch.norm(self.simulator.link_contact_forces[:, self.simulator.penalized_contact_indices, :], dim=-1)
+            self.feet_force_norm = torch.norm(self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, :], dim=-1)
+            self.feet_max_force_z = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2]
+        fail_buf = torch.any(self.terminated_bodies_force_norm > 10.0, dim=1)
         # print(f"contact termination: {fail_buf}")
         fail_buf |= self.simulator.projected_gravity[:, 2] > self.cfg.env.max_projected_gravity
         # print(f"gravity termination: {self.simulator.projected_gravity[:, 2] > self.cfg.env.max_projected_gravity}")
@@ -741,9 +750,7 @@ class LeggedRobot(BaseTask):
     def _reward_collision(self) -> Reward:
         # Penalize collisions on selected bodies
         # print(f"contacts: {(torch.norm(self.simulator.link_contact_forces[0, self.simulator.penalized_contact_indices, :], dim=-1) > 0.1)}")
-        rew = torch.sum(1.*(torch.norm(
-            self.simulator.link_contact_forces[:, self.simulator.penalized_contact_indices, :], 
-            dim=-1) > 0.1), dim=1)
+        rew = torch.sum(1.*(self.penalized_bodies_force_norm > 10.0), dim=1)
         # print(f"collision reward: {rew[0]}")
         return rew
 
@@ -780,7 +787,7 @@ class LeggedRobot(BaseTask):
 
     def _reward_feet_air_time(self) -> Reward:
         # Reward long steps
-        contact = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2] > 1.
+        contact = self.feet_max_force_z > 10.
         contact_filt = torch.logical_or(contact, self.last_contacts)
         self.last_contacts = contact
         first_contact = (self.feet_air_time > 0.) * contact_filt
@@ -800,7 +807,7 @@ class LeggedRobot(BaseTask):
     
     def _reward_feet_contact_stand_still(self) -> Reward:
         # Encourage feet contact with the ground at zero commands
-        contacts = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2] > 0.1
+        contacts = self.feet_max_force_z > 10.0
         full_contact = torch.sum(1.*contacts, dim=1)==len(self.simulator.feet_contact_indices)
         return 1.0 * full_contact * (torch.norm(self.commands[:, :3], dim=1) < 0.2)
     
@@ -828,7 +835,7 @@ class LeggedRobot(BaseTask):
     
     def _reward_foot_landing_vel(self) -> Reward:
         z_vels = self.simulator.feet_vel[:, :, 2]
-        contacts = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2] > 0.1
+        contacts = self.feet_max_force_z > 10.0
         about_to_land = ((self.simulator.feet_pos[:, :, 2] -
                           self.cfg.rewards.foot_height_offset) <
                          self.cfg.rewards.about_landing_threshold) & (~contacts) & (z_vels < 0.0)
@@ -849,6 +856,25 @@ class LeggedRobot(BaseTask):
     def _reward_feet_slip(self) -> Reward:
         # penalize foot slip when in contact with the ground
         foot_vel_xy_norm = torch.norm(self.simulator.feet_vel[:, :, :2], dim=-1)
-        contacts = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2] > 0.1
+        contacts = self.feet_max_force_z > 10.0
         slip_penalty = torch.sum(foot_vel_xy_norm * contacts, dim=1)
         return slip_penalty
+    
+    def _reward_no_fly(self) -> Reward:
+        # Encourage only one foot in the air at a time
+        contacts = self.feet_max_force_z > 10.0
+        single_contact = torch.sum(1.*contacts, dim=1)==1
+        return 1.*single_contact
+    
+    def _reward_feet_stumble(self):
+        # Penalize feet hitting vertical surfaces
+        # if the dim of link_contact_forces is 4. It has history, shape is (num_envs, history_length, num_links, 3)
+        if len(self.simulator.link_contact_forces.shape) == 4:
+            feet_max_norm_xy = torch.max(torch.norm(self.simulator.link_contact_forces[:, :, self.simulator.feet_contact_indices, :2], dim=-1), dim=1)[0]
+            feet_max_force_z = torch.max(torch.abs(self.simulator.link_contact_forces[:, :, self.simulator.feet_contact_indices, 2]), dim=1)[0]
+        else:
+            feet_max_norm_xy = torch.norm(self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, :2], dim=-1)
+            feet_max_force_z = torch.abs(self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2])
+
+        rew = torch.any(feet_max_norm_xy > 4 *feet_max_force_z, dim=1)
+        return rew.float()

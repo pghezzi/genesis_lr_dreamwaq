@@ -84,18 +84,16 @@ class G1Robot(LeggedRobot):
     def _reward_contact(self):
         res = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
         feet_idx = self.simulator.feet_contact_indices
-        contact_forces = self.simulator.link_contact_forces
         for i in range(len(feet_idx)):
             is_stance = self.leg_phase[:, i] < 0.55
-            contact = contact_forces[:, feet_idx[i], 2] > 1
+            contact = self.feet_max_force_z[:, i] > 10.0
             res += ~(contact ^ is_stance)
         return res
 
     def _reward_feet_swing_height(self):
         feet_idx = self.simulator.feet_contact_indices
         feet_pos = self.simulator.feet_pos
-        contact_forces = self.simulator.link_contact_forces
-        contact = torch.norm(contact_forces[:, feet_idx, :3], dim=2) > 1.
+        contact = self.feet_force_norm > 10.0
         pos_error = torch.square(feet_pos[:, :, 2] - 0.08) * ~contact
         return torch.sum(pos_error, dim=1)
 
@@ -105,8 +103,7 @@ class G1Robot(LeggedRobot):
     def _reward_contact_no_vel(self):
         feet_idx = self.simulator.feet_contact_indices
         feet_vel = self.simulator.feet_vel
-        contact_forces = self.simulator.link_contact_forces
-        contact = torch.norm(contact_forces[:, feet_idx, :3], dim=2) > 1.
+        contact = self.feet_force_norm > 10.0
         contact_feet_vel = feet_vel * contact.unsqueeze(-1)
         penalize = torch.square(contact_feet_vel[:, :, :3])
         return torch.sum(penalize, dim=(1, 2))

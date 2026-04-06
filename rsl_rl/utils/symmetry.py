@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from legged_gym import SIMULATOR
 import torch
 
 @torch.no_grad()

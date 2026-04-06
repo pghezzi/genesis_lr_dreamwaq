@@ -75,7 +75,7 @@ class LeggedRobotCfg(BaseConfig):
         pos: List[float] = [0.0, 0.0, 1.0] # x,y,z [m]
         # [Convention] When calling reset_root_states() of simulator, the input quaternion is in gym format [x,y,z,w]
         #  simulators will convert it to compatible format if needed.
-        rot: List[float] = [0.0, 0.0, 0.0, 1.0] # x,y,z,w [quat], quaternion sequence definitions are different in gym(xyzw) and genesis(wxyz)
+        rot: List[float] = [0.0, 0.0, 0.0, 1.0] # x,y,z,w [quat], quaternion sequence definitions are different in gym(xyzw) and genesis/isaaclab(wxyz)
         lin_vel: List[float] = [0.0, 0.0, 0.0]  # x,y,z [m/s]
         ang_vel: List[float] = [0.0, 0.0, 0.0]  # x,y,z [rad/s]
         # initial state randomization

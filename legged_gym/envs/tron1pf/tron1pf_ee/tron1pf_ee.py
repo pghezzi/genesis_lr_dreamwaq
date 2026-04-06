@@ -310,18 +310,14 @@ class TRON1PF_EE(LeggedRobotEE):
     def _uniped_periodic_gait(self, foot_type):
         # q_frc and q_spd
         if foot_type == "left":
-            q_frc = torch.norm(
-                self.simulator.link_contact_forces[:, 
-                                    self.simulator.feet_contact_indices[0], :], dim=-1).view(-1, 1)
+            q_frc = self.feet_force_norm[:, 0].view(-1, 1)
             q_spd = torch.norm(
                 self.simulator.feet_vel[:, 0, :], dim=-1).view(-1, 1) # sequence of feet_pos is FL, FR, RL, RR
             # size: num_envs; need to reshape to (num_envs, 1), or there will be error due to broadcasting
             # modulo phi over 1.0 to get cicular phi in [0, 1.0]
             phi = (self.phi + self.theta[:, 0].unsqueeze(1)) % 1.0
         elif foot_type == "right":
-            q_frc = torch.norm(
-                self.simulator.link_contact_forces[:, 
-                                    self.simulator.feet_contact_indices[1], :], dim=-1).view(-1, 1)
+            q_frc = self.feet_force_norm[:, 1].view(-1, 1)
             q_spd = torch.norm(
                 self.simulator.feet_vel[:, 1, :], dim=-1).view(-1, 1)
             # modulo phi over 1.0 to get cicular phi in [0, 1.0]

@@ -151,13 +151,18 @@ class Go2CaT(LeggedRobotTS):
         # ------------ Hard constraints ----------------
         
         # Collision constraint
-        cstr_collision = torch.any(torch.norm(
-            self.simulator.link_contact_forces[:, self.simulator.penalized_contact_indices, :], 
-            dim=-1) > 10.0, dim=1)
+        cstr_collision = torch.any(self.penalized_bodies_force_norm > 10.0, dim=1)
         
         # Feet stumble constraint
-        cstr_feet_stumble = torch.any(torch.norm(self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, :], dim=-1) > \
-            4 * torch.abs(self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2]), dim=1)
+        # if the dim of link_contact_forces is 4. It has history, shape is (num_envs, history_length, num_links, 3)
+        if len(self.simulator.link_contact_forces.shape) == 4:
+            feet_max_norm_xy = torch.max(torch.norm(self.simulator.link_contact_forces[:, :, self.simulator.feet_contact_indices, :2], dim=-1), dim=1)[0]
+            feet_max_force_z = torch.max(torch.abs(self.simulator.link_contact_forces[:, :, self.simulator.feet_contact_indices, 2]), dim=1)[0]
+        else:
+            feet_max_norm_xy = torch.norm(self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, :2], dim=-1)
+            feet_max_force_z = torch.abs(self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2])
+
+        cstr_feet_stumble = torch.any(feet_max_norm_xy > 4 * feet_max_force_z, dim=1)
 
         # Joint position limit constraint
         cstr_dof_pos = torch.any(self.simulator.dof_pos < self.simulator.dof_pos_limits[:, 0], dim=-1) * \
@@ -302,7 +307,7 @@ class Go2CaT(LeggedRobotTS):
     
     def _reward_feet_air_time(self):
         # Reward long steps
-        contact = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2] > 1.
+        contact = self.feet_force_norm > 10.0
         contact_filt = torch.logical_or(contact, self.last_contacts)
         self.last_contacts = contact
         first_contact = (self.feet_air_time > 0.) * contact_filt
