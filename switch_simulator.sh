@@ -8,6 +8,51 @@ CONDA_ENV_GYM="lr_gym"
 CONDA_ENV_GEN="lr_gen"
 CONDA_ENV_LAB="lr_lab"
 
+detect_conda_root() {
+    local conda_base
+    if command -v conda &> /dev/null; then
+        conda_base=$(conda info --base 2>/dev/null)
+        if [ -n "$conda_base" ]; then
+            echo "$conda_base"
+            return 0
+        fi
+    fi
+    
+    local user_home="$HOME"
+    if [ -d "$user_home/miniconda3" ]; then
+        echo "$user_home/miniconda3"
+    elif [ -d "$user_home/anaconda3" ]; then
+        echo "$user_home/anaconda3"
+    elif [ -d "/opt/miniconda3" ]; then
+        echo "/opt/miniconda3"
+    elif [ -d "/opt/anaconda3" ]; then
+        echo "/opt/anaconda3"
+    else
+        echo ""
+    fi
+}
+
+CONDA_ROOT=$(detect_conda_root)
+if [ -z "$CONDA_ROOT" ]; then
+    echo "警告: 无法自动检测conda安装目录"
+    echo "将尝试使用默认路径: $HOME/miniconda3"
+    CONDA_ROOT="$HOME/miniconda3"
+fi
+
+CONDA_DIR_NAME=$(basename "$CONDA_ROOT")
+USER_NAME=$(whoami)
+USER_HOME="$HOME"
+
+echo "=========================================="
+echo "       Conda环境检测信息"
+echo "=========================================="
+echo "当前用户名: $USER_NAME"
+echo "用户主目录: $USER_HOME"
+echo "Conda根目录: $CONDA_ROOT"
+echo "Conda目录名: $CONDA_DIR_NAME"
+echo "=========================================="
+echo ""
+
 # 检测conda环境是否存在
 check_conda_env() {
     local env_name=$1
@@ -67,10 +112,10 @@ main() {
             echo "切换到 IsaacGym..."
             eval "$(conda shell.bash hook)"
             conda activate "$CONDA_ENV_GYM"
-            export LD_LIBRARY_PATH=/home/lupinjia/miniconda3/envs/lr_gym/lib:$LD_LIBRARY_PATH
+            export LD_LIBRARY_PATH="${CONDA_ROOT}/envs/${CONDA_ENV_GYM}/lib:${LD_LIBRARY_PATH}"
             echo "成功切换到 IsaacGym 环境!"
             echo "激活环境: $CONDA_ENV_GYM"
-            echo "设置 LD_LIBRARY_PATH: /home/lupinjia/miniconda3/envs/lr_gym/lib"
+            echo "设置 LD_LIBRARY_PATH: ${CONDA_ROOT}/envs/${CONDA_ENV_GYM}/lib"
             ;;
             
         "genesis")
