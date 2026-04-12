@@ -4,7 +4,7 @@ from legged_gym.envs.base.common_cfgs import Go2RoughCommonCfg, get_simulator_su
 
 class Go2TSDepthCfg( Go2RoughCommonCfg ):
     class env( Go2RoughCommonCfg.env ):
-        num_envs = 3000
+        num_envs = 4096
         num_camera_envs = 1000
         num_observations = 45
         num_privileged_obs = 241
@@ -25,7 +25,7 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
         measure_heights = True
         measured_points_x = [-0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1.0, 1.2, 1.4] # 16x9=144
         measured_points_y = [-0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4]
-        terrain_length = 10.0
+        terrain_length = 12.0
         terrain_width = 8.0
         platform_size = 4.0
         num_rows = 10  # number of terrain rows (levels)
@@ -44,7 +44,11 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
             "pit_depth": "0.1 + 0.6 * difficulty"
         }
         
-
+    class init_state( Go2RoughCommonCfg.init_state ):
+        roll_random_scale: float = 0.1  # small random roll to make the policy learn to balance in roll direction
+        pitch_random_scale: float = 0.1 # small random pitch to make the policy learn to balance in pitch direction and step up/down small obstacles
+        yaw_random_scale: float = 3.14  # initialize robot with random yaw to make it learn to rotate
+        
     class control( Go2RoughCommonCfg.control ):
         # PD Drive parameters:
         # control_type = 'P'
@@ -67,10 +71,10 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
         class scales( Go2RoughCommonCfg.rewards.scales ):
             # limitation
             dof_pos_limits = -2.0
-            collision = -5.0
+            collision = -10.0
             # command tracking
             tracking_lin_vel = 1.0
-            tracking_ang_vel = 0.5
+            tracking_ang_vel = 1.0
             # smooth
             lin_vel_z = -1.0
             ang_vel_xy = -0.05
@@ -93,7 +97,7 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
             lin_vel_x = [0.0, 0.5] # min max [m/s]
             lin_vel_y = [0.0, 0.0]   # min max [m/s]
             ang_vel_yaw = [-1, 1]    # min max [rad/s]
-            heading = [-3.14, 3.14]
+            heading = [0.0, 0.0]     # only give walking forward (+X direction) command, because the depth image has limited FOV
             
     class domain_rand(Go2RoughCommonCfg.domain_rand):
         randomize_friction = True
@@ -124,11 +128,11 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
             far_clip = 2.0
             near_plane = 0.1
             far_plane = 10.0
-            resolution = (60, 80)
+            resolution = (60, 80)  # (height, width)
             horizontal_fov_deg = 75
             pos =   (0.3, 0.0, 0.1)
             euler_gym = (0.0, 0.3, 0.0)
-            euler = (0.0, 1.57 + 0.3, 0.0)
+            euler = (0.0, 1.57 + 0.3, 0.0) # 0.3 rad downward pitch
             decimation = 5
             # Warp only
             calculate_depth = True

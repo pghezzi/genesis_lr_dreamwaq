@@ -117,7 +117,7 @@ task_registry.register( "go2_ee", Go2EE, Go2EECfg(), Go2EECfgPPO())
 task_registry.register( "go2_cts", Go2CTS, Go2CTSCfg(), Go2CTSCfgPPO())
 task_registry.register( "go2_dreamwaq", Go2Dreamwaq, Go2DreamwaqCfg(), Go2DreamwaqCfgPPO())
 task_registry.register( "go2_cat", Go2CaT, Go2CaTCfg(), Go2CaTCfgPPO())
-# task_registry.register( "go2_ts_depth", Go2TSDepth, Go2TSDepthCfg(), Go2TSDepthCfgPPO()) # unvalidated
+task_registry.register( "go2_ts_depth", Go2TSDepth, Go2TSDepthCfg(), Go2TSDepthCfgPPO()) # unvalidated
 task_registry.register( "go2_nav", GO2Nav, GO2NavCfg(), GO2NavCfgPPO())
 task_registry.register( "tron1pf", TRON1PF, TRON1PFCfg(), TRON1PFCfgPPO())
 task_registry.register( "tron1pf_ee", TRON1PF_EE, TRON1PF_EECfg(), TRON1PF_EECfgPPO())

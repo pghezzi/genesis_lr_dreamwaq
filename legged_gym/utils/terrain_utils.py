@@ -25,7 +25,7 @@ class SubTerrain:
         self.horizontal_scale = horizontal_scale
         self.width = width
         self.length = length
-        self.height_field_raw = np.zeros((self.width, self.length), dtype=np.int16)
+        self.height_field_raw = np.zeros((self.length, self.width), dtype=np.int16)
         # add a trimesh object to store the trimesh of subterrain, for use in trimesh terrain type
         self.terrain_mesh = trimesh.Trimesh()
 
@@ -64,13 +64,13 @@ def random_uniform_terrain(terrain : SubTerrain,
 
     heights_range = np.arange(min_height, max_height + step, step)
     height_field_downsampled = np.random.choice(heights_range, 
-                                                (int((terrain.width - 2 * flat_edge) * terrain.horizontal_scale / downsampled_scale), 
-                                                 int((terrain.length - 2 * flat_edge) * terrain.horizontal_scale / downsampled_scale)))
+                                                (int((terrain.length - 2 * flat_edge) * terrain.horizontal_scale / downsampled_scale), 
+                                                 int((terrain.width - 2 * flat_edge) * terrain.horizontal_scale / downsampled_scale)))
 
     x = np.linspace(flat_edge * terrain.horizontal_scale, 
-                    (terrain.width - flat_edge) * terrain.horizontal_scale, height_field_downsampled.shape[0])
+                    (terrain.length - flat_edge) * terrain.horizontal_scale, height_field_downsampled.shape[0])
     y = np.linspace(flat_edge * terrain.horizontal_scale, 
-                    (terrain.length - flat_edge) * terrain.horizontal_scale, height_field_downsampled.shape[1])
+                    (terrain.width - flat_edge) * terrain.horizontal_scale, height_field_downsampled.shape[1])
 
     # f = interpolate.interp2d(y, x, height_field_downsampled, kind='linear')
     f = interpolate.RectBivariateSpline(
@@ -78,11 +78,11 @@ def random_uniform_terrain(terrain : SubTerrain,
     )
 
     x_upsampled = np.linspace(flat_edge * terrain.horizontal_scale, 
-                              (terrain.width - flat_edge) * terrain.horizontal_scale, 
-                              terrain.width - 2 * flat_edge)
-    y_upsampled = np.linspace(flat_edge * terrain.horizontal_scale, 
                               (terrain.length - flat_edge) * terrain.horizontal_scale, 
                               terrain.length - 2 * flat_edge)
+    y_upsampled = np.linspace(flat_edge * terrain.horizontal_scale, 
+                              (terrain.width - flat_edge) * terrain.horizontal_scale, 
+                              terrain.width - 2 * flat_edge)
     z_upsampled = np.rint(f(y_upsampled, x_upsampled))
 
     terrain.height_field_raw[flat_edge:-flat_edge, flat_edge:-flat_edge] += z_upsampled.astype(np.int16)
@@ -138,23 +138,23 @@ def pyramid_sloped_terrain(terrain: SubTerrain,
 
     flat_edge = int(0.2 / terrain.horizontal_scale) # 20cm flat edge around the terrain
     
-    x = np.arange(flat_edge, terrain.width - flat_edge)
-    y = np.arange(flat_edge, terrain.length - flat_edge)
-    center_x = int(terrain.width / 2)
-    center_y = int(terrain.length / 2)
+    x = np.arange(flat_edge, terrain.length - flat_edge)
+    y = np.arange(flat_edge, terrain.width - flat_edge)
+    center_x = int(terrain.length / 2)
+    center_y = int(terrain.width / 2)
     xx, yy = np.meshgrid(x, y, sparse=True)
     xx = (center_x - np.abs(center_x-xx)) / center_x
     yy = (center_y - np.abs(center_y-yy)) / center_y
-    xx = xx.reshape(terrain.width - 2 * flat_edge, 1)
-    yy = yy.reshape(1, terrain.length - 2 * flat_edge)
-    max_height = int(slope * (terrain.horizontal_scale / terrain.vertical_scale) * ((terrain.width - 2 * flat_edge) / 2))
+    xx = xx.reshape(terrain.length - 2 * flat_edge, 1)
+    yy = yy.reshape(1, terrain.width - 2 * flat_edge)
+    max_height = int(slope * (terrain.horizontal_scale / terrain.vertical_scale) * ((terrain.length - 2 * flat_edge) / 2))
     terrain.height_field_raw[flat_edge:-flat_edge, flat_edge:-flat_edge] += (max_height * xx * yy).astype(terrain.height_field_raw.dtype)
 
     platform_size = int(platform_size / terrain.horizontal_scale / 2)
-    x1 = terrain.width // 2 - platform_size
-    x2 = terrain.width // 2 + platform_size
-    y1 = terrain.length // 2 - platform_size
-    y2 = terrain.length // 2 + platform_size
+    x1 = terrain.length // 2 - platform_size
+    x2 = terrain.length // 2 + platform_size
+    y1 = terrain.width // 2 - platform_size
+    y2 = terrain.width // 2 + platform_size
 
     min_h = min(terrain.height_field_raw[x1, y1], 0)
     max_h = max(terrain.height_field_raw[x1, y1], 0)
@@ -229,14 +229,14 @@ def discrete_obstacles_terrain(terrain : SubTerrain,
     for _ in range(num_rects):
         width = np.random.choice(width_range)
         length = np.random.choice(length_range)
-        start_i = np.random.choice(range(0, i-width, 4))
-        start_j = np.random.choice(range(0, j-length, 4))
-        terrain.height_field_raw[start_i:start_i+width, start_j:start_j+length] = np.random.choice(height_range)
+        start_i = np.random.choice(range(0, i-length, 4))
+        start_j = np.random.choice(range(0, j-width, 4))
+        terrain.height_field_raw[start_i:start_i+length, start_j:start_j+width] = np.random.choice(height_range)
 
-    x1 = (terrain.width - platform_size) // 2
-    x2 = (terrain.width + platform_size) // 2
-    y1 = (terrain.length - platform_size) // 2
-    y2 = (terrain.length + platform_size) // 2
+    x1 = (terrain.length - platform_size) // 2
+    x2 = (terrain.length + platform_size) // 2
+    y1 = (terrain.width - platform_size) // 2
+    y2 = (terrain.width + platform_size) // 2
     terrain.height_field_raw[x1:x2, y1:y2] = 0
     
     # generate the terrain mesh for trimesh terrain type
@@ -294,12 +294,12 @@ def wave_terrain(terrain : SubTerrain,
     flat_edge = int(0.2 / terrain.horizontal_scale) # 20cm flat edge around the terrain
     if num_waves > 0:
         div = terrain.length / (num_waves * np.pi * 2)
-        x = np.arange(flat_edge, terrain.width - flat_edge)
-        y = np.arange(flat_edge, terrain.length - flat_edge)
+        x = np.arange(flat_edge, terrain.length - flat_edge)
+        y = np.arange(flat_edge, terrain.width - flat_edge)
         xx, yy = np.meshgrid(x, y, sparse=True)
-        xx = xx.reshape(terrain.width - 2*flat_edge, 1)
-        yy = yy.reshape(1, terrain.length - 2*flat_edge)
-        terrain.height_field_raw[flat_edge:terrain.width-flat_edge, flat_edge:terrain.length-flat_edge] += (amplitude*np.cos(yy / div) + amplitude*np.sin(xx / div)).astype(
+        xx = xx.reshape(terrain.length - 2*flat_edge, 1)
+        yy = yy.reshape(1, terrain.width - 2*flat_edge)
+        terrain.height_field_raw[flat_edge:terrain.length-flat_edge, flat_edge:terrain.width-flat_edge] += (amplitude*np.cos(yy / div) + amplitude*np.sin(xx / div)).astype(
             terrain.height_field_raw.dtype)
     
     # generate the terrain mesh for trimesh terrain type
@@ -361,9 +361,9 @@ def pyramid_stairs_terrain(terrain : SubTerrain,
 
     height = 0
     start_x = 0
-    stop_x = terrain.width
+    stop_x = terrain.length
     start_y = 0
-    stop_y = terrain.length
+    stop_y = terrain.width
     while (stop_x - start_x) > platform_size and (stop_y - start_y) > platform_size:
         terrain.height_field_raw[start_x: stop_x, start_y: stop_y] = height
         start_x += step_width
@@ -422,36 +422,36 @@ def stepping_stones_terrain(terrain : SubTerrain,
     start_y = 0
     terrain.height_field_raw[:, :] = int(depth / terrain.vertical_scale)
     if terrain.length >= terrain.width:
-        while start_y < terrain.length:
-            stop_y = min(terrain.length, start_y + stone_size)
+        while start_y < terrain.width:
+            stop_y = min(terrain.width, start_y + stone_size)
             start_x = np.random.randint(0, stone_size)
             # fill first hole
             stop_x = max(0, start_x - stone_distance)
             terrain.height_field_raw[0: stop_x, start_y: stop_y] = np.random.choice(height_range)
             # fill row
-            while start_x < terrain.width:
-                stop_x = min(terrain.width, start_x + stone_size)
+            while start_x < terrain.length:
+                stop_x = min(terrain.length, start_x + stone_size)
                 terrain.height_field_raw[start_x: stop_x, start_y: stop_y] = np.random.choice(height_range)
                 start_x += stone_size + stone_distance
             start_y += stone_size + stone_distance
     elif terrain.width > terrain.length:
-        while start_x < terrain.width:
-            stop_x = min(terrain.width, start_x + stone_size)
+        while start_x < terrain.length:
+            stop_x = min(terrain.length, start_x + stone_size)
             start_y = np.random.randint(0, stone_size)
             # fill first hole
             stop_y = max(0, start_y - stone_distance)
             terrain.height_field_raw[start_x: stop_x, 0: stop_y] = np.random.choice(height_range)
             # fill column
-            while start_y < terrain.length:
-                stop_y = min(terrain.length, start_y + stone_size)
+            while start_y < terrain.width:
+                stop_y = min(terrain.width, start_y + stone_size)
                 terrain.height_field_raw[start_x: stop_x, start_y: stop_y] = np.random.choice(height_range)
                 start_y += stone_size + stone_distance
             start_x += stone_size + stone_distance
 
-    x1 = (terrain.width - platform_size) // 2
-    x2 = (terrain.width + platform_size) // 2
-    y1 = (terrain.length - platform_size) // 2
-    y2 = (terrain.length + platform_size) // 2
+    x1 = (terrain.length - platform_size) // 2
+    x2 = (terrain.length + platform_size) // 2
+    y1 = (terrain.width - platform_size) // 2
+    y2 = (terrain.width + platform_size) // 2
     terrain.height_field_raw[x1:x2, y1:y2] = 0
     
     # generate the terrain mesh for trimesh terrain type
@@ -501,7 +501,7 @@ def pit_terrain(terrain : SubTerrain,
                 platform_size : float =1.,
                 terrain_type : str = None,) -> SubTerrain:
     depth = int(depth / terrain.vertical_scale)
-    platform_size = int(platform_size / terrain.horizontal_scale / 2)
+    platform_size = int(platform_size / terrain.horizontal_scale / 2) # half platform size for easier calculation
     x1 = terrain.length // 2 - platform_size
     x2 = terrain.length // 2 + platform_size
     y1 = terrain.width // 2 - platform_size
@@ -518,6 +518,83 @@ def pit_terrain(terrain : SubTerrain,
     
     return terrain
 
+def multiple_pits_terrain(terrain : SubTerrain,
+                          pit_height: float,
+                          pit_length: float,
+                          pit_width: float,
+                          pit_interval: float,
+                          platform_size: float = 1.,
+                          terrain_type: str = None) -> SubTerrain:
+    """Generate multiple pits obstacle in the X direction track
+
+    Args:
+        terrain (SubTerrain): subterrain object to be updated
+        pit_height (float): the height of the pit (positive value, in meters)
+        pit_length (float): the length of the pit in X direction (in meters)
+        pit_width (float):  the width of the pit in Y direction (in meters)
+        pit_interval (float): the interval between two pits (in meters)
+        platform_size (float, optional): size of the platform in the middle of the terrain. Defaults to 1..
+        terrain_type (str, optional): type of the terrain. Defaults to None.
+
+    Returns:
+        SubTerrain: updated terrain with multiple pits
+    """
+    if terrain_type in [None, "plane"]:
+        raise ValueError("gap_terrain can only be used for heightfield or trimesh terrain type")
+    
+    # convert values from meters to discrete units
+    pit_height = int(pit_height / terrain.vertical_scale)
+    pit_length = int(pit_length / terrain.horizontal_scale)
+    pit_width = int(pit_width / terrain.horizontal_scale)
+    pit_interval = int(pit_interval / terrain.horizontal_scale)
+    platform_size = int(platform_size / terrain.horizontal_scale / 2)
+    
+    if terrain_type == "trimesh":
+        # generate terrain mesh with the heightfield simultaneously
+        # initialize list of meshes
+        meshes_list = list()
+
+    # positive x direction
+    x_center = terrain.length // 2
+    y_center = terrain.width // 2
+    y_start = y_center -pit_width // 2
+    y_end = y_center + pit_width // 2
+    x_start = x_center + platform_size
+    x_end = x_start + pit_length
+    while x_end < terrain.length // 2:
+        terrain.height_field_raw[x_start:x_end, y_start:y_end] = pit_height
+        if terrain_type == "trimesh":
+            box_center = (0.5 * (x_start + x_end) * terrain.horizontal_scale,
+                          0.5 * (y_start + y_end) * terrain.horizontal_scale,
+                          0.5 * pit_height * terrain.vertical_scale)
+            box_dim = ((x_end - x_start) * terrain.horizontal_scale,
+                       (y_end - y_start) * terrain.horizontal_scale,
+                       pit_height * terrain.vertical_scale)
+            box_mesh = trimesh.creation.box(box_dim, trimesh.transformations.translation_matrix(box_center))
+            meshes_list.append(box_mesh)
+        x_start = x_end + pit_interval
+        x_end = x_start + pit_length
+    
+    # negative x direction
+    x_start = x_center - platform_size
+    x_end = x_start - pit_length
+    while x_end > 0:
+        terrain.height_field_raw[x_end:x_start, y_start:y_end] = pit_height
+        if terrain_type == "trimesh":
+            box_center = (0.5 * (x_start + x_end) * terrain.horizontal_scale,
+                          0.5 * (y_start + y_end) * terrain.horizontal_scale,
+                          0.5 * pit_height * terrain.vertical_scale)
+            box_dim = ((x_end - x_start) * terrain.horizontal_scale,
+                       (y_end - y_start) * terrain.horizontal_scale,
+                       pit_height * terrain.vertical_scale)
+            box_mesh = trimesh.creation.box(box_dim, trimesh.transformations.translation_matrix(box_center))
+            meshes_list.append(box_mesh)
+        x_start = x_end - pit_interval
+        x_end = x_start - pit_length
+    
+    # add a flat platform 
+    
+    return terrain
 
 #---------- Trimesh Terrain Functions ----------#
 # The program will use terrains directly generated by below functions when the terrain type is set to "trimesh".

@@ -55,8 +55,8 @@ class Terrain:
         # row - length, X
         # col - width,  Y
         self.border = int(cfg.border_size/self.cfg.horizontal_scale)
-        self.tot_cols = int(cfg.num_cols * self.width_per_env_pixels) + 2 * self.border
         self.tot_rows = int(cfg.num_rows * self.length_per_env_pixels) + 2 * self.border
+        self.tot_cols = int(cfg.num_cols * self.width_per_env_pixels) + 2 * self.border
     
         self.height_field_raw = np.zeros((self.tot_rows , self.tot_cols), dtype=np.int16)
         self.terrain_meshes = []
@@ -110,7 +110,7 @@ class Terrain:
 
             terrain = terrain_utils.SubTerrain("terrain",
                               width=self.width_per_env_pixels,
-                              length=self.width_per_env_pixels,
+                              length=self.length_per_env_pixels,
                               vertical_scale=self.cfg.vertical_scale,
                               horizontal_scale=self.cfg.horizontal_scale)
                 
@@ -120,7 +120,7 @@ class Terrain:
     def make_terrain(self, choice, difficulty):
         terrain = terrain_utils.SubTerrain(   "terrain",
                                 width=self.width_per_env_pixels,
-                                length=self.width_per_env_pixels,
+                                length=self.length_per_env_pixels,
                                 vertical_scale=self.cfg.vertical_scale,
                                 horizontal_scale=self.cfg.horizontal_scale)
         slope = eval(self.terrain_curriculum_difficulty["slope"])
@@ -191,6 +191,8 @@ class Terrain:
         end_x = self.border + (i + 1) * self.length_per_env_pixels
         start_y = self.border + j * self.width_per_env_pixels
         end_y = self.border + (j + 1) * self.width_per_env_pixels
+        print(f"Adding terrain to map at row {row}, col {col}, start_x: {start_x}, end_x: {end_x}, start_y: {start_y}, end_y: {end_y}")
+        print(f"shape of terrain.height_field_raw: {terrain.height_field_raw.shape}")
         self.height_field_raw[start_x: end_x, start_y:end_y] = terrain.height_field_raw
 
         env_origin_x = (i + 0.5) * self.env_length

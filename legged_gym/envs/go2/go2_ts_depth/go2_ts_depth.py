@@ -97,6 +97,7 @@ class Go2TSDepth(LeggedRobotTSDepth):
         # If the tracking reward is above 80% of the maximum, increase the range of commands
         if torch.mean(self.episode_sums["tracking_lin_vel"][env_ids]) / self.max_episode_length > \
                 self.cfg.commands.curriculum_threshold * self.reward_scales["tracking_lin_vel"]:
+            # only increase upper bound of forward velocity command
             self.command_ranges["lin_vel_x"][1] = np.clip(
                 self.command_ranges["lin_vel_x"][1] + 0.5, 0., self.cfg.commands.max_curriculum)
     
@@ -151,10 +152,16 @@ class Go2TSDepth(LeggedRobotTSDepth):
     
     def _reward_tracking_lin_vel(self):
         # Tracking of linear velocity commands (xy axes)
-        heading_error = self.heading - self.commands[:, 3]
-        lin_vel_error = torch.sum(torch.square(
-            self.commands[:, :2] - self.simulator.base_lin_vel[:, :2]), dim=1)
-        return torch.exp(-lin_vel_error/self.cfg.rewards.tracking_sigma)
+        # refer to https://ieeexplore.ieee.org/document/11112615
+        heading_error = torch.abs(self.heading - self.commands[:, 3])
+        heading_coef = (1 + torch.cos(heading_error)) / 2
+        lin_vel_x_error = torch.square(self.commands[:, 0] - self.simulator.base_lin_vel[:, 0])
+        # double the weight of y velocity error to discourage y axis drifting
+        lin_vel_y_error = 2 * torch.square(self.commands[:, 1] - self.simulator.base_lin_vel[:, 1])
+        lin_vel_error = lin_vel_x_error + lin_vel_y_error
+        # add heading_coef to make the reward smaller when the robot is facing away from the commanded direction
+        # thus to encourage the robot to walk across the terrain in the commanded direction
+        return torch.exp(-lin_vel_error/self.cfg.rewards.tracking_sigma) * heading_coef
     
     def _reward_foot_clearance(self):
         """
