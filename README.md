@@ -36,7 +36,7 @@ A [legged_gym](https://github.com/leggedrobotics/legged_gym) based framework for
 
 ## 🛠 Installation and Usage
 
-Please refer to the [doc of this repo](https://genesis-lr-doc.readthedocs.io/en/latest/).
+Please refer to the [doc of this repo](https://leggedgym-ex-doc.readthedocs.io/en/latest/).
 
 ## 🖼️ Gallery
 
