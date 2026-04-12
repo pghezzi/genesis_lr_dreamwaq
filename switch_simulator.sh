@@ -1,9 +1,18 @@
 #!/bin/bash
 
 # Simulator Switcher Script
-# 一键切换 IsaacGym, Genesis, IsaacLab 仿真器环境
+# One-click switch between IsaacGym, Genesis, IsaacLab simulators
 
-# 配置
+# Color definitions
+RED='\033[31m'
+GREEN='\033[32m'
+YELLOW='\033[33m'
+BLUE='\033[34m'
+MAGENTA='\033[35m'
+CYAN='\033[36m'
+RESET='\033[0m'
+
+# Configuration
 CONDA_ENV_GYM="lr_gym"
 CONDA_ENV_GEN="lr_gen"
 CONDA_ENV_LAB="lr_lab"
@@ -34,8 +43,8 @@ detect_conda_root() {
 
 CONDA_ROOT=$(detect_conda_root)
 if [ -z "$CONDA_ROOT" ]; then
-    echo "警告: 无法自动检测conda安装目录"
-    echo "将尝试使用默认路径: $HOME/miniconda3"
+    echo -e "${YELLOW}Warning: Unable to auto-detect conda installation directory${RESET}"
+    echo -e "${YELLOW}Will use default path: $HOME/miniconda3${RESET}"
     CONDA_ROOT="$HOME/miniconda3"
 fi
 
@@ -43,123 +52,123 @@ CONDA_DIR_NAME=$(basename "$CONDA_ROOT")
 USER_NAME=$(whoami)
 USER_HOME="$HOME"
 
-echo "=========================================="
-echo "       Conda环境检测信息"
-echo "=========================================="
-echo "当前用户名: $USER_NAME"
-echo "用户主目录: $USER_HOME"
-echo "Conda根目录: $CONDA_ROOT"
-echo "Conda目录名: $CONDA_DIR_NAME"
-echo "=========================================="
+echo -e "${BLUE}==========================================${RESET}"
+echo -e "${BLUE}       Conda Environment Detection${RESET}"
+echo -e "${BLUE}==========================================${RESET}"
+echo -e "${CYAN}Current User:${RESET} $USER_NAME"
+echo -e "${CYAN}User Home:${RESET} $USER_HOME"
+echo -e "${CYAN}Conda Root:${RESET} $CONDA_ROOT"
+echo -e "${CYAN}Conda Directory:${RESET} $CONDA_DIR_NAME"
+echo -e "${BLUE}==========================================${RESET}"
 echo ""
 
-# 检测conda环境是否存在
+# Check if conda environment exists
 check_conda_env() {
     local env_name=$1
     conda env list | grep -q "^${env_name}\s"
     return $?
 }
 
-# 主函数
+# Main function
 main() {
-    echo "=========================================="
-    echo "       Simulator Switcher Tool"
-    echo "=========================================="
+    echo -e "${BLUE}==========================================${RESET}"
+    echo -e "${BLUE}       Simulator Switcher Tool${RESET}"
+    echo -e "${BLUE}==========================================${RESET}"
     echo ""
     
-    # 检测可用的环境
-    echo "检测conda环境..."
+    # Check available environments
+    echo -e "${CYAN}Detecting conda environments...${RESET}"
     local has_gym=false
     local has_gen=false
     local has_lab=false
     
     if check_conda_env "$CONDA_ENV_GYM"; then
-        echo "  [✓] $CONDA_ENV_GYM (IsaacGym)"
+        echo -e "  ${GREEN}[✓]${RESET} $CONDA_ENV_GYM (IsaacGym)"
         has_gym=true
     else
-        echo "  [✗] $CONDA_ENV_GYM (IsaacGym) - 不可用"
+        echo -e "  ${RED}[✗]${RESET} $CONDA_ENV_GYM (IsaacGym) - ${YELLOW}Not Available${RESET}"
     fi
     
     if check_conda_env "$CONDA_ENV_GEN"; then
-        echo "  [✓] $CONDA_ENV_GEN (Genesis)"
+        echo -e "  ${GREEN}[✓]${RESET} $CONDA_ENV_GEN (Genesis)"
         has_gen=true
     else
-        echo "  [✗] $CONDA_ENV_GEN (Genesis) - 不可用"
+        echo -e "  ${RED}[✗]${RESET} $CONDA_ENV_GEN (Genesis) - ${YELLOW}Not Available${RESET}"
     fi
     
     if check_conda_env "$CONDA_ENV_LAB"; then
-        echo "  [✓] $CONDA_ENV_LAB (IsaacLab)"
+        echo -e "  ${GREEN}[✓]${RESET} $CONDA_ENV_LAB (IsaacLab)"
         has_lab=true
     else
-        echo "  [✗] $CONDA_ENV_LAB (IsaacLab) - 不可用"
+        echo -e "  ${RED}[✗]${RESET} $CONDA_ENV_LAB (IsaacLab) - ${YELLOW}Not Available${RESET}"
     fi
     
     echo ""
-    echo "可用选项: isaacgym, genesis, isaaclab"
-    echo "请输入要切换的simulator (或输入 'exit' 退出):"
+    echo -e "${CYAN}Available Options:${RESET} isaacgym, genesis, isaaclab"
+    echo -e "${MAGENTA}Enter the simulator to switch (or type 'exit' to quit):${RESET}"
     read -r user_input
     
-    # 转换为小写
+    # Convert to lowercase
     user_input=$(echo "$user_input" | tr '[:upper:]' '[:lower:]')
     
     case "$user_input" in
         "isaacgym")
             if [ "$has_gym" = false ]; then
-                echo "错误: Conda环境 '$CONDA_ENV_GYM' 不存在！"
-                echo "请确保已创建该环境。"
+                echo -e "${RED}Error: Conda environment '$CONDA_ENV_GYM' does not exist!${RESET}"
+                echo -e "${YELLOW}Please ensure this environment is created.${RESET}"
                 return 1
             fi
-            echo "切换到 IsaacGym..."
+            echo -e "${CYAN}Switching to IsaacGym...${RESET}"
             eval "$(conda shell.bash hook)"
             conda activate "$CONDA_ENV_GYM"
             export LD_LIBRARY_PATH="${CONDA_ROOT}/envs/${CONDA_ENV_GYM}/lib:${LD_LIBRARY_PATH}"
-            echo "成功切换到 IsaacGym 环境!"
-            echo "激活环境: $CONDA_ENV_GYM"
-            echo "设置 LD_LIBRARY_PATH: ${CONDA_ROOT}/envs/${CONDA_ENV_GYM}/lib"
+            echo -e "${GREEN}Successfully switched to IsaacGym environment!${RESET}"
+            echo -e "${CYAN}Activated Environment:${RESET} $CONDA_ENV_GYM"
+            echo -e "${CYAN}Set LD_LIBRARY_PATH:${RESET} ${CONDA_ROOT}/envs/${CONDA_ENV_GYM}/lib"
             ;;
             
         "genesis")
             if [ "$has_gen" = false ]; then
-                echo "错误: Conda环境 '$CONDA_ENV_GEN' 不存在！"
-                echo "请确保已创建该环境。"
+                echo -e "${RED}Error: Conda environment '$CONDA_ENV_GEN' does not exist!${RESET}"
+                echo -e "${YELLOW}Please ensure this environment is created.${RESET}"
                 return 1
             fi
-            echo "切换到 Genesis..."
+            echo -e "${CYAN}Switching to Genesis...${RESET}"
             eval "$(conda shell.bash hook)"
             conda activate "$CONDA_ENV_GEN"
             export SIMULATOR=genesis
-            echo "成功切换到 Genesis 环境!"
-            echo "激活环境: $CONDA_ENV_GEN"
-            echo "设置 SIMULATOR=genesis"
+            echo -e "${GREEN}Successfully switched to Genesis environment!${RESET}"
+            echo -e "${CYAN}Activated Environment:${RESET} $CONDA_ENV_GEN"
+            echo -e "${CYAN}Set SIMULATOR=genesis${RESET}"
             ;;
             
         "isaaclab")
             if [ "$has_lab" = false ]; then
-                echo "错误: Conda环境 '$CONDA_ENV_LAB' 不存在！"
-                echo "请确保已创建该环境。"
+                echo -e "${RED}Error: Conda environment '$CONDA_ENV_LAB' does not exist!${RESET}"
+                echo -e "${YELLOW}Please ensure this environment is created.${RESET}"
                 return 1
             fi
-            echo "切换到 IsaacLab..."
+            echo -e "${CYAN}Switching to IsaacLab...${RESET}"
             eval "$(conda shell.bash hook)"
             conda activate "$CONDA_ENV_LAB"
             export SIMULATOR=isaaclab
-            echo "成功切换到 IsaacLab 环境!"
-            echo "激活环境: $CONDA_ENV_LAB"
-            echo "设置 SIMULATOR=isaaclab"
+            echo -e "${GREEN}Successfully switched to IsaacLab environment!${RESET}"
+            echo -e "${CYAN}Activated Environment:${RESET} $CONDA_ENV_LAB"
+            echo -e "${CYAN}Set SIMULATOR=isaaclab${RESET}"
             ;;
             
         "exit"|"quit"|"q")
-            echo "退出脚本。"
+            echo -e "${YELLOW}Exiting script.${RESET}"
             return 0
             ;;
             
         *)
-            echo "无效输入: '$user_input'"
-            echo "请输入以下选项之一: isaacgym, genesis, isaaclab"
+            echo -e "${RED}Invalid input: '$user_input'${RESET}"
+            echo -e "${YELLOW}Please enter one of the following: isaacgym, genesis, isaaclab${RESET}"
             return 1
             ;;
     esac
 }
 
-# 执行主函数
+# Execute main function
 main
