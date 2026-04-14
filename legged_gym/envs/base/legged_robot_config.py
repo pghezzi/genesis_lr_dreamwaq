@@ -61,12 +61,17 @@ class LeggedRobotCfg(BaseConfig):
         # difficulty scaling of the terrain parameters, the actual parameters will be computed by eval() with difficulty as the variable in make_terrain() function
         terrain_curriculum_difficulty: Dict[str, str] = {
             "slope": "difficulty * 0.4", # max slope in radians, will be multiplied by curriculum difficulty
-            "step_height": "0.05 + 0.15 * difficulty", 
-            "discrete_height": "0.05 + 0.15 * difficulty",
-            "stepping_stones_size": "1.5 * (1.05 - difficulty)",
-            "stone_distance": "0.05 if difficulty==0 else 0.1",
-            "gap_size": "1 * difficulty",
-            "pit_depth": "0.3 * difficulty"
+            "step_height": "0.05 + 0.2 * difficulty", 
+            "discrete_height": "0.05 + 0.2 * difficulty",
+            "stepping_stones_params": {
+                "stone_length": "np.random.uniform(1.6, 2.0)",
+                "stone_width": "np.random.uniform(1.0, 2.0)",
+                "stone_distance_x": "0.1 + 0.8 * difficulty",
+                "stone_distance_y": "np.random.uniform(0.3, 0.5)",
+                "max_height": "0"
+            },
+            "gap_size": "0.1 + difficulty * 0.8",
+            "pit_depth": "0.1 + 0.6 * difficulty",
         }
         # trimesh only:
         slope_treshold: float = 0.75 # slopes above this threshold will be corrected to vertical surfaces

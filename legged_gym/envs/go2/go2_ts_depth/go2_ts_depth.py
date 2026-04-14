@@ -1,3 +1,4 @@
+from legged_gym.envs.base.legged_robot import EnvIds
 import numpy as np
 
 from legged_gym import *
@@ -88,6 +89,50 @@ class Go2TSDepth(LeggedRobotTSDepth):
         if self.cfg.terrain.measure_heights: # 144
             self.privileged_obs_buf = torch.cat((self.privileged_obs_buf, heights), dim=-1)
     
+    def _init_buffers(self):
+        super()._init_buffers()
+        # identify env ids for different terrain types
+        terrain_types = self.simulator.terrain_types
+        terrain_type_bounds = torch.cumsum(torch.tensor(self.cfg.terrain.terrain_proportions), dim=0) * self.cfg.terrain.num_cols
+        self.slope_env_ids = ((terrain_types >=0) & (terrain_types < terrain_type_bounds[0])).nonzero(as_tuple=False).flatten()
+        self.stairs_env_ids = ((terrain_types >= terrain_type_bounds[1]) & (terrain_types < terrain_type_bounds[3])).nonzero(as_tuple=False).flatten()
+        self.discrete_env_ids = ((terrain_types >= terrain_type_bounds[3]) & (terrain_types < terrain_type_bounds[4])).nonzero(as_tuple=False).flatten()
+        self.stepping_stones_env_ids = ((terrain_types >= terrain_type_bounds[4]) & (terrain_types < terrain_type_bounds[5])).nonzero(as_tuple=False).flatten()
+        self.gaps_env_ids = ((terrain_types >= terrain_type_bounds[5]) & (terrain_types < terrain_type_bounds[6])).nonzero(as_tuple=False).flatten()
+        self.pits_env_ids = ((terrain_types >= terrain_type_bounds[6]) & (terrain_types < terrain_type_bounds[7])).nonzero(as_tuple=False).flatten()
+        self.high_platform_env_ids = ((terrain_types >= terrain_type_bounds[7]) & (terrain_types < terrain_type_bounds[8])).nonzero(as_tuple=False).flatten()
+        self.high_platform_gaps_env_ids = ((terrain_types >= terrain_type_bounds[8]) & (terrain_types < terrain_type_bounds[9])).nonzero(as_tuple=False).flatten()
+        # identify env ids for all heading command (others have fixed heading command specified in config)
+        self.all_heading_env_ids = torch.cat((
+            self.slope_env_ids,
+            self.stairs_env_ids,
+            self.discrete_env_ids,
+            self.gaps_env_ids,
+            self.pits_env_ids, # elementary terrains with all heading commands
+        ))
+    
+    def _resample_commands(self, env_ids: EnvIds) -> None:
+        self.commands[env_ids, 0] = torch_rand_float(
+            self.command_ranges["lin_vel_x"][0], self.command_ranges["lin_vel_x"][1], (len(env_ids),1), self.device).squeeze(1)
+        self.commands[env_ids, 1] = torch_rand_float(
+            self.command_ranges["lin_vel_y"][0], self.command_ranges["lin_vel_y"][1], (len(env_ids),1), self.device).squeeze(1)
+        if self.cfg.commands.heading_command:
+            self.commands[env_ids, 3] = torch_rand_float(self.command_ranges["heading"][0], self.command_ranges["heading"][1], (len(env_ids), 1), device=self.device).squeeze(1)
+            if self.cfg.terrain.curriculum:
+                # override heading command of some envs with all range heading command
+                env_ids_for_heading = torch.tensor([env_id for env_id in env_ids if env_id in self.all_heading_env_ids], device=self.device)
+                if len(env_ids_for_heading) > 0:
+                    self.commands[env_ids_for_heading, 3] = torch_rand_float(-3.14, 3.14, (len(env_ids_for_heading), 1), device=self.device).squeeze(1)
+        else:
+            self.commands[env_ids, 2] = torch_rand_float(self.command_ranges["ang_vel_yaw"][0], self.command_ranges["ang_vel_yaw"][1], (len(env_ids), 1), device=self.device).squeeze(1)
+        
+        if np.random.rand() < self.cfg.commands.zero_cmd_prob:
+            self.commands[env_ids, :3] *= 0.0  # set command to zero with some probability, to encourage the robot to learn to stand still
+        
+        # set small commands to zero
+        self.commands[env_ids, :3] *= (torch.norm(
+            self.commands[env_ids, :3], dim=1) > 0.2).unsqueeze(1)
+    
     def _update_command_curriculum(self, env_ids):
         """ Implements a curriculum of increasing commands
 
@@ -172,7 +217,7 @@ class Go2TSDepth(LeggedRobotTSDepth):
         foot_vel_xy_norm = torch.norm(self.simulator.feet_vel[:, :, :2], dim=-1)
         clearance_error = torch.sum(
             foot_vel_xy_norm * torch.square(
-                self.simulator.feet_pos[:, :, 2] - torch.mean(self.simulator.height_around_feet, dim=-1) -
+                self.simulator.feet_pos[:, :, 2] - torch.max(self.simulator.height_around_feet, dim=-1)[0] -
                 self.cfg.rewards.foot_clearance_target -
                 self.cfg.rewards.foot_height_offset
             ), dim=-1

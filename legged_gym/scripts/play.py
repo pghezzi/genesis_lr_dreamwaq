@@ -24,12 +24,13 @@ def override_configs(env_cfg, args, task_type):
     if task_type == "cts" or task_type == "cts_amp": # concurrent teacher-student specific
         env_cfg.env.num_teacher = 1
     elif "depth" in task_type:  # depth specific
+        env_cfg.env.num_envs = 1 # for depth observation, only support num_envs=1 for now
         env_cfg.env.num_camera_envs = 1
     env_cfg.viewer.rendered_envs_idx = list(range(env_cfg.env.num_envs))
     # adjust parameters according to terrain type
     if env_cfg.terrain.mesh_type in ["heightfield", "trimesh"]:
-        env_cfg.terrain.num_rows = 2
-        env_cfg.terrain.num_cols = 2
+        env_cfg.terrain.num_rows = 1
+        env_cfg.terrain.num_cols = 1
         env_cfg.terrain.border_size = 5.0
         env_cfg.terrain.curriculum = False
         env_cfg.terrain.selected = True
@@ -44,11 +45,11 @@ def override_configs(env_cfg, args, task_type):
         # env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.pyramid_sloped_terrain",
         #                                   "slope": -0.4, "platform_size": 3.0}
         # stairs
-        env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.pyramid_stairs_terrain",
-                                        "step_width": 0.31, "step_height": -0.1, "platform_size": 3.0}
+        # env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.pyramid_stairs_terrain",
+        #                                 "step_width": 0.4, "step_height": 0.1, "platform_size": 3.0}
         # discrete obstacles
         # env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.discrete_obstacles_terrain",
-        #                                   "max_height": 0.1,
+        #                                   "max_height": 0.2,
         #                                   "min_size": 1.0,
         #                                   "max_size": 2.0,
         #                                   "num_rects": 20,
@@ -58,14 +59,22 @@ def override_configs(env_cfg, args, task_type):
         #                                   "amplitude": 0.1, "num_waves": 2}
         # stepping stones
         # env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.stepping_stones_terrain",
-        #                                   "stone_size": 1.0, "max_height": 0.1,
-        #                                   "stone_distance": 0.3, "platform_size": 3.0}
+        #                                   "stone_length": 1.0, "stone_width": 0.5, "max_height": 0.0,
+        #                                   "stone_distance_x": 1.0, "stone_distance_y": 0.3, "platform_size": 3.0}
         # gap terrain
         # env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.gap_terrain", 
         #                                   "gap_size": 0.6, "platform_size": 3.0}
         # pit terrain
         # env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.pit_terrain", 
         #                                   "depth": 0.2, "platform_size": 3.0}
+        # multiple pits terrain
+        env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.multiple_high_platforms_terrain",
+                                          "high_platform_height": 0.4, "high_platform_length": 0.6, "high_platform_width": 2.0,
+                                          "high_platform_interval": 1.0, "platform_size": 3.0}
+        # high_platform_gaps_terrain
+        # env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.high_platform_gaps_terrain",
+        #                                   "high_platform_height": 0.6, "high_platform_length": 1.6, "high_platform_width": 1.0,
+        #                                   "high_platform_distance_y": 0.4, "gap_size": 0.6, "platform_size": 4.0}
         
         
     env_cfg.env.debug = True
@@ -113,7 +122,7 @@ def interaction_loop(env, policy, args, task_type):
     stop_rew_log = env.max_episode_length + 1 # number of steps before print average episode rewards
         
     # Get initial observations according to task type
-    if task_type == "depth_ts":
+    if task_type == "ts_depth":
         obs_buf, privileged_obs_buf, depth_image, critic_obs = env.get_observations()
     elif task_type == "ts" or task_type == "cat" or task_type == "cts" or task_type == "cts_amp": # teacher-student specific (including AMP)
         obs_buf, privileged_obs_buf, obs_history, critic_obs = env.get_observations()
@@ -147,7 +156,7 @@ def interaction_loop(env, policy, args, task_type):
             env.set_viewer_camera(pos, lookat)
             
         # Step the environment according to task type
-        if task_type == "depth_ts":
+        if task_type == "ts_depth":
             actions = policy(obs_buf, depth_image)
             obs_buf, privileged_obs_buf, depth_image, critic_obs, rews, dones, infos = env.step(actions.detach())
         elif task_type == "ts" or task_type == "cat" or task_type == "cts":
@@ -217,7 +226,7 @@ def export_policy(alg_runner, path: str, args, env_cfg, train_cfg, task_type):
         env_cfg: environment configuration
         train_cfg: training configuration
     """
-    if task_type == "depth_ts":
+    if task_type == "ts_depth":
         pass
     elif task_type == "ts" or task_type == "cat" or task_type == "cts" or task_type == "cts_amp":
         exporter = PolicyExporterTS(alg_runner.alg.actor_critic)

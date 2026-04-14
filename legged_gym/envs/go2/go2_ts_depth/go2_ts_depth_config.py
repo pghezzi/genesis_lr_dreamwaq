@@ -4,7 +4,7 @@ from legged_gym.envs.base.common_cfgs import Go2RoughCommonCfg, get_simulator_su
 
 class Go2TSDepthCfg( Go2RoughCommonCfg ):
     class env( Go2RoughCommonCfg.env ):
-        num_envs = 4096
+        num_envs = 4000
         num_camera_envs = 1000
         num_observations = 45
         num_privileged_obs = 241
@@ -29,19 +29,37 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
         terrain_width = 8.0
         platform_size = 4.0
         num_rows = 10  # number of terrain rows (levels)
-        num_cols = 10  # number of terrain cols (types)
+        num_cols = 20  # number of terrain cols (types)
         # terrain types: [slope, random uniform, stairs up, stairs down, discrete,
-        #                 stepping stones, gaps, pit]
-        terrain_proportions = [0.1, 0.0, 0.2, 0.2, 0.2,
-                               0.1, 0.1, 0.1]
+        #                 stepping stones, gaps, pit, multiple high platforms, high platform gaps]
+        terrain_proportions = [0.1, 0.0, 0.1, 0.1, 0.1,
+                               0.1, 0.2, 0.1, 0.1, 0.1]
         terrain_curriculum_difficulty = {
             "slope": "difficulty * 0.4", # max slope in radians, will be multiplied by curriculum difficulty
-            "step_height": "0.05 + 0.15 * difficulty", 
-            "discrete_height": "0.05 + 0.15 * difficulty",
-            "stepping_stones_size": "1.5",
-            "stone_distance": "0.1 + difficulty * 0.8",
+            "step_height": "0.05 + 0.2 * difficulty", 
+            "discrete_height": "0.05 + 0.2 * difficulty",
+            "stepping_stones_params": {
+                "stone_length": "np.random.uniform(1.6, 2.0)",
+                "stone_width": "np.random.uniform(1.0, 2.0)",
+                "stone_distance_x": "0.1 + 0.8 * difficulty",
+                "stone_distance_y": "np.random.uniform(0.3, 0.5)",
+                "max_height": "0"
+            },
             "gap_size": "0.1 + difficulty * 0.8",
-            "pit_depth": "0.1 + 0.6 * difficulty"
+            "pit_depth": "0.1 + 0.5 * difficulty",
+            "high_platform_params": {
+                "high_platform_height": "0.1 + 0.5 * difficulty",
+                "high_platform_length": "np.random.uniform(0.6, 1.6)",
+                "high_platform_width": "np.random.uniform(1.0, 2.0)",
+                "high_platform_interval": "np.random.uniform(1.0, 2.0)"
+            },
+            "high_platform_gaps_params": {
+                "high_platform_height": "0.1 + 0.5 * difficulty",
+                "high_platform_length": "np.random.uniform(1.6, 2.0)",
+                "high_platform_width": "np.random.uniform(1.0, 2.0)",
+                "high_platform_distance_y": "np.random.uniform(0.2, 2.0)",
+                "gap_size": "0.1 + difficulty * 0.8"
+            }
         }
         
     class init_state( Go2RoughCommonCfg.init_state ):
@@ -93,6 +111,7 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
         num_commands = 4 # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         resampling_time = 10.  # time before command are changed[s]
         heading_command = True # if true: compute ang vel command from heading error
+        zero_cmd_prob = 0.1
         class ranges( Go2RoughCommonCfg.commands.ranges ):
             lin_vel_x = [0.0, 0.5] # min max [m/s]
             lin_vel_y = [0.0, 0.0]   # min max [m/s]

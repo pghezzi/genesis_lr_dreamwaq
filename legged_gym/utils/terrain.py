@@ -45,7 +45,7 @@ class Terrain:
         self.env_width = cfg.terrain_width
         self.platform_size = cfg.platform_size
         self.proportions = [np.sum(cfg.terrain_proportions[:i+1]) for i in range(len(cfg.terrain_proportions))]
-
+        
         self.cfg.num_sub_terrains = cfg.num_rows * cfg.num_cols
         self.env_origins = np.zeros((cfg.num_rows, cfg.num_cols, 3))
 
@@ -126,10 +126,12 @@ class Terrain:
         slope = eval(self.terrain_curriculum_difficulty["slope"])
         step_height = eval(self.terrain_curriculum_difficulty["step_height"])
         discrete_obstacles_height = eval(self.terrain_curriculum_difficulty["discrete_height"])
-        stepping_stones_size = eval(self.terrain_curriculum_difficulty["stepping_stones_size"])
-        stone_distance = eval(self.terrain_curriculum_difficulty["stone_distance"])
+        stepping_stones_params = self.terrain_curriculum_difficulty["stepping_stones_params"]
         gap_size = eval(self.terrain_curriculum_difficulty["gap_size"])
         pit_depth = eval(self.terrain_curriculum_difficulty["pit_depth"])
+        # get params if exist
+        high_platform_params = self.terrain_curriculum_difficulty.get("high_platform_params", None)
+        high_platform_gaps_params = self.terrain_curriculum_difficulty.get("high_platform_gaps_params", None)
         if choice < self.proportions[0]:
             if choice < self.proportions[0]/ 2: # slope
                 slope *= -1
@@ -165,9 +167,11 @@ class Terrain:
                                                      terrain_type=self.type)
         elif choice < self.proportions[5]: # stepping stones
             terrain_utils.stepping_stones_terrain(terrain, 
-                                                  stone_size=stepping_stones_size, 
-                                                  stone_distance=stone_distance, 
-                                                  max_height=0., 
+                                                  stone_length=eval(stepping_stones_params["stone_length"]), 
+                                                  stone_width=eval(stepping_stones_params["stone_width"]),
+                                                  stone_distance_x=eval(stepping_stones_params["stone_distance_x"]),
+                                                  stone_distance_y=eval(stepping_stones_params["stone_distance_y"]), 
+                                                  max_height=eval(stepping_stones_params["max_height"]), 
                                                   platform_size=self.platform_size,
                                                   terrain_type=self.type)
         elif choice < self.proportions[6]: # gap
@@ -175,12 +179,33 @@ class Terrain:
                                       gap_size=gap_size, 
                                       platform_size=self.platform_size,
                                       terrain_type=self.type)
-        else: # pit
+        elif choice < self.proportions[7]: # pit
             terrain_utils.pit_terrain(terrain, 
                                       depth=pit_depth, 
                                       platform_size=self.platform_size,
                                       terrain_type=self.type)
-
+        elif choice < self.proportions[8]: # multiple high platforms
+            if high_platform_params is None:
+                raise ValueError("high_platform_params is required for multiple high platforms terrain.")
+            terrain_utils.multiple_high_platforms_terrain(terrain, 
+                                                        high_platform_height=eval(high_platform_params["high_platform_height"]), 
+                                                        high_platform_length=eval(high_platform_params["high_platform_length"]), 
+                                                        high_platform_width=eval(high_platform_params["high_platform_width"]), 
+                                                        high_platform_interval=eval(high_platform_params["high_platform_interval"]), 
+                                                        platform_size=self.platform_size,
+                                                        terrain_type=self.type)
+        elif choice < self.proportions[9]: # high platform gaps
+            if high_platform_gaps_params is None:
+                raise ValueError("high_platform_gaps_params is required for high platform gaps terrain.")
+            terrain_utils.high_platform_gaps_terrain(terrain, 
+                                                        high_platform_height=eval(high_platform_gaps_params["high_platform_height"]), 
+                                                        high_platform_length=eval(high_platform_gaps_params["high_platform_length"]), 
+                                                        high_platform_width=eval(high_platform_gaps_params["high_platform_width"]), 
+                                                        high_platform_distance_y=eval(high_platform_gaps_params["high_platform_distance_y"]), 
+                                                        gap_size=eval(high_platform_gaps_params["gap_size"]),
+                                                        platform_size=self.platform_size,
+                                                        terrain_type=self.type)
+        
         return terrain
 
     def add_terrain_to_map(self, terrain, row, col):
@@ -191,8 +216,6 @@ class Terrain:
         end_x = self.border + (i + 1) * self.length_per_env_pixels
         start_y = self.border + j * self.width_per_env_pixels
         end_y = self.border + (j + 1) * self.width_per_env_pixels
-        print(f"Adding terrain to map at row {row}, col {col}, start_x: {start_x}, end_x: {end_x}, start_y: {start_y}, end_y: {end_y}")
-        print(f"shape of terrain.height_field_raw: {terrain.height_field_raw.shape}")
         self.height_field_raw[start_x: end_x, start_y:end_y] = terrain.height_field_raw
 
         env_origin_x = (i + 0.5) * self.env_length
