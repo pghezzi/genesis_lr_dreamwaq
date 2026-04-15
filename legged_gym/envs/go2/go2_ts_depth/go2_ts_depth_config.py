@@ -5,12 +5,12 @@ from legged_gym.envs.base.common_cfgs import Go2RoughCommonCfg, get_simulator_su
 class Go2TSDepthCfg( Go2RoughCommonCfg ):
     class env( Go2RoughCommonCfg.env ):
         num_envs = 4000
-        num_camera_envs = 1000
+        num_camera_envs = 2000
         num_observations = 45
-        num_privileged_obs = 241
+        num_privileged_obs = 268
         num_latent_dims = 32
         c_frame_stack = 5
-        num_single_critic_obs = num_observations + 31 + 15 + 3 + 48 + 144
+        num_single_critic_obs = num_observations + 31 + 15 + 3 + 48 + 171
         num_critic_obs = c_frame_stack * num_single_critic_obs
         # Privileged_obs and critic_obs are seperated here
         # privileged_obs contains information given to privileged encoder
@@ -23,7 +23,7 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
     class terrain( Go2RoughCommonCfg.terrain ):
         # rough terrain only:
         measure_heights = True
-        measured_points_x = [-0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1.0, 1.2, 1.4] # 16x9=144
+        measured_points_x = [-0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.4, 1.6, 1.8] # 19x9=171
         measured_points_y = [-0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4]
         terrain_length = 12.0
         terrain_width = 8.0
@@ -91,7 +91,7 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
             dof_pos_limits = -2.0
             collision = -10.0
             # command tracking
-            tracking_lin_vel = 1.0
+            tracking_lin_vel = 1.5
             tracking_ang_vel = 1.0
             # smooth
             lin_vel_z = -1.0
@@ -152,7 +152,7 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
             pos =   (0.3, 0.0, 0.1)
             euler_gym = (0.0, 0.3, 0.0)
             euler = (0.0, 1.57 + 0.3, 0.0) # 0.3 rad downward pitch
-            decimation = 5
+            decimation = 5                 # depth update decimation (1 means every control step, 5 means every 5 control steps, etc.)
             # Warp only
             calculate_depth = True
             segmentation_camera = False
@@ -169,12 +169,12 @@ class Go2TSDepthCfgPPO( LeggedRobotTSDepthCfgPPO ):
         privilege_encoder_hidden_dims = [256, 128]
         cnn_input_channel = Go2TSDepthCfg.sensor.depth_camera_config.num_history
         cnn_channel_dims = [4, 8]
-        cnn_strides = [2, 1]
-        cnn_fc_layer_dims = [128]
+        cnn_strides = [1, 1]
+        cnn_fc_layer_dims = [128, 64]
         combination_mlp_dims = [128, 32]
         cnn_kernel_sizes = [5, 3]
         rnn_type = 'gru'
-        rnn_hidden_size = 256
+        rnn_hidden_size = 512
         rnn_num_layers = 1
     
     class algorithm( LeggedRobotTSDepthCfgPPO.algorithm ):

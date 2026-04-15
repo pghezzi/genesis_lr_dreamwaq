@@ -309,7 +309,8 @@ class PPO_TSDepth(PPO):
                     self.student_params, self.max_grad_norm)
                 self.student_optimizer.step()
                 
-                # self.actor_critic.depth_history_encoder.detach_hidden_states()
+                # detach hidden states after each update to prevent gradients backpropagating through time across updates
+                self.actor_critic.depth_history_encoder.detach_hidden_states()
                 mean_latent_reconstruction_loss += latent_reconstruction_loss.item()
                 mean_action_reconstruction_loss += action_reconstruction_loss.item()
                 mean_value_loss += value_loss.item()

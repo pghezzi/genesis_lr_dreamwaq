@@ -65,12 +65,12 @@ def override_configs(env_cfg, args, task_type):
         # env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.gap_terrain", 
         #                                   "gap_size": 0.6, "platform_size": 3.0}
         # pit terrain
-        # env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.pit_terrain", 
-        #                                   "depth": 0.2, "platform_size": 3.0}
+        env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.pit_terrain", 
+                                          "depth": 0.6, "platform_size": 4.0}
         # multiple pits terrain
-        env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.multiple_high_platforms_terrain",
-                                          "high_platform_height": 0.4, "high_platform_length": 0.6, "high_platform_width": 2.0,
-                                          "high_platform_interval": 1.0, "platform_size": 3.0}
+        # env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.multiple_high_platforms_terrain",
+        #                                   "high_platform_height": 0.5, "high_platform_length": 0.6, "high_platform_width": 2.0,
+        #                                   "high_platform_interval": 1.4, "platform_size": 3.0}
         # high_platform_gaps_terrain
         # env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.high_platform_gaps_terrain",
         #                                   "high_platform_height": 0.6, "high_platform_length": 1.6, "high_platform_width": 1.0,
@@ -81,7 +81,7 @@ def override_configs(env_cfg, args, task_type):
     env_cfg.commands.zero_cmd_prob = 0.0 # for testing, use non-zero commands all the time
     env_cfg.commands.ranges.lin_vel_x = [0.5, 0.5]
     env_cfg.commands.ranges.lin_vel_y = [0.0, 0.0]
-    env_cfg.commands.ranges.ang_vel_yaw = [0.0, 0.0]
+    env_cfg.commands.ranges.ang_vel_yaw = [-1.0, 1.0]
     env_cfg.commands.ranges.heading = [0.0, 0.0]
     
     if args.use_joystick:

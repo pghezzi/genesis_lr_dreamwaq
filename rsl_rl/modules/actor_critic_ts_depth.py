@@ -6,7 +6,6 @@ from torch.distributions import Normal
 from .actor_critic import get_activation
 from .depth_history_encoder import DepthHistoryEncoder
 from rsl_rl.utils import unpad_trajectories
-from rsl_rl.modules.actor_critic_ts_depth_teacher import ActorCriticTSDepthTeacher
 
 '''
 Actor-Critic for Teacher-Student architecture, with Depth Image Observation.
