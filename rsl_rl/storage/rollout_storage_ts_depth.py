@@ -53,30 +53,34 @@ class RolloutStorageTSDepth(RolloutStorage):
         # only support GRU now
         hid = hidden_states if isinstance(hidden_states, tuple) else (hidden_states,)
         
-        # initialize if needed
+        # FIX: Only save hidden states for student environments (first num_student envs)
+        # This ensures hidden states align with depth_image_features which only stores student data
+        hid_student = [h[:, :self.num_student, :] for h in hid]
+        
+        # initialize if needed - shape should match student envs only
         if self.saved_hidden_states is None:
-            self.saved_hidden_states = [torch.zeros(self.observations.shape[0], *hid[i].shape, device=self.device) for i in range(len(hid))]
+            # hid_student shape: [num_layers, num_student, hidden_dim]
+            # saved_hidden_states shape should be: [num_transitions, num_layers, num_student, hidden_dim]
+            self.saved_hidden_states = [torch.zeros(self.observations.shape[0], h.shape[0], self.num_student, h.shape[-1], device=self.device) for h in hid_student]
         # copy the states
-        for i in range(len(hid)):
-            self.saved_hidden_states[i][self.step].copy_(hid[i])
+        for i in range(len(hid_student)):
+            self.saved_hidden_states[i][self.step].copy_(hid_student[i])
 
     def teacher_mini_batch_generator(self, num_mini_batches, num_epochs=8):
         # use non-recurrent mini-batch generator for teacher update
-        batch_size = self.num_envs * self.num_transitions_per_env
-        mini_batch_size = batch_size // num_mini_batches
-        indices = torch.randperm(batch_size, requires_grad=False, device=self.device)
+        mini_batch_size = self.num_envs // num_mini_batches
         student_mini_batch_size = self.num_student // num_mini_batches
 
-        observations = self.observations.flatten(0, 1)
-        privileged_observations = self.privileged_observations.flatten(0, 1)
-        critic_observations = self.critic_observations.flatten(0, 1)
-        actions = self.actions.flatten(0, 1)
-        values = self.values.flatten(0, 1)
-        returns = self.returns.flatten(0, 1)
-        old_actions_log_prob = self.actions_log_prob.flatten(0, 1)
-        advantages = self.advantages.flatten(0, 1)
-        old_mu = self.mu.flatten(0, 1)
-        old_sigma = self.sigma.flatten(0, 1)
+        # observations = self.observations.flatten(0, 1)
+        # privileged_observations = self.privileged_observations.flatten(0, 1)
+        # critic_observations = self.critic_observations.flatten(0, 1)
+        # actions = self.actions.flatten(0, 1)
+        # values = self.values.flatten(0, 1)
+        # returns = self.returns.flatten(0, 1)
+        # old_actions_log_prob = self.actions_log_prob.flatten(0, 1)
+        # advantages = self.advantages.flatten(0, 1)
+        # old_mu = self.mu.flatten(0, 1)
+        # old_sigma = self.sigma.flatten(0, 1)
         
         student_obs = self.observations[:, 0:self.num_student]
         student_privileged_obs = self.privileged_observations[:, 0:self.num_student]
@@ -94,20 +98,19 @@ class RolloutStorageTSDepth(RolloutStorage):
                 # Generate batch indices
                 start = i*mini_batch_size
                 end = (i+1)*mini_batch_size
-                batch_idx = indices[start:end]
                 start_student = i*student_mini_batch_size
                 end_student = (i+1)*student_mini_batch_size
                 
-                obs_batch = observations[batch_idx]
-                privileged_obs_batch = privileged_observations[batch_idx]
-                critic_obs_batch = critic_observations[batch_idx]
-                actions_batch = actions[batch_idx]
-                values_batch = values[batch_idx]
-                returns_batch = returns[batch_idx]
-                old_actions_log_prob_batch = old_actions_log_prob[batch_idx]
-                advantages_batch = advantages[batch_idx]
-                old_mu_batch = old_mu[batch_idx]
-                old_sigma_batch = old_sigma[batch_idx]
+                obs_batch = self.observations[:, start:end]
+                privileged_obs_batch = self.privileged_observations[:, start:end]
+                critic_obs_batch = self.critic_observations[:, start:end]
+                actions_batch = self.actions[:, start:end]
+                values_batch = self.values[:, start:end]
+                returns_batch = self.returns[:, start:end]
+                old_actions_log_prob_batch = self.actions_log_prob[:, start:end]
+                advantages_batch = self.advantages[:, start:end]
+                old_mu_batch = self.mu[:, start:end]
+                old_sigma_batch = self.sigma[:, start:end]
                 
                 dones = self.dones[:, 0:self.num_student].squeeze(-1)
                 last_was_done = torch.zeros_like(dones, dtype=torch.bool)
@@ -153,6 +156,8 @@ class RolloutStorageTSDepth(RolloutStorage):
         old_sigma = self.sigma[:, 0:self.num_student]
         padded_obs, trajectory_masks = split_and_pad_trajectories(
             observations, self.dones[:, 0:self.num_student])
+        padded_privileged_obs, _ = split_and_pad_trajectories(
+            privileged_observations, self.dones[:, 0:self.num_student])
         padded_depth_features, _ = split_and_pad_trajectories(
             self.depth_image_features, self.dones[:, 0:self.num_student])
 
@@ -177,7 +182,7 @@ class RolloutStorageTSDepth(RolloutStorage):
                 # For student update we keep [time, env, ...] shape to match
                 # the recurrent policy/distribution, similar to
                 # RolloutStorage.reccurent_mini_batch_generator
-                privileged_obs_batch = privileged_observations[:, start_student:end_student]
+                privileged_obs_batch = padded_privileged_obs[:, first_traj:last_traj, :]
                 critic_obs_batch = critic_observations[:, start_student:end_student]
                 actions_batch = actions[:, start_student:end_student]
                 values_batch = values[:, start_student:end_student]

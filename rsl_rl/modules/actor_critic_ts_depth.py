@@ -125,6 +125,9 @@ class ActorCriticTSDepth(nn.Module):
 
     def reset(self, dones=None):
         self.depth_history_encoder.reset_hidden_states(dones)
+        
+    def detach_hidden_states(self):
+        self.depth_history_encoder.detach_hidden_states()
 
     def forward(self):
         raise NotImplementedError

@@ -5,10 +5,10 @@ from legged_gym.envs.base.common_cfgs import Go2RoughCommonCfg, get_simulator_su
 class Go2TSDepthCfg( Go2RoughCommonCfg ):
     class env( Go2RoughCommonCfg.env ):
         num_envs = 4000
-        num_camera_envs = 2000
+        num_camera_envs = 1000
         num_observations = 45
         num_privileged_obs = 268
-        num_latent_dims = 32
+        num_latent_dims = 64
         c_frame_stack = 5
         num_single_critic_obs = num_observations + 31 + 15 + 3 + 48 + 171
         num_critic_obs = c_frame_stack * num_single_critic_obs
@@ -82,11 +82,12 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
     class rewards( Go2RoughCommonCfg.rewards ):
         soft_dof_pos_limit = 0.9
         base_height_target = 0.4
-        foot_clearance_target = 0.06 # desired foot clearance above ground [m]
+        foot_clearance_target = 0.08 # desired foot clearance above ground [m]
         foot_height_offset = 0.022   # height of the foot coordinate origin above ground [m]
         foot_clearance_tracking_sigma = 0.01
+        tracking_sigma = 0.2
         only_positive_rewards = True
-        class scales( Go2RoughCommonCfg.rewards.scales ):
+        class scales:
             # limitation
             dof_pos_limits = -2.0
             collision = -10.0
@@ -104,6 +105,7 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
             # gait
             hip_pos = -0.15
             foot_clearance = 0.2
+            feet_contact_stand_still = 0.1
 
     class commands( Go2RoughCommonCfg.commands ):
         curriculum = True
@@ -168,7 +170,7 @@ class Go2TSDepthCfgPPO( LeggedRobotTSDepthCfgPPO ):
         actor_hidden_dims = [512, 256, 128]
         privilege_encoder_hidden_dims = [256, 128]
         cnn_input_channel = Go2TSDepthCfg.sensor.depth_camera_config.num_history
-        cnn_channel_dims = [4, 8]
+        cnn_channel_dims = [8, 16]
         cnn_strides = [1, 1]
         cnn_fc_layer_dims = [128, 64]
         combination_mlp_dims = [128, 32]
@@ -178,7 +180,7 @@ class Go2TSDepthCfgPPO( LeggedRobotTSDepthCfgPPO ):
         rnn_num_layers = 1
     
     class algorithm( LeggedRobotTSDepthCfgPPO.algorithm ):
-        encoder_lr = 2.e-4
+        encoder_lr = 1.e-4
         
     class runner( LeggedRobotTSDepthCfgPPO.runner ):
         teacher_model_path = "Mar09_17-57-51_/model_4500.pt"

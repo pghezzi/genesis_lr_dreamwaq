@@ -121,6 +121,10 @@ class TSDepthRunner(OnPolicyRunner):
                     mean_action_reconstruction_loss = self.alg.update()
             stop = time.time()
             learn_time = stop - start
+            
+            # detach hidden states after each update (num_steps per env)
+            self.alg.actor_critic.detach_hidden_states()
+
             if self.log_dir is not None:
                 self.log(locals())
             if it % self.save_interval == 0:

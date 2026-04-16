@@ -7,6 +7,7 @@ from legged_gym.envs.base.legged_robot_ts_depth import LeggedRobotTSDepth
 from legged_gym.utils.math_utils import torch_rand_float
 
 class Go2TSDepth(LeggedRobotTSDepth):
+    
     def compute_observations(self):
         self.obs_buf = torch.cat((
             self.commands[:, :3] * self.commands_scale,                     # 3
@@ -89,27 +90,64 @@ class Go2TSDepth(LeggedRobotTSDepth):
         if self.cfg.terrain.measure_heights: # 144
             self.privileged_obs_buf = torch.cat((self.privileged_obs_buf, heights), dim=-1)
     
+    def check_termination(self) -> None:
+        # if the dim of link_contact_forces is 4, then it has history. shape [N, T, B, 3] (N: num_envs, T: history length, B: number of links with contact sensors)
+        if len(self.simulator.link_contact_forces.shape) == 4:
+            self.terminated_bodies_force_norm = torch.max(torch.norm(self.simulator.link_contact_forces[:, :, self.simulator.termination_contact_indices, :], dim=-1), dim=1)[0]
+            self.penalized_bodies_force_norm = torch.max(torch.norm(self.simulator.link_contact_forces[:, :, self.simulator.penalized_contact_indices, :], dim=-1), dim=1)[0]
+            self.feet_force_norm = torch.max(torch.norm(self.simulator.link_contact_forces[:, :, self.simulator.feet_contact_indices, :], dim=-1), dim=1)[0]
+            self.feet_max_force_z = torch.max(self.simulator.link_contact_forces[:, :, self.simulator.feet_contact_indices, 2], dim=1)[0]
+        else:
+            self.terminated_bodies_force_norm = torch.norm(self.simulator.link_contact_forces[:, self.simulator.termination_contact_indices, :], dim=-1)
+            self.penalized_bodies_force_norm = torch.norm(self.simulator.link_contact_forces[:, self.simulator.penalized_contact_indices, :], dim=-1)
+            self.feet_force_norm = torch.norm(self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, :], dim=-1)
+            self.feet_max_force_z = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2]
+        fail_buf = torch.any(self.terminated_bodies_force_norm > 10.0, dim=1)
+        fail_buf |= self.simulator.projected_gravity[:, 2] > self.cfg.env.max_projected_gravity
+        
+        if self.cfg.terrain.curriculum:
+            # terminate if the robot's base height is below 0.0 on terrains with gaps, to prevent the robot from keep falling
+            fail_buf[self.stepping_stones_env_ids] |= \
+                self.simulator.base_pos[self.stepping_stones_env_ids, 2] < 0.0
+            fail_buf[self.gaps_env_ids] |= \
+                self.simulator.base_pos[self.gaps_env_ids, 2] < 0.0
+            fail_buf[self.high_platform_gaps_env_ids] |= \
+                self.simulator.base_pos[self.high_platform_gaps_env_ids, 2] < self.high_platform_gaps_termination_height[self.high_platform_gaps_env_ids]
+        
+        self.fail_buf += fail_buf
+        self.time_out_buf = self.episode_length_buf > self.max_episode_length  # no terminal reward for time-outs
+        # print(f"time out: {self.time_out_buf}")
+        self.reset_buf = (
+            (self.fail_buf > self.cfg.env.fail_to_terminal_time_s / self.dt)
+            | self.time_out_buf
+        )
+    
     def _init_buffers(self):
         super()._init_buffers()
         # identify env ids for different terrain types
-        terrain_types = self.simulator.terrain_types
-        terrain_type_bounds = torch.cumsum(torch.tensor(self.cfg.terrain.terrain_proportions), dim=0) * self.cfg.terrain.num_cols
-        self.slope_env_ids = ((terrain_types >=0) & (terrain_types < terrain_type_bounds[0])).nonzero(as_tuple=False).flatten()
-        self.stairs_env_ids = ((terrain_types >= terrain_type_bounds[1]) & (terrain_types < terrain_type_bounds[3])).nonzero(as_tuple=False).flatten()
-        self.discrete_env_ids = ((terrain_types >= terrain_type_bounds[3]) & (terrain_types < terrain_type_bounds[4])).nonzero(as_tuple=False).flatten()
-        self.stepping_stones_env_ids = ((terrain_types >= terrain_type_bounds[4]) & (terrain_types < terrain_type_bounds[5])).nonzero(as_tuple=False).flatten()
-        self.gaps_env_ids = ((terrain_types >= terrain_type_bounds[5]) & (terrain_types < terrain_type_bounds[6])).nonzero(as_tuple=False).flatten()
-        self.pits_env_ids = ((terrain_types >= terrain_type_bounds[6]) & (terrain_types < terrain_type_bounds[7])).nonzero(as_tuple=False).flatten()
-        self.high_platform_env_ids = ((terrain_types >= terrain_type_bounds[7]) & (terrain_types < terrain_type_bounds[8])).nonzero(as_tuple=False).flatten()
-        self.high_platform_gaps_env_ids = ((terrain_types >= terrain_type_bounds[8]) & (terrain_types < terrain_type_bounds[9])).nonzero(as_tuple=False).flatten()
-        # identify env ids for all heading command (others have fixed heading command specified in config)
-        self.all_heading_env_ids = torch.cat((
-            self.slope_env_ids,
-            self.stairs_env_ids,
-            self.discrete_env_ids,
-            self.gaps_env_ids,
-            self.pits_env_ids, # elementary terrains with all heading commands
-        ))
+        if self.cfg.terrain.curriculum:
+            terrain_types = self.simulator.terrain_types
+            terrain_type_bounds = torch.cumsum(torch.tensor(self.cfg.terrain.terrain_proportions), dim=0) * self.cfg.terrain.num_cols
+            self.slope_env_ids = ((terrain_types >=0) & (terrain_types < terrain_type_bounds[0])).nonzero(as_tuple=False).flatten()
+            self.stairs_env_ids = ((terrain_types >= terrain_type_bounds[1]) & (terrain_types < terrain_type_bounds[3])).nonzero(as_tuple=False).flatten()
+            self.discrete_env_ids = ((terrain_types >= terrain_type_bounds[3]) & (terrain_types < terrain_type_bounds[4])).nonzero(as_tuple=False).flatten()
+            self.stepping_stones_env_ids = ((terrain_types >= terrain_type_bounds[4]) & (terrain_types < terrain_type_bounds[5])).nonzero(as_tuple=False).flatten()
+            self.gaps_env_ids = ((terrain_types >= terrain_type_bounds[5]) & (terrain_types < terrain_type_bounds[6])).nonzero(as_tuple=False).flatten()
+            self.pits_env_ids = ((terrain_types >= terrain_type_bounds[6]) & (terrain_types < terrain_type_bounds[7])).nonzero(as_tuple=False).flatten()
+            self.high_platform_env_ids = ((terrain_types >= terrain_type_bounds[7]) & (terrain_types < terrain_type_bounds[8])).nonzero(as_tuple=False).flatten()
+            self.high_platform_gaps_env_ids = ((terrain_types >= terrain_type_bounds[8]) & (terrain_types < terrain_type_bounds[9])).nonzero(as_tuple=False).flatten()
+            # identify env ids for all heading command (others have fixed heading command specified in config)
+            self.all_heading_env_ids = torch.cat((
+                self.slope_env_ids,
+                self.stairs_env_ids,
+                self.discrete_env_ids,
+                self.gaps_env_ids,
+                self.pits_env_ids, # elementary terrains with all heading commands
+            ))
+            # identity termination base height for high_platform_gaps terrain
+            difficulty = self.simulator.terrain_levels / self.cfg.terrain.num_rows
+            self.high_platform_gaps_termination_height = eval(
+                self.cfg.terrain.terrain_curriculum_difficulty["high_platform_gaps_params"]["high_platform_height"])
     
     def _resample_commands(self, env_ids: EnvIds) -> None:
         self.commands[env_ids, 0] = torch_rand_float(
