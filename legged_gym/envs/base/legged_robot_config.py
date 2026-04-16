@@ -230,8 +230,9 @@ class LeggedRobotCfg(BaseConfig):
             ang_vel: float = 0.25
             dof_pos: float = 1.0
             dof_vel: float = 0.05
-            height_measurements: float = 5.0
+            height_measurements: float = 2.0
             depth_image: float = 2.0 # scale from [-0.5, 0.5] to [-1.0, 1.0]
+            actions: float = 1.0
         clip_observations: float = 100.0
         clip_actions: float = 100.0
 

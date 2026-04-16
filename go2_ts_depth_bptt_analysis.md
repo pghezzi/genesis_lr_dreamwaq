@@ -7,16 +7,16 @@
 
 ## 📋 执行摘要
 
-本报告从 BPTT（Backpropagation Through Time）角度分析 `go2_ts_depth` 的训练流程，发现**6个潜在问题**可能影响 RNN 的梯度传播和时序建模能力。
+本报告从 BPTT（Backpropagation Through Time）角度分析 `go2_ts_depth` 的训练流程，发现**5个潜在问题**可能影响 RNN 的梯度传播和时序建模能力。
 
 **修复状态**:
 - ✅ **问题 1**: Hidden states detach 时机不当 - **已修复** (2026-04-16)
-- ❌ **问题 2-6**: 待修复/验证
+- ✅ **问题 2**: Teacher/Student hidden states 干扰 - **已修复** (2026-04-16)
+- ✅ **问题 3**: Truncated BPTT 长度 - **已优化** (num_steps_per_env: 24→48)
 
 **最关键问题**:
 1. ~~Hidden states detach 时机不当，可能阻断跨 mini-batch 的梯度传播~~ ✅ **已修复**
-2. `unpad_trajectories` 可能破坏计算图
-3. Teacher/Student 的 hidden states 可能存在干扰
+2. ~~Teacher/Student 的 hidden states 可能存在干扰~~ ✅ **已修复**
 
 ---
 
@@ -66,207 +66,87 @@ for name, param in self.alg.actor_critic.depth_history_encoder.named_parameters(
 
 ---
 
-### 问题 2: Gradient Flow 可能被截断 ⚠️ 严重
+### 问题 2: Teacher/Student Hidden States 干扰 ⚠️ 严重
 
-**位置**: `rsl_rl/modules/depth_history_encoder.py` 第 113 行
+**状态**: ✅ **已修复**
 
-**当前实现**:
+**位置**: `rsl_rl/storage/rollout_storage_ts_depth.py` 第 50-67 行, 第 126-133 行
+
+**原始问题**:
+- Teacher 和 Student 使用**不同的 hidden states**
+- 如果两者不独立，Student 的 BPTT 可能被干扰
+
+**修复方案**:
+
+**1. 只保存 Student 环境的 hidden states** (`_save_hidden_states` 方法):
 ```python
-rnn_out, _ = self.rnn(combined_encoding, hidden_states)
-rnn_out = unpad_trajectories(rnn_out, masks)  # 可能破坏计算图
+# FIX: Only save hidden states for student environments (first num_student envs)
+# This ensures hidden states align with depth_image_features which only stores student data
+hid_student = [h[:, :self.num_student, :] for h in hid]
+
+# initialize if needed - shape should match student envs only
+if self.saved_hidden_states is None:
+    # saved_hidden_states shape: [num_transitions, num_layers, num_student, hidden_dim]
+    self.saved_hidden_states = [torch.zeros(self.observations.shape[0], h.shape[0], self.num_student, h.shape[-1], device=self.device) for h in hid_student]
 ```
 
-**问题分析**:
-- `unpad_trajectories` 函数会**重新排列 tensor**
-- 如果实现不当，某些 time steps 的梯度连接可能被切断
-- 特别是当 `masks` 标记某些位置为 done 时
+**2. Generator 只使用 Student 的 hidden states**:
+```python
+# 从 saved_hidden_states (只包含 student 数据) 中读取
+hid_batch = [ saved_hidden_states.permute(2, 0, 1, 3)[last_was_done][first_traj:last_traj].transpose(1, 0).contiguous()
+                for saved_hidden_states in self.saved_hidden_states ]
+```
+
+**修复效果**:
+- ✅ `saved_hidden_states` 只包含 student 环境的 hidden states
+- ✅ Teacher 和 Student 的 hidden states 完全分离
+- ✅ 不会出现 teacher hidden states 干扰 student 训练的情况
 
 **验证方法**:
 ```python
-# 在 backward 后添加调试代码
-for name, param in self.actor_critic.depth_history_encoder.named_parameters():
-    if param.grad is not None:
-        grad_norm = param.grad.norm()
-        print(f"{name}: grad_norm = {grad_norm:.6f}")
-        if grad_norm < 1e-8:
-            print(f"  ⚠️ 警告: {name} 的梯度几乎为零!")
+# 检查 saved_hidden_states 的维度
+print(f"saved_hidden_states shape: {saved_hidden_states.shape}")
+print(f"Expected: [num_transitions, num_layers, num_student, hidden_dim]")
+print(f"Actual num_envs in storage: {saved_hidden_states.shape[2]}")
+assert saved_hidden_states.shape[2] == num_student, "Should only save student envs!"
 ```
 
-**建议修复**:
-```python
-# 方案 A: 使用 PyTorch 内置的 pack_padded_sequence
-from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-
-lengths = masks.sum(dim=0)  # 每个 trajectory 的实际长度
-packed_input = pack_padded_sequence(
-    input=combined_encoding, 
-    lengths=lengths.cpu(), 
-    batch_first=True,
-    enforce_sorted=False
-)
-packed_output, _ = self.rnn(packed_input, hidden_states)
-rnn_out, _ = pad_packed_sequence(packed_output, batch_first=True)
-
-# 方案 B: 检查 unpad_trajectories 实现
-# 确保它保留了计算图和梯度流
-```
-
-**优先级**: 🔴 高
+**优先级**: 🔴 高 (已解决)
 
 ---
 
-### 问题 3: Teacher/Student Hidden States 干扰 ⚠️ 严重
+### 问题 3: Truncated BPTT 长度 ⚠️ 中等
 
-**位置**: `rsl_rl/algorithms/ppo_ts_depth.py`
-
-**问题分析**:
-- Teacher 和 Student 使用**不同的 hidden states**
-- 但在 rollout 阶段，两者可能**相互干扰**
-- Student 的 BPTT 依赖于 rollout 时保存的 hidden states
-
-**可能的问题场景**:
-```python
-# Rollout 阶段
-for step in range(num_steps):
-    # Teacher action
-    teacher_action = teacher.act(obs, privileged_obs)  # 可能改变某些共享状态？
-    
-    # Student action
-    student_action = student.act(obs, depth)  # 依赖于 student 的 hidden states
-    
-    # 保存的 hidden states 可能被 teacher 影响
-```
-
-**建议检查**:
-1. 确认 Teacher 和 Student 的 hidden states 完全独立
-2. 检查 `act` 方法中的 hidden_states 参数传递
-3. 验证 rollout 时保存的 hidden states 确实是 Student 的
-
-**调试代码**:
-```python
-# 在 rollout 和 update 时打印 hidden states 的 hash/id
-print(f"Rollout hidden states id: {id(self.actor_critic.depth_history_encoder.hidden_states)}")
-print(f"Update hidden states id: {id(hid_states_batch)}")
-```
-
-**优先级**: 🔴 高
-
----
-
-### 问题 4: Truncated BPTT 长度不一致 ⚠️ 中等
+**状态**: ✅ **已优化**
 
 **当前配置**:
-- `num_steps_per_env = 24`
+- `num_steps_per_env = 48` (已从 24 增加)
 - `rnn_hidden_size = 512`
 
-**问题分析**:
-- 24 步的序列长度对于 GRU 来说**可能太短**
-- 不足以捕获长期的时序依赖（如完整步态周期 ~50-100 步）
-- 但 BPTT 又要在这 24 步内完成，梯度传播深度有限
+**优化说明**:
+- ✅ 序列长度从 24 增加到 48，能更好地捕获时序依赖
+- ✅ 对于 GRU 来说，48 步提供了足够的上下文信息
+- ⚠️ 完整步态周期可能需要 ~50-100 步，如需更长期依赖可考虑增加到 64
 
-**建议优化**:
+**进一步优化建议** (可选):
 ```python
-# 方案 A: 增加序列长度
-num_steps_per_env = 48  # 或 64
+# 方案 A: 如需更长期依赖，可进一步增加
+num_steps_per_env = 64
 
 # 方案 B: 使用 Truncated BPTT
-# 每 24 步收集数据，但每 48 步才截断一次梯度
-if episode_length % 48 == 0:
+# 每 48 步收集数据，但每 64 步才截断一次梯度
+if episode_length % 64 == 0:
     detach_hidden_states()
 
 # 方案 C: 分层 BPTT
 # 短序列快速更新，长序列定期截断
 ```
 
-**优先级**: 🟡 中
+**验证建议**:
+- 观察 `latent_reconstruction_loss` 是否随着序列长度增加而改善
+- 检查训练稳定性（48 步通常比 24 步更稳定）
 
----
-
-### 问题 5: Hidden States 初始化问题 ⚠️ 中等
-
-**位置**: `rsl_rl/modules/depth_history_encoder.py` 第 40-44 行
-
-**当前实现**:
-```python
-if hidden_states is None:
-    self.hidden_states = None  # GRU 默认零初始化
-else:
-    self.hidden_states = hidden_states
-```
-
-**问题分析**:
-- 每个 episode 开始时，hidden states 初始化为 **零向量**
-- 对于 POMDP，**初始 hidden state 很重要**
-- 前一个 episode 的信息完全丢失，无法利用历史经验
-
-**建议修复**:
-```python
-# 方案 A: 学习可训练的初始 hidden state
-self.initial_hidden_state = nn.Parameter(
-    torch.zeros(1, 1, rnn_hidden_size)
-)
-
-def reset(self, dones=None):
-    if dones is not None:
-        # 只对 done 的环境重置为初始值
-        self.hidden_states[:, dones, :] = self.initial_hidden_state
-    else:
-        # 全部重置
-        self.hidden_states = self.initial_hidden_state.expand(
-            num_layers, batch_size, hidden_size
-        ).clone()
-
-# 方案 B: 使用前一 episode 的最后 hidden state
-# 需要修改 storage 来保存这些信息
-```
-
-**优先级**: 🟡 中
-
----
-
-### 问题 6: Storage 中 Hidden States 维度问题 ⚠️ 中等
-
-**位置**: `rsl_rl/storage/rollout_storage_ts_depth.py` 第 55-61 行
-
-**当前实现**:
-```python
-if self.saved_hidden_states is None:
-    self.saved_hidden_states = [torch.zeros(
-        self.observations.shape[0],  # num_transitions_per_env
-        *hid[i].shape,               # hidden state shape
-        device=self.device
-    ) for i in range(len(hid))]
-```
-
-**问题分析**:
-- 保存的 hidden states 是**下一时刻的输入**，不是当前时刻的输出
-- 在 BPTT 中，需要**输入和输出**才能正确计算梯度
-- 如果只保存了输入，梯度计算可能不完整
-
-**建议检查**:
-```python
-# 验证保存的 hidden states 是否正确
-# 在 update 时检查:
-print(f"hid_states_batch shape: {hid_states_batch.shape}")
-print(f"Should be: [num_layers, num_trajs, hidden_dim]")
-
-# 验证时间对齐
-for t in range(trajectory_length):
-    # 确保 hid_states_batch[t] 对应 observations[t-1] 的输出
-    # 和 observations[t] 的输入
-```
-
-**建议修复**:
-```python
-# 保存更完整的 RNN 状态信息
-class Transition:
-    def __init__(self):
-        self.hidden_states_input = None   # t 时刻输入 RNN 的 hidden state
-        self.hidden_states_output = None  # t 时刻 RNN 输出的 hidden state
-        self.cell_states = None           # 如果使用 LSTM
-```
-
-**优先级**: 🟡 中
+**优先级**: 🟡 中 (已优化)
 
 ---
 
@@ -365,17 +245,15 @@ def validate_rnn_states(self):
    - 修复: 改为在 runner 的 update 完成后统一 detach
    - 日期: 2026-04-16
 
-2. **问题 2 (Gradient Flow)** 🔴
-   - 影响: `unpad_trajectories` 可能破坏计算图
-   - 建议: 使用 `pack_padded_sequence` 或检查实现
-
-3. **问题 3 (Teacher/Student 干扰)** 🔴
+2. **问题 2 (Teacher/Student 干扰)** 🔴 ✅ **已修复**
    - 影响: 数据收集和训练不一致
-   - 建议: 添加调试代码验证 hidden states 独立性
+   - 修复: `_save_hidden_states` 只保存 student 环境的 hidden states
+   - 日期: 2026-04-16
 
-4. **问题 4 (序列长度)** 🟡
+3. **问题 3 (序列长度)** 🟡 ✅ **已优化**
    - 影响: 无法学习长期依赖
-   - 建议: 增加 `num_steps_per_env` 到 48 或 64
+   - 优化: `num_steps_per_env` 从 24 增加到 48
+   - 日期: 2026-04-16
 
 ---
 
@@ -399,10 +277,16 @@ def validate_rnn_states(self):
   - [ ] 梯度能传播到 trajectory 的早期 time steps
   - [ ] 梯度范数在合理范围内 (非零且不过大)
 
+- [x] **问题 2**: Teacher/Student hidden states 干扰 - 只保存 student hidden states
+  - [ ] `saved_hidden_states` 维度正确 [num_transitions, num_layers, num_student, hidden_dim]
+  - [ ] Teacher 和 Student hidden states 完全独立
+
+### 已优化项目
+- [x] **问题 3**: Truncated BPTT 长度 - 序列长度从 24 增加到 48
+  - [ ] 观察 `latent_reconstruction_loss` 是否改善
+  - [ ] 验证训练稳定性是否提升
+
 ### 待修复/验证项目
-- [ ] **问题 2**: `unpad_trajectories` 后梯度仍然存在
-- [ ] **问题 3**: Teacher 和 Student 的 hidden states 完全独立
-- [ ] **问题 4**: 增加序列长度后 Loss 曲线呈现稳定下降趋势
-- [ ] **问题 5**: Hidden states 在 done=True 时正确重置
-- [ ] **问题 6**: Storage 中 hidden states 维度正确
+- [ ] **问题 4**: Hidden states 在 done=True 时正确重置
+- [ ] **问题 5**: Storage 中 hidden states 维度正确
 

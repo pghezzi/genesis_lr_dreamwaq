@@ -17,8 +17,9 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
         # critic_obs contains information given to critic, including some privileged information
         # This operation is to prevent the critic from receiving noisy input from the concatenation of current observation(noisy) and latent vector
         num_actions = 12
-        debug_draw_depth_images = True
-        debug_draw_height_points_around_base = True
+        debug_draw_depth_images = False
+        debug_draw_height_points_around_base = False
+        debug = True
     
     class terrain( Go2RoughCommonCfg.terrain ):
         # rough terrain only:
@@ -137,7 +138,9 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
         kd_range = [0.8, 1.2]
     
     class normalization( Go2RoughCommonCfg.normalization):
-        clip_actions = 20.0
+        class obs_scales( Go2RoughCommonCfg.normalization.obs_scales ):
+            actions = 0.1
+        clip_actions = 10.0
     
     class sensor( Go2RoughCommonCfg.sensor ):
         add_depth = True
@@ -170,7 +173,7 @@ class Go2TSDepthCfgPPO( LeggedRobotTSDepthCfgPPO ):
         actor_hidden_dims = [512, 256, 128]
         privilege_encoder_hidden_dims = [256, 128]
         cnn_input_channel = Go2TSDepthCfg.sensor.depth_camera_config.num_history
-        cnn_channel_dims = [8, 16]
+        cnn_channel_dims = [4, 8]
         cnn_strides = [1, 1]
         cnn_fc_layer_dims = [128, 64]
         combination_mlp_dims = [128, 32]
@@ -180,7 +183,7 @@ class Go2TSDepthCfgPPO( LeggedRobotTSDepthCfgPPO ):
         rnn_num_layers = 1
     
     class algorithm( LeggedRobotTSDepthCfgPPO.algorithm ):
-        encoder_lr = 1.e-4
+        encoder_lr = 2.e-4
         
     class runner( LeggedRobotTSDepthCfgPPO.runner ):
         teacher_model_path = "Mar09_17-57-51_/model_4500.pt"

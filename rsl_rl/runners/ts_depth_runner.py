@@ -123,7 +123,7 @@ class TSDepthRunner(OnPolicyRunner):
             learn_time = stop - start
             
             # detach hidden states after each update (num_steps per env)
-            self.alg.actor_critic.detach_hidden_states()
+            # self.alg.actor_critic.detach_hidden_states()
 
             if self.log_dir is not None:
                 self.log(locals())

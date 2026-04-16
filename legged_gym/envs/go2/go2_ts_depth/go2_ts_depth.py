@@ -10,22 +10,22 @@ class Go2TSDepth(LeggedRobotTSDepth):
     
     def compute_observations(self):
         self.obs_buf = torch.cat((
-            self.commands[:, :3] * self.commands_scale,                     # 3
+            self.commands[:, :3] * self.commands_scale,                               # 3
             self.simulator.projected_gravity,                                         # 3
-            self.simulator.base_ang_vel * self.obs_scales.ang_vel,                   # 3
+            self.simulator.base_ang_vel * self.obs_scales.ang_vel,                    # 3
             (self.simulator.dof_pos - self.simulator.default_dof_pos) *
-            self.obs_scales.dof_pos,  # num_dofs
+            self.obs_scales.dof_pos,                                                  # num_dofs
             self.simulator.dof_vel * self.obs_scales.dof_vel,                         # num_dofs
-            self.actions                                                    # num_actions
+            self.actions * self.obs_scales.actions                                    # num_actions
         ), dim=-1)
         
         domain_randomization_info = torch.cat((
-                    self.simulator._friction_values,            # 1
-                    self.simulator._added_base_mass,        # 1
-                    self.simulator._base_com_bias,          # 3
-                    self.simulator._rand_push_vels[:, :2],  # 2
-                    self.simulator._kp_scale,                 # num_actions
-                    self.simulator._kd_scale                  # num_actions
+                    self.simulator.dr_friction_values,            # 1
+                    self.simulator.dr_added_base_mass,            # 1
+                    self.simulator.dr_base_com_bias,              # 3
+                    self.simulator.dr_rand_push_vels[:, :2],      # 2
+                    self.simulator.dr_kp_scale,                   # num_actions
+                    self.simulator.dr_kd_scale                    # num_actions
             ), dim=-1)
         
         # Critic observation
@@ -37,7 +37,7 @@ class Go2TSDepth(LeggedRobotTSDepth):
         if self.cfg.asset.obtain_link_contact_states:
             critic_obs = torch.cat(
                 (
-                    critic_obs,                         # previous
+                    critic_obs,                          # previous
                     self.simulator.link_contact_states,  # contact states of thighs, calfs and feet (4+4+4)=12
                 ),
                 dim=-1,
@@ -51,7 +51,7 @@ class Go2TSDepth(LeggedRobotTSDepth):
                                     ), dim=-1)
         if self.cfg.terrain.measure_heights: # 144
             heights = torch.clip(self.simulator.base_pos[:, 2].unsqueeze(
-                1) - 0.3 - self.simulator.measured_heights, -1, 1.) * self.obs_scales.height_measurements
+                1) - 0.4 - self.simulator.measured_heights, -1, 1.) * self.obs_scales.height_measurements
             critic_obs = torch.cat((critic_obs, heights), dim=-1)
         self.critic_obs_deque.append(critic_obs)
         self.critic_obs_buf = torch.cat(
