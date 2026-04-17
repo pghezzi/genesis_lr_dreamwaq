@@ -31,9 +31,10 @@ class PPO_TSDepth(PPO):
                  desired_kl=0.01,
                  use_spo=False,
                  device='cpu',
-                 num_student=1,        # number of student envs in the vectorized env
-                 distillation=False,     # whether to do distillation learning for the student encoder
-                 encoder_lr=1.e-4,     # learning rate for the student encoder during teacher training
+                 num_student=1,
+                 distillation=False,
+                 encoder_lr=1.e-4,
+                 teacher_actor_critic=None,
                  ):
 
         super().__init__(
@@ -57,8 +58,8 @@ class PPO_TSDepth(PPO):
         self.num_student = num_student
         self.distillation = distillation
         self.encoder_lr = encoder_lr
+        self.teacher_actor_critic = teacher_actor_critic
 
-        # PPO components
         self.actor_critic: ActorCriticTSDepth = actor_critic
         self.actor_critic.to(self.device)
         self.storage = None  # initialized later
@@ -74,10 +75,9 @@ class PPO_TSDepth(PPO):
         else:
             self.student_params = list(self.actor_critic.depth_history_encoder.parameters()) + \
                                     list(self.actor_critic.actor.parameters()) + \
-                                    list(self.actor_critic.critic.parameters()) + \
                                     [self.actor_critic.std]
             self.student_optimizer = optim.Adam(
-                    self.student_params, lr=learning_rate)
+                    self.student_params, lr=self.encoder_lr)
         self.transition = RolloutStorageTSDepth.Transition()
 
     def init_storage(self, storage):
@@ -85,19 +85,29 @@ class PPO_TSDepth(PPO):
 
     def act(self, obs, privileged_obs, depth_image_features, critic_obs):
         num_envs_batch = obs.shape[0]
-        if not self.distillation: # teacher training
+        if not self.distillation:
             _ = self.actor_critic.depth_history_encoder(obs[0:self.num_student], depth_image_features)
             self.transition.hidden_states = self.actor_critic.get_hidden_states()
             self.transition.actions = self.actor_critic.act(obs, None, privileged_obs,
                                                             "teacher", None, None).detach()
-        else: # student training
+            self.transition.teacher_actions = None
+            self.transition.actions_log_prob = self.actor_critic.get_actions_log_prob(self.transition.actions).detach()
+            self.transition.action_mean = self.actor_critic.action_mean.detach()
+            self.transition.action_sigma = self.actor_critic.action_std.detach()
+        else:
             _ = self.actor_critic.depth_history_encoder(obs, depth_image_features)
             self.transition.hidden_states = self.actor_critic.get_hidden_states()
-            self.transition.actions = self.actor_critic.act(obs, depth_image_features, None,
-                                                            "student", None, None).detach()
-        self.transition.actions_log_prob = self.actor_critic.get_actions_log_prob(self.transition.actions).detach()
-        self.transition.action_mean = self.actor_critic.action_mean.detach()
-        self.transition.action_sigma = self.actor_critic.action_std.detach()
+            student_actions = self.actor_critic.act(obs, depth_image_features, None,
+                                                    "student", None, None).detach()
+            # student_actions_deterministic = self.actor_critic.act_student(obs, depth_image_features)
+            with torch.no_grad():
+                teacher_actions = self.teacher_actor_critic.act_inference(obs, privileged_obs)
+            self.transition.teacher_actions = teacher_actions
+            # use deterministic student action as actually applied action
+            self.transition.actions = student_actions
+            self.transition.actions_log_prob = self.actor_critic.get_actions_log_prob(student_actions).detach()
+            self.transition.action_mean = student_actions
+            self.transition.action_sigma = self.actor_critic.action_std.detach()
         self.transition.values = self.actor_critic.evaluate(critic_obs).detach()
         self.transition.observations = obs.detach()
         self.transition.privileged_observations = privileged_obs.detach()
@@ -231,89 +241,35 @@ class PPO_TSDepth(PPO):
                 
                 mean_latent_reconstruction_loss += latent_reconstruction_loss.item()
         
-        else: # student distillation
-            # student encoder update
+        else:
             generator = self.storage.student_mini_batch_generator(
                     self.num_mini_batches, self.num_learning_epochs)
             for obs_batch, privileged_obs_batch, depth_image_features_batch, critic_obs_batch, \
                 actions_batch, target_values_batch, returns_batch, old_actions_log_prob_batch, \
-                advantages_batch, old_mu_batch, old_sigma_batch, hid_states_batch, masks_batch in generator:
-                
-                # Student RL update
-                self.actor_critic.act(obs_batch, depth_image_features_batch, None, 
+                advantages_batch, old_mu_batch, old_sigma_batch, hid_states_batch, masks_batch, \
+                teacher_actions_batch in generator:
+
+                self.actor_critic.act(obs_batch, depth_image_features_batch, None,
                                       "student", hid_states_batch, masks_batch)
-                actions_log_prob_batch = self.actor_critic.get_actions_log_prob(
-                    actions_batch)
-                value_batch = self.actor_critic.evaluate(critic_obs_batch)
-                entropy_batch = self.actor_critic.entropy
                 mu_batch = self.actor_critic.action_mean
-                sigma_batch = self.actor_critic.action_std
-                
-                ## Teacher KL, adapt learning rate
-                if self.desired_kl != None and self.schedule == 'adaptive':
-                    with torch.inference_mode():
-                        kl = torch.sum(
-                            torch.log(sigma_batch / old_sigma_batch + 1.e-5) +
-                            (torch.square(old_sigma_batch) + torch.square(old_mu_batch - mu_batch)) /
-                            (2.0 * torch.square(sigma_batch)) - 0.5, axis=-1)
-                        kl_mean = torch.mean(kl)
+                entropy_batch = self.actor_critic.entropy
 
-                        if kl_mean > self.desired_kl * 2.0:
-                            self.learning_rate = max(
-                                1e-5, self.learning_rate / 1.5)
-                        elif kl_mean < self.desired_kl / 2.0 and kl_mean > 0.0:
-                            self.learning_rate = min(
-                                1e-2, self.learning_rate * 1.5)
-
-                        for param_group in self.student_optimizer.param_groups:
-                            param_group['lr'] = self.learning_rate
-
-                ## Surrogate loss
-                ratio = torch.exp(actions_log_prob_batch -
-                                torch.squeeze(old_actions_log_prob_batch))
-                surrogate = -torch.squeeze(advantages_batch) * ratio
-                surrogate_clipped = -torch.squeeze(advantages_batch) * torch.clamp(ratio, 1.0 - self.clip_param,
-                                                                                1.0 + self.clip_param)
-                surrogate_loss = torch.max(surrogate, surrogate_clipped).mean()
-
-                # Value function loss
-                if self.use_clipped_value_loss:
-                    value_clipped = target_values_batch + (value_batch - target_values_batch).clamp(-self.clip_param,
-                                                                                                    self.clip_param)
-                    value_losses = (value_batch - returns_batch).pow(2)
-                    value_losses_clipped = (value_clipped - returns_batch).pow(2)
-                    value_loss = torch.max(
-                        value_losses, value_losses_clipped).mean()
-                else:
-                    value_loss = (returns_batch - value_batch).pow(2).mean()
-                
-                with torch.no_grad():
-                    unpadded_obs_batch = unpad_trajectories(obs_batch, masks_batch)
-                    unpadded_privileged_obs_for_teacher = unpad_trajectories(privileged_obs_batch, masks_batch)
-                    teacher_actions_mean = self.actor_critic.act_teacher(
-                        unpadded_obs_batch, unpadded_privileged_obs_for_teacher
-                    )
-                
                 action_reconstruction_loss = nn.functional.mse_loss(
-                    mu_batch, teacher_actions_mean
+                    mu_batch, teacher_actions_batch
                 )
-                
-                loss = self.value_loss_coef * value_loss + surrogate_loss \
-                        - self.entropy_coef * entropy_batch.mean() + action_reconstruction_loss
-                # Gradient step
+
+                # add entropy loss to encourage convergence to teacher policy
+                loss = action_reconstruction_loss + self.entropy_coef * entropy_batch.mean()
+
                 self.student_optimizer.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(
                     self.student_params, self.max_grad_norm)
                 self.student_optimizer.step()
-                
+
                 mean_action_reconstruction_loss += action_reconstruction_loss.item()
-                mean_value_loss += value_loss.item()
-                mean_surrogate_loss += surrogate_loss.item()
 
         num_updates = self.num_learning_epochs * self.num_mini_batches
-        mean_value_loss /= num_updates
-        mean_surrogate_loss /= num_updates
         mean_latent_reconstruction_loss /= num_updates
         mean_action_reconstruction_loss /= num_updates
         self.storage.clear()

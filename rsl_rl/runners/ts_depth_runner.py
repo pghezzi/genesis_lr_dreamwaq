@@ -7,7 +7,7 @@ import torch
 
 from legged_gym import LEGGED_GYM_ROOT_DIR
 from rsl_rl.algorithms import PPO_TSDepth
-from rsl_rl.modules import ActorCriticTSDepth
+from rsl_rl.modules import ActorCriticTSDepth, ActorCriticTSDepthTeacher
 from rsl_rl.env import VecEnv
 from .on_policy_runner import OnPolicyRunner
 from rsl_rl.storage import RolloutStorageTSDepth
@@ -38,7 +38,8 @@ class TSDepthRunner(OnPolicyRunner):
         actor_critic_class = eval(self.cfg["policy_class_name"])
         log_root = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', self.cfg["experiment_name"])
         teacher_model_path = os.path.join(log_root, self.cfg["teacher_model_path"])
-        actor_critic : ActorCriticTSDepth = actor_critic_class( 
+
+        actor_critic : ActorCriticTSDepth = actor_critic_class(
                                                     self.env.num_obs,
                                                     self.env.num_actions,
                                                     self.env.num_privileged_obs,
@@ -46,17 +47,36 @@ class TSDepthRunner(OnPolicyRunner):
                                                     self.env.num_critic_obs,
                                                     self.env.depth_image_resolution,
                                                     **self.policy_cfg).to(self.device)
+
         if self.distillation:
             print(f"Loading teacher model from {teacher_model_path}")
             loaded_dict = torch.load(teacher_model_path)
-            # copy actor, critic
             actor_critic.load_state_dict(loaded_dict['model_state_dict'])
-        
-        alg_class = eval(self.cfg["algorithm_class_name"]) # PPO_TSDepth
-        self.alg: PPO_TSDepth = alg_class(actor_critic, device=self.device, 
-                                          **self.alg_cfg, 
+
+            self.teacher_actor_critic = ActorCriticTSDepthTeacher(
+                self.env.num_obs,
+                self.env.num_actions,
+                self.env.num_privileged_obs,
+                self.env.num_latent_dims,
+                self.env.num_critic_obs,
+                **self.policy_cfg
+            ).to(self.device)
+            self.teacher_actor_critic.actor.load_state_dict(actor_critic.actor.state_dict())
+            self.teacher_actor_critic.critic.load_state_dict(actor_critic.critic.state_dict())
+            self.teacher_actor_critic.privilege_encoder.load_state_dict(actor_critic.privilege_encoder.state_dict())
+            self.teacher_actor_critic.eval()
+            for param in self.teacher_actor_critic.parameters():
+                param.requires_grad = False
+            print("Teacher model frozen for DAgger supervision")
+        else:
+            self.teacher_actor_critic = None
+
+        alg_class = eval(self.cfg["algorithm_class_name"])
+        self.alg: PPO_TSDepth = alg_class(actor_critic, device=self.device,
+                                          **self.alg_cfg,
                                           num_student=self.env.num_student,
-                                          distillation=self.distillation)
+                                          distillation=self.distillation,
+                                          teacher_actor_critic=self.teacher_actor_critic)
     
     def _init_storage(self):
         if self.distillation:

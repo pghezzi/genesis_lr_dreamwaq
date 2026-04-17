@@ -7,27 +7,25 @@ class RolloutStorageTSDepth(RolloutStorage):
     class Transition(RolloutStorage.Transition):
         def __init__(self):
             super().__init__()
-            # For TS, privileged_observations are input of privilege encoder
-            # critic_observations are input of critic, including some privileged information
             self.privileged_observations = None
             self.depth_image_features = None
+            self.teacher_actions = None
 
     def __init__(self, num_envs, num_student, num_transitions_per_env, obs_shape, 
                  privileged_obs_shape, depth_image_features_shape,
                  critic_obs_shape, actions_shape, device='cpu'):
 
-        super().__init__(num_envs, num_transitions_per_env, obs_shape, 
+        super().__init__(num_envs, num_transitions_per_env, obs_shape,
                          privileged_obs_shape, actions_shape, device)
 
         self.critic_obs_shape = critic_obs_shape
         self.num_student = num_student
 
-        # Core
-        # privileged observations are necessary
         if self.privileged_observations is None:
             raise ValueError("Privileged observations are required for RolloutStorageTS")
         self.critic_observations = torch.zeros(num_transitions_per_env, num_envs, *critic_obs_shape, device=self.device)
         self.depth_image_features = torch.zeros(num_transitions_per_env, num_student, *depth_image_features_shape, device=self.device)
+        self.teacher_actions = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
         self.saved_hidden_states = None
         
     def add_transitions(self, transition: Transition):
@@ -44,6 +42,8 @@ class RolloutStorageTSDepth(RolloutStorage):
         self.actions_log_prob[self.step].copy_(transition.actions_log_prob.view(-1, 1))
         self.mu[self.step].copy_(transition.action_mean)
         self.sigma[self.step].copy_(transition.action_sigma)
+        if transition.teacher_actions is not None:
+            self.teacher_actions[self.step].copy_(transition.teacher_actions)
         self._save_hidden_states(transition.hidden_states)
         self.step += 1
     
@@ -70,17 +70,6 @@ class RolloutStorageTSDepth(RolloutStorage):
         # use non-recurrent mini-batch generator for teacher update
         mini_batch_size = self.num_envs // num_mini_batches
         student_mini_batch_size = self.num_student // num_mini_batches
-
-        # observations = self.observations.flatten(0, 1)
-        # privileged_observations = self.privileged_observations.flatten(0, 1)
-        # critic_observations = self.critic_observations.flatten(0, 1)
-        # actions = self.actions.flatten(0, 1)
-        # values = self.values.flatten(0, 1)
-        # returns = self.returns.flatten(0, 1)
-        # old_actions_log_prob = self.actions_log_prob.flatten(0, 1)
-        # advantages = self.advantages.flatten(0, 1)
-        # old_mu = self.mu.flatten(0, 1)
-        # old_sigma = self.sigma.flatten(0, 1)
         
         student_obs = self.observations[:, 0:self.num_student]
         student_privileged_obs = self.privileged_observations[:, 0:self.num_student]
@@ -201,8 +190,10 @@ class RolloutStorageTSDepth(RolloutStorage):
                 # remove the tuple for GRU
                 hid_batch = hid_batch[0] if len(hid_batch)==1 else hid_batch
                 
+                teacher_actions_batch = self.teacher_actions[:, 0:self.num_student][:, start_student:end_student]
+
                 yield obs_batch, privileged_obs_batch, depth_batch, critic_obs_batch, \
                     actions_batch, values_batch, returns_batch, old_actions_log_prob_batch, \
-                    advantages_batch, old_mu_batch, old_sigma_batch, hid_batch, masks_batch
-                    
+                    advantages_batch, old_mu_batch, old_sigma_batch, hid_batch, masks_batch, teacher_actions_batch
+
                 first_traj = last_traj

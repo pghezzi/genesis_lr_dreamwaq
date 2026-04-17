@@ -157,7 +157,8 @@ class ActorCriticTSDepth(nn.Module):
             raise ValueError(f"Invalid act_type: {act_type}")
         mean = self.actor(torch.cat(
             (observations, latent), dim=-1))
-        self.distribution = Normal(mean, mean*0. + self.std)
+        std = torch.max(self.std, torch.tensor(1e-6).to(self.std.device)) # to avoid std being negative or zero
+        self.distribution = Normal(mean, mean*0. + std)
 
     def act(self, observations, depth_image_features, privilege_observations,
             act_type, hidden_states=None, masks=None):
