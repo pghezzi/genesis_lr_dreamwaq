@@ -47,18 +47,9 @@ class TSDepthRunner(OnPolicyRunner):
                                                     **self.policy_cfg).to(self.device)
         if self.distillation:
             print(f"Loading teacher model from {teacher_model_path}")
-            # loaded_dict = torch.load(teacher_model_path)
-            # loaded_actor_critic = ActorCriticTSDepth(self.env.num_obs,
-            #                                         self.env.num_actions,
-            #                                         self.env.num_privileged_obs,
-            #                                         self.env.num_latent_dims,
-            #                                         self.env.num_critic_obs,
-            #                                         self.env.depth_image_resolution,
-            #                                         **self.policy_cfg).to(self.device)
-            # loaded_actor_critic.load_state_dict(loaded_dict['model_state_dict'])
-            # # copy actor, critic
-            # actor_critic.actor.load_state_dict(loaded_actor_critic.teacher_ac.actor.state_dict())
-            # actor_critic.critic.load_state_dict(loaded_actor_critic.teacher_ac.critic.state_dict())
+            loaded_dict = torch.load(teacher_model_path)
+            # copy actor, critic
+            actor_critic.load_state_dict(loaded_dict['model_state_dict'])
         
         alg_class = eval(self.cfg["algorithm_class_name"]) # PPO_TSDepth
         self.alg: PPO_TSDepth = alg_class(actor_critic, device=self.device, 
@@ -122,8 +113,8 @@ class TSDepthRunner(OnPolicyRunner):
             stop = time.time()
             learn_time = stop - start
             
-            # detach hidden states after each update (num_steps per env)
-            # self.alg.actor_critic.detach_hidden_states()
+            if it % 5 == 0: # detach every 5 iterations
+                self.alg.actor_critic.detach_hidden_states()
 
             if self.log_dir is not None:
                 self.log(locals())

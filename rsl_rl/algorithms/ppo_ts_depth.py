@@ -69,13 +69,15 @@ class PPO_TSDepth(PPO):
         self.teacher_optimizer = optim.Adam(self.teacher_params, lr=learning_rate)  # do not consider paramters of student encoder during RL update
         if not self.distillation:
             self.student_params = list(self.actor_critic.depth_history_encoder.parameters())
+            self.student_optimizer = optim.Adam(
+                self.student_params, lr=self.encoder_lr)
         else:
             self.student_params = list(self.actor_critic.depth_history_encoder.parameters()) + \
                                     list(self.actor_critic.actor.parameters()) + \
                                     list(self.actor_critic.critic.parameters()) + \
                                     [self.actor_critic.std]
-        self.student_optimizer = optim.Adam(
-                self.student_params, lr=self.encoder_lr)
+            self.student_optimizer = optim.Adam(
+                    self.student_params, lr=learning_rate)
         self.transition = RolloutStorageTSDepth.Transition()
 
     def init_storage(self, num_envs, num_transitions_per_env, actor_obs_shape, privileged_obs_shape, 
@@ -89,7 +91,7 @@ class PPO_TSDepth(PPO):
         # Compute the actions and values
         dummy_infer = self.actor_critic.depth_history_encoder(obs[0:self.num_student], depth_image_features)
         self.transition.hidden_states = self.actor_critic.get_hidden_states()
-        if not self.distillation: # teacher update, all envs are teacher envs
+        if not self.distillation: # teacher update, all envs produce data for teacher RL update, but only student envs produce data for student encoder update
             self.transition.actions = self.actor_critic.act(obs, None, privileged_obs, 
                                                             "teacher", None, None).detach()
         else: # student distillation, first num_student envs are student envs, the rest are teacher envs
@@ -284,17 +286,9 @@ class PPO_TSDepth(PPO):
                 else:
                     value_loss = (returns_batch - value_batch).pow(2).mean()
                 
-                latent = self.actor_critic.depth_history_encoder(obs_batch,
-                                                                depth_image_features_batch,
-                                                                hidden_states=hid_states_batch,
-                                                                masks=masks_batch)
-
-                with torch.no_grad():
-                    unpadded_privileged_obs_batch = unpad_trajectories(privileged_obs_batch, masks_batch)
-                    latent_targets = self.actor_critic.privilege_encoder(unpadded_privileged_obs_batch)
-
-                latent_reconstruction_loss = nn.functional.mse_loss( # use mse loss
-                    latent, latent_targets)
+                # FIX: Removed latent_reconstruction_loss in distillation phase
+                # The depth_history_encoder should already be trained in phase 1
+                # Only action_reconstruction_loss is needed to align student policy with teacher
                 
                 with torch.no_grad():
                     unpadded_obs_batch = unpad_trajectories(obs_batch, masks_batch)
@@ -308,7 +302,7 @@ class PPO_TSDepth(PPO):
                 )
                 
                 loss = self.value_loss_coef * value_loss + surrogate_loss \
-                        - self.entropy_coef * entropy_batch.mean() + latent_reconstruction_loss + action_reconstruction_loss
+                        - self.entropy_coef * entropy_batch.mean() + action_reconstruction_loss
                 # Gradient step
                 self.student_optimizer.zero_grad()
                 loss.backward()
@@ -316,8 +310,6 @@ class PPO_TSDepth(PPO):
                     self.student_params, self.max_grad_norm)
                 self.student_optimizer.step()
                 
-                # detach hidden states after each update to prevent gradients backpropagating through time across updates
-                self.actor_critic.depth_history_encoder.detach_hidden_states()
                 mean_latent_reconstruction_loss += latent_reconstruction_loss.item()
                 mean_action_reconstruction_loss += action_reconstruction_loss.item()
                 mean_value_loss += value_loss.item()
