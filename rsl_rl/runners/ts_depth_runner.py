@@ -10,6 +10,7 @@ from rsl_rl.algorithms import PPO_TSDepth
 from rsl_rl.modules import ActorCriticTSDepth
 from rsl_rl.env import VecEnv
 from .on_policy_runner import OnPolicyRunner
+from rsl_rl.storage import RolloutStorageTSDepth
 
     
 class TSDepthRunner(OnPolicyRunner):
@@ -58,39 +59,63 @@ class TSDepthRunner(OnPolicyRunner):
                                           distillation=self.distillation)
     
     def _init_storage(self):
-        # init storage and model
-        self.alg.init_storage(self.env.num_envs, self.num_steps_per_env, 
-                              [self.env.num_obs], [self.env.num_privileged_obs], 
-                              self.env.depth_image_features_shape, [self.env.num_critic_obs], 
-                              [self.env.num_actions])
+        if self.distillation:
+            self.storage_student = RolloutStorageTSDepth(
+                self.env.num_student, self.env.num_student, self.num_steps_per_env,
+                [self.env.num_obs], [self.env.num_privileged_obs],
+                self.env.depth_image_features_shape, [self.env.num_critic_obs],
+                [self.env.num_actions], self.device)
+            self.alg.init_storage(self.storage_student)
+            self.current_num_envs = self.env.num_student
+        else:
+            self.storage_full = RolloutStorageTSDepth(
+                self.env.num_envs, self.env.num_student, self.num_steps_per_env,
+                [self.env.num_obs], [self.env.num_privileged_obs],
+                self.env.depth_image_features_shape, [self.env.num_critic_obs],
+                [self.env.num_actions], self.device)
+            self.alg.init_storage(self.storage_full)
+            self.current_num_envs = self.env.num_envs
         
     def learn(self, num_learning_iterations, init_at_random_ep_len=False):
         self._pre_learn(init_at_random_ep_len)
         obs, privileged_obs, depth_image_features, critic_obs = self.env.get_observations()
         obs, privileged_obs, depth_image_features, critic_obs = obs.to(self.device), privileged_obs.to(self.device), \
             depth_image_features.to(self.device), critic_obs.to(self.device)
-        self.alg.actor_critic.train() # switch to train mode
+        self.alg.actor_critic.train()
 
         ep_infos = []
         rewbuffer = deque(maxlen=100)
         lenbuffer = deque(maxlen=100)
-        cur_reward_sum = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
-        cur_episode_length = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
+        cur_reward_sum = torch.zeros(self.current_num_envs, dtype=torch.float, device=self.device)
+        cur_episode_length = torch.zeros(self.current_num_envs, dtype=torch.float, device=self.device)
 
         tot_iter = self.current_learning_iteration + num_learning_iterations
         for it in range(self.current_learning_iteration, tot_iter):
             start = time.time()
-            # Rollout
             with torch.inference_mode():
                 for i in range(self.num_steps_per_env):
-                    actions = self.alg.act(obs, privileged_obs, depth_image_features, critic_obs)
-                    obs, privileged_obs, depth_image_features, critic_obs, rewards, dones, infos = self.env.step(actions)
-                    obs, privileged_obs, depth_image_features, rewards, dones, critic_obs = obs.to(self.device), \
-                        privileged_obs.to(self.device), depth_image_features.to(self.device), rewards.to(self.device), dones.to(self.device), critic_obs.to(self.device)
-                    self.alg.process_env_step(rewards, dones, infos)
-                    
+                    if self.distillation: # phase 2 training, only student policy interacts with env
+                        obs_student = obs[:self.env.num_student]
+                        privileged_obs_student = privileged_obs[:self.env.num_student]
+                        depth_student = depth_image_features[:self.env.num_student]
+                        critic_obs_student = critic_obs[:self.env.num_student]
+                        actions_student = self.alg.act(obs_student, privileged_obs_student, depth_student, critic_obs_student)
+                        actions = torch.zeros(self.env.num_envs, actions_student.shape[1], device=self.device)
+                        actions[:self.env.num_student] = actions_student
+                        obs, privileged_obs, depth_image_features, critic_obs, rewards, dones, infos = self.env.step(actions)
+                        obs, privileged_obs, depth_image_features, rewards, dones, critic_obs = obs[:self.env.num_student].to(self.device), \
+                            privileged_obs[:self.env.num_student].to(self.device), depth_image_features.to(self.device), \
+                            rewards[:self.env.num_student].to(self.device), dones[:self.env.num_student].to(self.device), \
+                            critic_obs[:self.env.num_student].to(self.device)
+                        self.alg.process_env_step(rewards, dones, infos)
+                    else: # phase 1 training, teacher policy interacts with env
+                        actions = self.alg.act(obs, privileged_obs, depth_image_features, critic_obs)
+                        obs, privileged_obs, depth_image_features, critic_obs, rewards, dones, infos = self.env.step(actions)
+                        obs, privileged_obs, depth_image_features, rewards, dones, critic_obs = obs.to(self.device), \
+                            privileged_obs.to(self.device), depth_image_features.to(self.device), rewards.to(self.device), dones.to(self.device), critic_obs.to(self.device)
+                        self.alg.process_env_step(rewards, dones, infos)
+
                     if self.log_dir is not None:
-                        # Book keeping
                         if 'episode' in infos:
                             ep_infos.append(infos['episode'])
                         cur_reward_sum += rewards
@@ -104,7 +129,6 @@ class TSDepthRunner(OnPolicyRunner):
                 stop = time.time()
                 collection_time = stop - start
 
-                # Learning step
                 start = stop
                 self.alg.compute_returns(critic_obs)
 
@@ -112,8 +136,8 @@ class TSDepthRunner(OnPolicyRunner):
                     mean_action_reconstruction_loss = self.alg.update()
             stop = time.time()
             learn_time = stop - start
-            
-            if it % 5 == 0: # detach every 5 iterations
+
+            if it % 5 == 0:
                 self.alg.actor_critic.detach_hidden_states()
 
             if self.log_dir is not None:
@@ -121,12 +145,12 @@ class TSDepthRunner(OnPolicyRunner):
             if it % self.save_interval == 0:
                 self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)))
             ep_infos.clear()
-        
+
         self.current_learning_iteration += num_learning_iterations
         self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(self.current_learning_iteration)))
 
     def log(self, locs, width=80, pad=35):
-        self.tot_timesteps += self.num_steps_per_env * self.env.num_envs
+        self.tot_timesteps += self.num_steps_per_env * self.current_num_envs
         self.tot_time += locs['collection_time'] + locs['learn_time']
         iteration_time = locs['collection_time'] + locs['learn_time']
 
@@ -135,7 +159,6 @@ class TSDepthRunner(OnPolicyRunner):
             for key in locs['ep_infos'][0]:
                 infotensor = torch.tensor([], device=self.device)
                 for ep_info in locs['ep_infos']:
-                    # handle scalar and zero dimensional tensor infos
                     if not isinstance(ep_info[key], torch.Tensor):
                         ep_info[key] = torch.Tensor([ep_info[key]])
                     if len(ep_info[key].shape) == 0:
@@ -145,7 +168,7 @@ class TSDepthRunner(OnPolicyRunner):
                 self.writer.add_scalar('Episode/' + key, value, locs['it'])
                 ep_string += f"""{f'Mean episode {key}:':>{pad}} {value:.4f}\n"""
         mean_std = self.alg.actor_critic.std.mean()
-        fps = int(self.num_steps_per_env * self.env.num_envs / (locs['collection_time'] + locs['learn_time']))
+        fps = int(self.num_steps_per_env * self.current_num_envs / (locs['collection_time'] + locs['learn_time']))
 
         self.writer.add_scalar('Loss/value_function', locs['mean_value_loss'], locs['it'])
         self.writer.add_scalar('Loss/surrogate', locs['mean_surrogate_loss'], locs['it'])

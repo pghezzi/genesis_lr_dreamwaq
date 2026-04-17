@@ -59,7 +59,7 @@ class PPO_TSDepth(PPO):
         self.encoder_lr = encoder_lr
 
         # PPO components
-        self.actor_critic = actor_critic
+        self.actor_critic: ActorCriticTSDepth = actor_critic
         self.actor_critic.to(self.device)
         self.storage = None  # initialized later
         self.teacher_params = list(self.actor_critic.actor.parameters()) + \
@@ -80,29 +80,25 @@ class PPO_TSDepth(PPO):
                     self.student_params, lr=learning_rate)
         self.transition = RolloutStorageTSDepth.Transition()
 
-    def init_storage(self, num_envs, num_transitions_per_env, actor_obs_shape, privileged_obs_shape, 
-                      depth_image_features_shape, critic_obs_shape, action_shape):
-        self.storage = RolloutStorageTSDepth(
-            num_envs, self.num_student, num_transitions_per_env, actor_obs_shape, 
-            privileged_obs_shape, depth_image_features_shape, critic_obs_shape, action_shape, self.device)
+    def init_storage(self, storage):
+        self.storage: RolloutStorageTSDepth = storage
 
     def act(self, obs, privileged_obs, depth_image_features, critic_obs):
-        # In storage, first num_student indices are student envs, the rest are teacher envs
-        # Compute the actions and values
-        dummy_infer = self.actor_critic.depth_history_encoder(obs[0:self.num_student], depth_image_features)
-        self.transition.hidden_states = self.actor_critic.get_hidden_states()
-        if not self.distillation: # teacher update, all envs produce data for teacher RL update, but only student envs produce data for student encoder update
-            self.transition.actions = self.actor_critic.act(obs, None, privileged_obs, 
+        num_envs_batch = obs.shape[0]
+        if not self.distillation: # teacher training
+            _ = self.actor_critic.depth_history_encoder(obs[0:self.num_student], depth_image_features)
+            self.transition.hidden_states = self.actor_critic.get_hidden_states()
+            self.transition.actions = self.actor_critic.act(obs, None, privileged_obs,
                                                             "teacher", None, None).detach()
-        else: # student distillation, first num_student envs are student envs, the rest are teacher envs
-            self.transition.actions = torch.zeros((obs.shape[0], self.storage.actions_shape[0]), device=self.device) # dummy actions for all envs
-            self.transition.actions[0:self.num_student] = self.actor_critic.act(obs[0:self.num_student], depth_image_features, None,
-                                                                                "student", None, None).detach()
+        else: # student training
+            _ = self.actor_critic.depth_history_encoder(obs, depth_image_features)
+            self.transition.hidden_states = self.actor_critic.get_hidden_states()
+            self.transition.actions = self.actor_critic.act(obs, depth_image_features, None,
+                                                            "student", None, None).detach()
         self.transition.actions_log_prob = self.actor_critic.get_actions_log_prob(self.transition.actions).detach()
         self.transition.action_mean = self.actor_critic.action_mean.detach()
         self.transition.action_sigma = self.actor_critic.action_std.detach()
         self.transition.values = self.actor_critic.evaluate(critic_obs).detach()
-        # need to record obs and critic_obs before env.step()
         self.transition.observations = obs.detach()
         self.transition.privileged_observations = privileged_obs.detach()
         self.transition.depth_image_features = depth_image_features.detach()
@@ -112,14 +108,19 @@ class PPO_TSDepth(PPO):
     def process_env_step(self, rewards, dones, infos):
         self.transition.rewards = rewards.clone()
         self.transition.dones = dones
-        # Bootstrapping on time outs
         if 'time_outs' in infos:
-            self.transition.rewards += self.gamma * torch.squeeze(self.transition.values * infos['time_outs'].unsqueeze(1).to(self.device), 1)
+            if self.distillation:
+                self.transition.rewards += self.gamma * torch.squeeze(self.transition.values * 
+                                                                      infos['time_outs'][:self.num_student].unsqueeze(1).to(self.device), 1)
+            else:
+                self.transition.rewards += self.gamma * torch.squeeze(self.transition.values * infos['time_outs'].unsqueeze(1).to(self.device), 1)
 
-        # Record the transition
         self.storage.add_transitions(self.transition)
         self.transition.clear()
-        self.actor_critic.reset(dones[:self.num_student])
+        if not self.distillation:
+            self.actor_critic.reset(dones[:self.num_student])
+        else:
+            self.actor_critic.reset(dones)
 
     def update(self):
         mean_value_loss = 0
@@ -286,10 +287,6 @@ class PPO_TSDepth(PPO):
                 else:
                     value_loss = (returns_batch - value_batch).pow(2).mean()
                 
-                # FIX: Removed latent_reconstruction_loss in distillation phase
-                # The depth_history_encoder should already be trained in phase 1
-                # Only action_reconstruction_loss is needed to align student policy with teacher
-                
                 with torch.no_grad():
                     unpadded_obs_batch = unpad_trajectories(obs_batch, masks_batch)
                     unpadded_privileged_obs_for_teacher = unpad_trajectories(privileged_obs_batch, masks_batch)
@@ -310,11 +307,10 @@ class PPO_TSDepth(PPO):
                     self.student_params, self.max_grad_norm)
                 self.student_optimizer.step()
                 
-                mean_latent_reconstruction_loss += latent_reconstruction_loss.item()
                 mean_action_reconstruction_loss += action_reconstruction_loss.item()
                 mean_value_loss += value_loss.item()
                 mean_surrogate_loss += surrogate_loss.item()
-                
+
         num_updates = self.num_learning_epochs * self.num_mini_batches
         mean_value_loss /= num_updates
         mean_surrogate_loss /= num_updates
