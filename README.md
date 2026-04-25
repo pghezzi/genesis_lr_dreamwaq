@@ -47,6 +47,7 @@ Please refer to the [doc of this repo](https://leggedgym-ex-doc.readthedocs.io/e
 | TRON1_SF | <img src="https://github.com/lupinjia/leggedgym-ex-doc/blob/main/source/_static/images/tron1_sf_demo.gif?raw=true" width="428"> | |
 | Unitree G1 DeepMimic | <img src="https://github.com/lupinjia/leggedgym-ex-doc/blob/main/source/_static/images/g1_mimic_demo.gif?raw=true" width="428"> | |
 | Booster K1 | <img src="https://github.com/lupinjia/leggedgym-ex-doc/blob/main/source/_static/images/booster_k1_demo.gif?raw=true" width="428"> | [video](https://www.bilibili.com/video/BV1GyXgBmEa9/) |
+| Go2 Parkour with Depth Image | <img src="https://github.com/lupinjia/leggedgym-ex-doc/blob/main/source/_static/images/go2_depth_parkour_demo.gif?raw=true" width="428"> | [video](https://www.bilibili.com/video/BV1riwMzmEZT/?spm_id_from=333.1387.homepage.video_card.click) |
 
 
 ## 🙏 Acknowledgements
