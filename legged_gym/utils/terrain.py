@@ -59,6 +59,8 @@ class Terrain:
         self.tot_cols = int(cfg.num_cols * self.width_per_env_pixels) + 2 * self.border
     
         self.height_field_raw = np.zeros((self.tot_rows , self.tot_cols), dtype=np.int16)
+        # edge mask to indicate the edge points of the terrain, for use in rewards
+        self.edge_mask = np.zeros((self.tot_rows, self.tot_cols), dtype=bool)
         self.terrain_meshes = []
         if cfg.curriculum and cfg.selected:
             raise ValueError("Curriculum and selected terrain cannot be both True.")
@@ -217,6 +219,9 @@ class Terrain:
         start_y = self.border + j * self.width_per_env_pixels
         end_y = self.border + (j + 1) * self.width_per_env_pixels
         self.height_field_raw[start_x: end_x, start_y:end_y] = terrain.height_field_raw
+        
+        # add edge mask for the terrain, to indicate the edge points of the terrain, for use in rewards
+        self.edge_mask[start_x: end_x, start_y:end_y] = terrain.edge_mask
 
         env_origin_x = (i + 0.5) * self.env_length
         env_origin_y = (j + 0.5) * self.env_width

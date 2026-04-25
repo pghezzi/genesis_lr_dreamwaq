@@ -181,6 +181,9 @@ class IsaacLabSimulator(Simulator):
         self._sim.set_camera_view(eye=eye, 
                                   target=target)
     
+    def calc_feet_near_edge(self):
+        return super().calc_feet_near_edge()
+    
     #----- Protected methods -----#
     def _pre_simulator_step(self, actions):
         # apply action delay by using an action queue

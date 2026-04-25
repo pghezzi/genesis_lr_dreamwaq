@@ -28,6 +28,8 @@ class SubTerrain:
         self.height_field_raw = np.zeros((self.length, self.width), dtype=np.int16)
         # add a trimesh object to store the trimesh of subterrain, for use in trimesh terrain type
         self.terrain_mesh = trimesh.Trimesh()
+        # add edge mask to indicate the edge points of the terrain, for use in rewards
+        self.edge_mask = np.zeros((self.length, self.width), dtype=bool)
 
 #---------- Heightfield Terrain Functions ----------#
 
@@ -286,6 +288,17 @@ def discrete_obstacles_terrain(terrain : SubTerrain,
     y2 = platform_y2
     terrain.height_field_raw[x1:x2, y1:y2] = 0
     
+    # Identify the edge points of the terrain and set the edge mask accordingly
+    edge_threshold = int(0.04 / terrain.vertical_scale) # 4cm height difference to identify edge points
+    # if the height difference between a point and its 4-connected neighbors is greater than the threshold, then this point is an edge point
+    for i in range(0, terrain.length - 1):
+        for j in range(0, terrain.width - 1):
+            if (abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i-1, j]) > edge_threshold or
+                abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i+1, j]) > edge_threshold or
+                abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i, j-1]) > edge_threshold or
+                abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i, j+1]) > edge_threshold):
+                terrain.edge_mask[i, j] = True
+    
     # generate the terrain mesh for trimesh terrain type
     if terrain_type == "trimesh":
         # vertices, triangles = convert_heightfield_to_trimesh(terrain.height_field_raw, terrain.horizontal_scale, terrain.vertical_scale)
@@ -430,6 +443,17 @@ def pyramid_stairs_terrain(terrain : SubTerrain,
         stop_y -= step_width
         height += step_height
     
+    # Identify the edge points of the terrain and set the edge mask accordingly
+    edge_threshold = int(0.04 / terrain.vertical_scale) # 4cm height difference to identify edge points
+    # if the height difference between a point and its 4-connected neighbors is greater than the threshold, then this point is an edge point
+    for i in range(0, terrain.length - 1):
+        for j in range(0, terrain.width - 1):
+            if (abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i-1, j]) > edge_threshold or
+                abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i+1, j]) > edge_threshold or
+                abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i, j-1]) > edge_threshold or
+                abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i, j+1]) > edge_threshold):
+                terrain.edge_mask[i, j] = True
+    
     # generate the terrain mesh for trimesh terrain type
     if terrain_type == "trimesh":
         if step_height >= 0:
@@ -551,6 +575,17 @@ def stepping_stones_terrain(terrain : SubTerrain,
         platform_mesh = trimesh.creation.box(platform_dim, trimesh.transformations.translation_matrix(platform_center))
         meshes_list.append(platform_mesh)
     
+    # Identify the edge points of the terrain and set the edge mask accordingly
+    edge_threshold = int(0.04 / terrain.vertical_scale) # 4cm height difference to identify edge points
+    # if the height difference between a point and its 4-connected neighbors is greater than the threshold, then this point is an edge point
+    for i in range(0, terrain.length - 1):
+        for j in range(0, terrain.width - 1):
+            if (abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i-1, j]) > edge_threshold or
+                abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i+1, j]) > edge_threshold or
+                abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i, j-1]) > edge_threshold or
+                abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i, j+1]) > edge_threshold):
+                terrain.edge_mask[i, j] = True
+    
     # generate the terrain mesh for trimesh terrain type
     if terrain_type == "trimesh":
         # vertices, triangles = convert_heightfield_to_trimesh(terrain.height_field_raw, terrain.horizontal_scale, terrain.vertical_scale)
@@ -598,6 +633,17 @@ def gap_terrain(terrain : SubTerrain,
     terrain.height_field_raw[center_x-x2 : center_x + x2, center_y-y2 : center_y + y2] = -1000
     terrain.height_field_raw[center_x-x1 : center_x + x1, center_y-y1 : center_y + y1] = 0
 
+    # Identify the edge points of the terrain and set the edge mask accordingly
+    edge_threshold = int(0.04 / terrain.vertical_scale) # 4cm height difference to identify edge points
+    # if the height difference between a point and its 4-connected neighbors is greater than the threshold, then this point is an edge point
+    for i in range(0, terrain.length - 1):
+        for j in range(0, terrain.width - 1):
+            if (abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i-1, j]) > edge_threshold or
+                abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i+1, j]) > edge_threshold or
+                abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i, j-1]) > edge_threshold or
+                abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i, j+1]) > edge_threshold):
+                terrain.edge_mask[i, j] = True
+    
     # generate the terrain mesh for trimesh terrain type
     if terrain_type == "trimesh":
         terrain.terrain_mesh = mesh_gap_terrain(terrain,
@@ -617,6 +663,17 @@ def pit_terrain(terrain : SubTerrain,
     y1 = terrain.width // 2 - platform_size
     y2 = terrain.width // 2 + platform_size
     terrain.height_field_raw[x1:x2, y1:y2] = -depth
+    
+    # Identify the edge points of the terrain and set the edge mask accordingly
+    edge_threshold = int(0.04 / terrain.vertical_scale) # 4cm height difference to identify edge points
+    # if the height difference between a point and its 4-connected neighbors is greater than the threshold, then this point is an edge point
+    for i in range(0, terrain.length - 1):
+        for j in range(0, terrain.width - 1):
+            if (abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i-1, j]) > edge_threshold or
+                abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i+1, j]) > edge_threshold or
+                abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i, j-1]) > edge_threshold or
+                abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i, j+1]) > edge_threshold):
+                terrain.edge_mask[i, j] = True
     
     # generate the terrain mesh for trimesh terrain type
     if terrain_type == "trimesh":
@@ -701,6 +758,17 @@ def multiple_high_platforms_terrain(terrain : SubTerrain,
             meshes_list.append(box_mesh)
         x_end = x_start - high_platform_interval
         x_start = x_end - high_platform_length
+    
+    # Identify the edge points of the terrain and set the edge mask accordingly
+    edge_threshold = int(0.04 / terrain.vertical_scale) # 4cm height difference to identify edge points
+    # if the height difference between a point and its 4-connected neighbors is greater than the threshold, then this point is an edge point
+    for i in range(0, terrain.length - 1):
+        for j in range(0, terrain.width - 1):
+            if (abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i-1, j]) > edge_threshold or
+                abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i+1, j]) > edge_threshold or
+                abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i, j-1]) > edge_threshold or
+                abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i, j+1]) > edge_threshold):
+                terrain.edge_mask[i, j] = True
     
     # add a flat ground mesh for the rest of the terrain and concatenate with the high_platform meshes to get the final terrain mesh
     if terrain_type == "trimesh":
@@ -840,6 +908,18 @@ def high_platform_gaps_terrain(terrain : SubTerrain,
     y1 = terrain.width // 2 - platform_size
     y2 = terrain.width // 2 + platform_size
     terrain.height_field_raw[x1:x2, y1:y2] = 0
+    
+    # Identify the edge points of the terrain and set the edge mask accordingly
+    edge_threshold = int(0.04 / terrain.vertical_scale) # 4cm height difference to identify edge points
+    # if the height difference between a point and its 4-connected neighbors is greater than the threshold, then this point is an edge point
+    for i in range(0, terrain.length - 1):
+        for j in range(0, terrain.width - 1):
+            if (abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i-1, j]) > edge_threshold or
+                abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i+1, j]) > edge_threshold or
+                abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i, j-1]) > edge_threshold or
+                abs(terrain.height_field_raw[i, j] - terrain.height_field_raw[i, j+1]) > edge_threshold):
+                terrain.edge_mask[i, j] = True
+                
     if terrain_type == "trimesh":
         platform_center = (0.5 * (x1 + x2) * terrain.horizontal_scale,
                            0.5 * (y1 + y2) * terrain.horizontal_scale,

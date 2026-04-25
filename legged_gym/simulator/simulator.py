@@ -72,12 +72,6 @@ class Simulator(ABC):
         return
     
     @abstractmethod
-    def update_sensors(self):
-        """Updates the sensor readings, such as depth image sensors and lidar sensors.
-        """
-        return
-    
-    @abstractmethod
     def update_terrain_curriculum(self, env_ids, move_up, move_down):
         """Updates the terrain curriculum for the environments with the given environment IDs.
 
@@ -119,6 +113,15 @@ class Simulator(ABC):
     @abstractmethod
     def update_sensors(self):
         """Updates the sensor readings, such as depth image sensors and lidar sensors.
+        """
+        return
+    
+    @abstractmethod
+    def calc_feet_near_edge(self):
+        """Calculates whether the feet are near the edge of a terrain, which is used for reward calculation.
+
+        Returns:
+            Tensor((num_envs, num_feet)): A boolean tensor indicating whether each foot is near the edge of a terrain for each environment.
         """
         return
 

@@ -31,10 +31,11 @@ def override_configs(env_cfg, args, task_type):
     if env_cfg.terrain.mesh_type in ["heightfield", "trimesh"]:
         env_cfg.terrain.num_rows = 1
         env_cfg.terrain.num_cols = 1
-        env_cfg.terrain.border_size = 5.0
+        env_cfg.terrain.border_size = 2.0
         env_cfg.terrain.curriculum = False
         env_cfg.terrain.selected = True
         env_cfg.env.debug_draw_terrain_height_points = False
+        env_cfg.domain_rand.push_robots = False
         
         
         # random uniform terrain
@@ -46,7 +47,7 @@ def override_configs(env_cfg, args, task_type):
         #                                   "slope": -0.4, "platform_size": 3.0}
         # stairs
         # env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.pyramid_stairs_terrain",
-        #                                 "step_width": 0.4, "step_height": 0.1, "platform_size": 3.0}
+        #                                 "step_width": 0.4, "step_height": -0.2, "platform_size": 3.0}
         # discrete obstacles
         # env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.discrete_obstacles_terrain",
         #                                   "max_height": 0.2,
@@ -62,19 +63,19 @@ def override_configs(env_cfg, args, task_type):
         #                                   "stone_length": 1.0, "stone_width": 0.5, "max_height": 0.0,
         #                                   "stone_distance_x": 1.0, "stone_distance_y": 0.3, "platform_size": 3.0}
         # gap terrain
-        env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.gap_terrain", 
-                                          "gap_size": 0.7, "platform_size": 4.0}
+        # env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.gap_terrain", 
+        #                                   "gap_size": 0.8, "platform_size": 4.0}
         # pit terrain
         # env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.pit_terrain", 
         #                                   "depth": 0.5, "platform_size": 4.0}
         # multiple pits terrain
         # env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.multiple_high_platforms_terrain",
-        #                                   "high_platform_height": 0.5, "high_platform_length": 0.6, "high_platform_width": 2.0,
-        #                                   "high_platform_interval": 1.4, "platform_size": 3.0}
+        #                                   "high_platform_height": 0.5, "high_platform_length": 0.5, "high_platform_width": 2.0,
+        #                                   "high_platform_interval": 1.8, "platform_size": 3.0}
         # high_platform_gaps_terrain
-        # env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.high_platform_gaps_terrain",
-        #                                   "high_platform_height": 0.5, "high_platform_length": 1.6, "high_platform_width": 1.0,
-        #                                   "high_platform_distance_y": 2.0, "gap_size": 0.6, "platform_size": 4.0}
+        env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.high_platform_gaps_terrain",
+                                          "high_platform_height": 0.5, "high_platform_length": 1.6, "high_platform_width": 1.0,
+                                          "high_platform_distance_y": 2.0, "gap_size": 0.6, "platform_size": 4.0}
         
         
     env_cfg.env.debug = True

@@ -201,6 +201,8 @@ class IsaacGymSimulator(Simulator):
             self._draw_height_points_around_feet()
         if self._cfg.env.debug_draw_terrain_height_points:
             self._draw_terrain_height_points()
+        if self._cfg.env.debug_draw_terrain_edge_points:
+            self._draw_terrain_edge_points()
         if self._cfg.env.debug_draw_key_body_points:
             self._draw_key_body_points(ref_key_body_pos)
         if self._cfg.env.debug_draw_depth_images:
@@ -241,6 +243,40 @@ class IsaacGymSimulator(Simulator):
         py = torch.clip(py, 0, self._height_samples.shape[1]-2)
         
         return self._height_samples[px, py] * self._cfg.terrain.vertical_scale
+
+    def calc_feet_near_edge(self):
+        """ Calculate whether each foot is near the terrain edge, which can be used as a termination condition or for reward shaping
+        Returns:
+            torch.tensor: whether each foot is near the terrain edge, shape: (num_envs, num_feet)
+        """
+        if self._cfg.terrain.mesh_type == 'plane':
+            return torch.zeros((self._num_envs, len(self._feet_indices)), device=self._device, dtype=torch.bool)
+        elif self._cfg.terrain.mesh_type == 'none':
+            raise NameError(
+                "Can't calculate feet near edge with terrain mesh type 'none'")
+        
+        feet_pos_xy = self._rigid_body_states[:, self._feet_indices, :2] # (num_envs, num_feet, 2)
+        feet_points_float = feet_pos_xy + self._cfg.terrain.border_size # add border size to align the origin with heightfield raw
+        points = (feet_points_float/self._cfg.terrain.horizontal_scale).long()
+        px = points[:,:, 0]
+        py = points[:,:, 1]
+        px = torch.clip(px, 0, self._edge_mask.shape[0]-1)
+        py = torch.clip(py, 0, self._edge_mask.shape[1]-1)
+        
+        # if any of the four points around the foot is an edge point
+        # and the position of the foot is within 5 cm to the edge point, we consider the foot to be near the edge
+        edge_threshold = self._cfg.rewards.feet_edge_threshold
+        foot_near_edge = torch.zeros((self._num_envs, len(self._feet_indices)), device=self._device, dtype=torch.bool)
+        for i in range(-1, 2):
+            for j in range(-1, 2):
+                edge_points = self._edge_mask[torch.clip(px+i, 0, self._edge_mask.shape[0]-1), torch.clip(py+j, 0, self._edge_mask.shape[1]-1)] == 1
+                if edge_points.any():
+                    edge_points_pos = torch.zeros((self._num_envs, len(self._feet_indices), 2), device=self._device)
+                    edge_points_pos[:,:,0] = (torch.clip(px+i, 0, self._edge_mask.shape[0]-1).float() * self._cfg.terrain.horizontal_scale) - self._cfg.terrain.border_size
+                    edge_points_pos[:,:,1] = (torch.clip(py+j, 0, self._edge_mask.shape[1]-1).float() * self._cfg.terrain.horizontal_scale) - self._cfg.terrain.border_size
+                    foot_near_edge = foot_near_edge | (edge_points & (torch.norm(feet_pos_xy - edge_points_pos, dim=-1) < edge_threshold))
+        
+        return foot_near_edge
     
     #----- Protected methods -----#
     def _pre_simulator_step(self, actions):
@@ -935,7 +971,7 @@ class IsaacGymSimulator(Simulator):
     def _draw_terrain_height_points(self):
         """ Draws height measurement points in the terrain for debugging
         """
-         # draw height lines
+        # draw height lines
         if not self._cfg.terrain.measure_heights:
             return
         sphere_geom = gymutil.WireframeSphereGeometry(0.03, 8, 8, None, color=(1, 1, 0))
@@ -946,6 +982,21 @@ class IsaacGymSimulator(Simulator):
                 z = self._height_samples[i, j].cpu().numpy() * self._cfg.terrain.vertical_scale
                 sphere_pose = gymapi.Transform(gymapi.Vec3(x, y, z), r=None)
                 gymutil.draw_lines(sphere_geom, self._gym, self._viewer, self._envs[0], sphere_pose)
+    
+    def _draw_terrain_edge_points(self):
+        """ Draws terrain edge points for debugging
+        """
+        if not self._cfg.terrain.measure_heights:
+            return
+        sphere_geom = gymutil.WireframeSphereGeometry(0.03, 8, 8, None, color=(1, 0, 1))
+        for i in range(self._edge_mask.shape[0]):
+            for j in range(self._edge_mask.shape[1]):
+                if self._edge_mask[i, j] == 1:
+                    x = i * self._cfg.terrain.horizontal_scale - self._cfg.terrain.border_size
+                    y = j * self._cfg.terrain.horizontal_scale - self._cfg.terrain.border_size
+                    z = self._height_samples[i, j].cpu().numpy() * self._cfg.terrain.vertical_scale
+                    sphere_pose = gymapi.Transform(gymapi.Vec3(x, y, z), r=None)
+                    gymutil.draw_lines(sphere_geom, self._gym, self._viewer, self._envs[0], sphere_pose)
     
     def _draw_key_body_points(self, ref_key_body_pos=None):
         """ Draws key body points for debugging
@@ -1304,7 +1355,8 @@ class IsaacGymSimulator(Simulator):
                                     triangles.flatten(order='K'), 
                                     tm_params)
         self._height_samples = torch.tensor(self._terrain.heightsamples).view(self._terrain.tot_rows, self._terrain.tot_cols).to(self._device)
-    
+        self._edge_mask = torch.tensor(self._terrain.edge_mask).view(self._terrain.tot_rows, self._terrain.tot_cols).to(self._device)
+        
     #----- Properties -----#
     @property
     def feet_contact_indices(self):

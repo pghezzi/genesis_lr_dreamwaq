@@ -20,6 +20,7 @@ class LeggedRobotCfg(BaseConfig):
         debug_draw_height_points_around_base: bool = False # obtain height measurements around the base
         debug_draw_height_points_around_feet: bool = False # obtain height measurements around the feet (9 points around each foot, see terrain.measured_points_x/y)
         debug_draw_terrain_height_points: bool = False # draw all height points of the terrain
+        debug_draw_terrain_edge_points: bool = False # draw edge points of the terrain, which can be used for reward design
         debug_draw_key_body_points: bool = False # draw key body points for mimic tasks
         debug_draw_depth_images: bool = False # draw depth images from the depth camera sensors
         max_projected_gravity: float = -0.1 # max allowed projected gravity in z axis

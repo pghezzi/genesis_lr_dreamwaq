@@ -231,6 +231,9 @@ class GenesisSimulator(Simulator):
 
     def set_viewer_camera(self, eye: np.ndarray, target: np.ndarray):
         self._scene.viewer.set_camera_pose(pos=eye, lookat=target)
+        
+    def calc_feet_near_edge(self):
+        return super().calc_feet_near_edge()
     
     #----- Protected methods -----#
     def _pre_simulator_step(self, actions):

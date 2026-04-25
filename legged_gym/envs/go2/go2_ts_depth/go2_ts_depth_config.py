@@ -5,7 +5,7 @@ from legged_gym.envs.base.common_cfgs import Go2RoughCommonCfg, get_simulator_su
 class Go2TSDepthCfg( Go2RoughCommonCfg ):
     class env( Go2RoughCommonCfg.env ):
         num_envs = 4000
-        num_camera_envs = 1000
+        num_camera_envs = 1500
         num_observations = 45
         num_privileged_obs = 268
         num_latent_dims = 64
@@ -17,8 +17,9 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
         # critic_obs contains information given to critic, including some privileged information
         # This operation is to prevent the critic from receiving noisy input from the concatenation of current observation(noisy) and latent vector
         num_actions = 12
-        debug_draw_depth_images = False
+        debug_draw_depth_images = True
         debug_draw_height_points_around_base = False
+        debug_draw_terrain_edge_points = False
         debug = True
     
     class terrain( Go2RoughCommonCfg.terrain ):
@@ -88,6 +89,7 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
         foot_clearance_tracking_sigma = 0.01
         tracking_sigma = 0.2
         only_positive_rewards = True
+        feet_edge_threshold = 0.05 # distance threshold below which foot is considered to be near the edge of a terrain
         class scales:
             # limitation
             dof_pos_limits = -2.0
@@ -106,7 +108,9 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
             # gait
             hip_pos = -0.15
             foot_clearance = 0.2
+            feet_stumble = -1.0
             feet_contact_stand_still = 0.1
+            feet_near_edge = -1.0
 
     class commands( Go2RoughCommonCfg.commands ):
         curriculum = True
@@ -141,6 +145,10 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
         class obs_scales( Go2RoughCommonCfg.normalization.obs_scales ):
             actions = 0.1
         clip_actions = 10.0
+      
+    class viewer( Go2RoughCommonCfg.viewer ):
+      pos = (-0.5, 1.5, 0.5)
+      lookat = (0, 0, 0.0)
     
     class sensor( Go2RoughCommonCfg.sensor ):
         add_depth = True
@@ -150,7 +158,7 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
             num_history = 1        # history frames for depth images
             near_clip = 0.1
             far_clip = 2.0
-            near_plane = 0.1
+            near_plane = 0.01
             far_plane = 10.0
             resolution = (60, 80)  # (height, width)
             horizontal_fov_deg = 75
@@ -173,7 +181,7 @@ class Go2TSDepthCfgPPO( LeggedRobotTSDepthCfgPPO ):
         actor_hidden_dims = [512, 256, 128]
         privilege_encoder_hidden_dims = [256, 128]
         cnn_input_channel = Go2TSDepthCfg.sensor.depth_camera_config.num_history
-        cnn_channel_dims = [4, 8]
+        cnn_channel_dims = [8, 8]
         cnn_strides = [1, 1]
         cnn_fc_layer_dims = [128, 64]
         combination_mlp_dims = [128, 32]

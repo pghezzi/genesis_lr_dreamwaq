@@ -271,4 +271,11 @@ class Go2TSDepth(LeggedRobotTSDepth):
             self.simulator.default_dof_pos[:, hip_joint_indices]), dim=-1)
         return dof_pos_error
     
+    def _reward_feet_near_edge(self):
+        """ Penalize feet being too close to the edge of a terrain
+        """
+        feet_near_edge = self.simulator.calc_feet_near_edge()
+        feet_contact = self.feet_max_force_z > 10.0
+        # print(f"feet near edge: {torch.sum(feet_near_edge)}")
+        return torch.sum(feet_near_edge * feet_contact, dim=-1)
     
