@@ -5,6 +5,10 @@ import torch
 import numpy as np
 from legged_gym.utils.terrain import Terrain
 from legged_gym.utils.math_utils import *
+import warp as wp
+import trimesh
+from legged_gym.warp.warp_cam import WarpCam
+
 if SIMULATOR == "isaaclab":
     from isaaclab.app import AppLauncher
     import carb
@@ -22,6 +26,19 @@ class IsaacLabSimulator(Simulator):
     def __init__(self, cfg, sim_params: dict, device, headless):
         self._sim_params = sim_params
         super().__init__(cfg, sim_params, device, headless)
+        # warp init
+        if self._cfg.sensor.add_depth:
+            wp.init()
+            self._create_warp_envs()
+            self._create_warp_tensors()
+            self._depth_camera_sensor = WarpCam(self._warp_tensor_dict, 
+                                self._num_camera_envs, 
+                                self._cfg.sensor, 
+                                self._mesh_ids, 
+                                self._device)
+            pixels = self._depth_camera_sensor.update()
+            self._depth_images[:,0] = pixels[:,0] # pixels: [num_envs, num_sensors, H, W]
+
     
     #----- Public methods -----#
     def step(self, actions):
@@ -114,7 +131,16 @@ class IsaacLabSimulator(Simulator):
             self._action_queue[env_ids] = 0.
             self._action_delay[env_ids] = torch.randint(self._cfg.domain_rand.ctrl_delay_step_range[0],
                                                        self._cfg.domain_rand.ctrl_delay_step_range[1]+1, (len(env_ids),), device=self._device, requires_grad=False)
-    
+
+        # reset depth image tensors
+        # find common ids between env_ids and camera env ids
+        if self._cfg.sensor.add_depth:
+            camera_env_ids = torch.arange(self._num_camera_envs, device=self._device)
+            common_env_ids = torch.tensor(
+                [env_id for env_id in env_ids.tolist() if env_id in camera_env_ids.tolist()],
+                device=self._device, dtype=torch.long)
+            self._depth_images[common_env_ids, :] = 0.
+      
     def reset_dofs(self, env_ids, dof_pos, dof_vel):
         self._robot.write_joint_state_to_sim(dof_pos, dof_vel, self._dof_indices, env_ids)
         
@@ -136,7 +162,10 @@ class IsaacLabSimulator(Simulator):
             env_ids)
     
     def update_sensors(self):
-        return super().update_sensors()
+        if self._cfg.sensor.add_depth:
+            if self._depth_image_update_counter % self._depth_image_update_decimation == 0:
+                self._update_depth_camera()
+            self._depth_image_update_counter += 1
     
     def update_terrain_curriculum(self, env_ids, move_up, move_down):
         self._terrain_levels[env_ids] += 1 * move_up - 1 * move_down
@@ -182,7 +211,38 @@ class IsaacLabSimulator(Simulator):
                                   target=target)
     
     def calc_feet_near_edge(self):
-        return super().calc_feet_near_edge()
+        """ Calculate whether each foot is near the terrain edge, which can be used as a termination condition or for reward shaping
+        Returns:
+            torch.tensor: whether each foot is near the terrain edge, shape: (num_envs, num_feet)
+        """
+        if self._cfg.terrain.mesh_type == 'plane':
+            return torch.zeros((self._num_envs, len(self._feet_indices)), device=self._device, dtype=torch.bool)
+        elif self._cfg.terrain.mesh_type == 'none':
+            raise NameError(
+                "Can't calculate feet near edge with terrain mesh type 'none'")
+        
+        feet_pos_xy = self._feet_pos[:, :2] # (num_envs, num_feet, 2)
+        feet_points_float = feet_pos_xy + self._cfg.terrain.border_size # add border size to align the origin with heightfield raw
+        points = (feet_points_float/self._cfg.terrain.horizontal_scale).long()
+        px = points[:,:, 0]
+        py = points[:,:, 1]
+        px = torch.clip(px, 0, self._edge_mask.shape[0]-1)
+        py = torch.clip(py, 0, self._edge_mask.shape[1]-1)
+        
+        # if any of the four points around the foot is an edge point
+        # and the position of the foot is within 5 cm to the edge point, we consider the foot to be near the edge
+        edge_threshold = self._cfg.rewards.feet_edge_threshold
+        foot_near_edge = torch.zeros((self._num_envs, len(self._feet_indices)), device=self._device, dtype=torch.bool)
+        for i in range(-1, 2):
+            for j in range(-1, 2):
+                edge_points = self._edge_mask[torch.clip(px+i, 0, self._edge_mask.shape[0]-1), torch.clip(py+j, 0, self._edge_mask.shape[1]-1)] == 1
+                if edge_points.any():
+                    edge_points_pos = torch.zeros((self._num_envs, len(self._feet_indices), 2), device=self._device)
+                    edge_points_pos[:,:,0] = (torch.clip(px+i, 0, self._edge_mask.shape[0]-1).float() * self._cfg.terrain.horizontal_scale) - self._cfg.terrain.border_size
+                    edge_points_pos[:,:,1] = (torch.clip(py+j, 0, self._edge_mask.shape[1]-1).float() * self._cfg.terrain.horizontal_scale) - self._cfg.terrain.border_size
+                    foot_near_edge = foot_near_edge | (edge_points & (torch.norm(feet_pos_xy - edge_points_pos, dim=-1) < edge_threshold))
+        
+        return foot_near_edge
     
     #----- Protected methods -----#
     def _pre_simulator_step(self, actions):
@@ -199,7 +259,10 @@ class IsaacLabSimulator(Simulator):
         self._debug = self._cfg.env.debug
         self._control_dt = self._cfg.control.decimation * self._sim_params["dt"]
         if self._cfg.sensor.add_depth:
-            self._frame_count = 0
+            self._num_camera_envs = self._cfg.env.num_camera_envs
+            # update counter for depth images
+            self._depth_image_update_counter = 0
+            self._depth_image_update_decimation = self._cfg.sensor.depth_camera_config.decimation
             
     def _create_sim(self):
         self._app_launcher = AppLauncher({"headless": self._headless, "device": self._device})
@@ -519,16 +582,26 @@ class IsaacLabSimulator(Simulator):
         self._feet_vel = torch.zeros_like(self._robot.data.body_link_vel_w[:, self._feet_indices, :3])
         self._key_body_pos = torch.zeros_like(self._robot.data.body_link_pos_w[:, self._key_body_indices, :])
         self._last_feet_vel = torch.zeros_like(self._robot.data.body_link_vel_w[:, self._feet_indices, :3])
-        # depth images
+        # Camera image tensor
         if self._cfg.sensor.add_depth:
-            self._depth_images = torch.zeros(
-                (self._num_envs, 
-                 self._cfg.sensor.depth_camera_config.num_history,
-                 self._cfg.sensor.depth_camera_config.resolution[1], 
-                 self._cfg.sensor.depth_camera_config.resolution[0]), 
-                device=self._device, 
-                dtype=torch.float
-            )
+            pointcloud_dims = 3 * (self._cfg.sensor.depth_camera_config.return_pointcloud == True)
+            if pointcloud_dims > 0: # pointcloud returned by depth camera
+                self._depth_images = torch.zeros(
+                    (self._num_camera_envs, 
+                    self._cfg.sensor.depth_camera_config.num_history,
+                    *self._cfg.sensor.depth_camera_config.resolution,
+                    pointcloud_dims), 
+                    device=self._device, 
+                    dtype=torch.float
+                )
+            else:
+                self._depth_images = torch.zeros(
+                    (self._num_camera_envs, 
+                    self._cfg.sensor.depth_camera_config.num_history,
+                    *self._cfg.sensor.depth_camera_config.resolution), 
+                    device=self._device, 
+                    dtype=torch.float
+                )
         
         # Terrain information around feet
         if self._cfg.terrain.obtain_terrain_info_around_feet:
@@ -905,7 +978,123 @@ class IsaacLabSimulator(Simulator):
                 self._cfg.domain_rand.kd_range[0], self._cfg.domain_rand.kd_range[1], (len(env_ids), self._num_actions), device=self._device)
     
     def _update_depth_camera(self):
-        pass
+        """ Renders the depth camera and retrieves the depth images
+        """
+        near_clip = self._cfg.sensor.depth_camera_config.near_clip
+        far_clip = self._cfg.sensor.depth_camera_config.far_clip
+        pixels = self._depth_camera_sensor.update().clone()
+        if self._depth_images.shape[1] > 1: # stack history of depth images
+            self._depth_images[:, 1:] = self._depth_images[:, :-1].detach().clone()
+        # store values for denoised depth images
+        self._depth_images[:, 0] = pixels[:,0,:,:] # pixels: [num_envs, num_sensors, H, W]
+        # clip values
+        self._depth_images[:, 0] = torch.clip(self._depth_images[:, 0], near_clip, far_clip)
+        # normalize the depth images to be within [-0.5, 0.5]
+        self._depth_images[:, 0] = (self._depth_images[:, 0] - near_clip) / (far_clip - near_clip) - 0.5
+    
+    def _create_warp_envs(self):
+      # extract terrain mesh
+      terrain_mesh = self._terrain.terrain_mesh
+      
+      #save terrain mesh
+      transform = np.zeros((3,))
+      transform[0] = -self._cfg.terrain.border_size 
+      transform[1] = -self._cfg.terrain.border_size
+      transform[2] = 0.0
+      translation = trimesh.transformations.translation_matrix(transform)
+      terrain_mesh.apply_transform(translation)
+      
+      vertices = terrain_mesh.vertices
+      triangles = terrain_mesh.faces
+      vertex_tensor = torch.tensor(vertices, 
+                                    dtype=torch.float32, 
+                                    device=self._device,
+                                    requires_grad=False)
+      #if none type in vertex_tensor
+      if vertex_tensor.any() is None:
+          print("vertex_tensor is None")
+      vertex_vec3_array = wp.from_torch(vertex_tensor,dtype=wp.vec3)        
+      faces_wp_int32_array = wp.from_numpy(triangles.flatten(), dtype=wp.int32,device=self._device)
+      
+      # mesh coordinate convention may be the same as isaacgym
+      self._wp_meshes =  wp.Mesh(points=vertex_vec3_array,indices=faces_wp_int32_array)
+      
+      Warning("Currently, only static terrain mesh is added to Warp.")
+      self._mesh_ids = self.mesh_ids_array = wp.array([self._wp_meshes.id], dtype=wp.uint64)
+    
+    def _create_warp_tensors(self):
+        self._warp_tensor_dict={}
+        pointcloud_dims = 3 * (self._cfg.sensor.depth_camera_config.return_pointcloud == True)
+        if pointcloud_dims > 0:
+            self._depth_image_tensor_warp = torch.zeros((self._num_camera_envs, 
+                                                        self._cfg.sensor.depth_camera_config.num_sensors,
+                                                        *self._cfg.sensor.depth_camera_config.resolution,
+                                                        pointcloud_dims),    # xyz
+                                                       dtype=torch.float32, device=self._device)
+        else:
+            self._depth_image_tensor_warp = torch.zeros((self._num_camera_envs, 
+                                                        self._cfg.sensor.depth_camera_config.num_sensors,
+                                                        *self._cfg.sensor.depth_camera_config.resolution),
+                                                    dtype=torch.float32, device=self._device)
+        self._sensor_pos_tensor = torch.zeros_like(self._base_pos[:self._num_camera_envs, :3])
+        self._sensor_quat_tensor = torch.zeros_like(self._base_quat[:self._num_camera_envs, :4])
+
+        # sensor pose
+        pos_offset = [self._cfg.sensor.depth_camera_config.pos[0], 
+                      self._cfg.sensor.depth_camera_config.pos[1], 
+                      self._cfg.sensor.depth_camera_config.pos[2]]
+        rpy_offset = [self._cfg.sensor.depth_camera_config.euler[0], 
+                      self._cfg.sensor.depth_camera_config.euler[1], 
+                      self._cfg.sensor.depth_camera_config.euler[2]]
+        self._sensor_offset_pos = torch.tensor(pos_offset, device=self._device).repeat((self._num_camera_envs, 1))
+        rpy_offset = torch.tensor(rpy_offset, device=self._device).repeat((self._num_camera_envs, 1))
+        
+        # apply domain randomization to sensor position and sensor rotation
+        if self._cfg.domain_rand.randomize_camera_pos:
+          self._camera_pos_offset = torch.zeros(
+                self._num_camera_envs, 3, dtype=torch.float, device=self._device, requires_grad=False)
+          self._camera_pos_offset[:self._num_camera_envs, 0] = torch_rand_float(
+                -self._cfg.domain_rand.camera_com_displacement_range[0],
+                self._cfg.domain_rand.camera_com_displacement_range[0],
+                (self._num_camera_envs,1), device=self._device).squeeze(1)
+          self._camera_pos_offset[:self._num_camera_envs, 1] = torch_rand_float(
+                -self._cfg.domain_rand.camera_com_displacement_range[1],
+                self._cfg.domain_rand.camera_com_displacement_range[1],
+                (self._num_camera_envs,1), device=self._device).squeeze(1)
+          self._camera_pos_offset[:self._num_camera_envs, 2] = torch_rand_float(
+                -self._cfg.domain_rand.camera_com_displacement_range[2],
+                self._cfg.domain_rand.camera_com_displacement_range[2],
+                (self._num_camera_envs,1), device=self._device).squeeze(1)
+          self._sensor_offset_pos += self._camera_pos_offset[:self._num_camera_envs]
+          
+        if self._cfg.domain_rand.randomize_camera_euler:
+          self._camera_euler_offset = torch.zeros(
+                self._num_camera_envs, 3, dtype=torch.float, device=self._device, requires_grad=False)
+          self._camera_euler_offset[:self._num_camera_envs, 0] = torch_rand_float(
+                -self._cfg.domain_rand.camera_euler_offset_range[0],
+                self._cfg.domain_rand.camera_euler_offset_range[0],
+                (self._num_camera_envs,1), device=self._device).squeeze(1)
+          self._camera_euler_offset[:self._num_camera_envs, 1] = torch_rand_float(
+                -self._cfg.domain_rand.camera_euler_offset_range[1],
+                self._cfg.domain_rand.camera_euler_offset_range[1],
+                (self._num_camera_envs,1), device=self._device).squeeze(1)
+          self._camera_euler_offset[:self._num_camera_envs, 2] = torch_rand_float(
+                -self._cfg.domain_rand.camera_euler_offset_range[2],
+                self._cfg.domain_rand.camera_euler_offset_range[2],
+                (self._num_camera_envs,1), device=self._device).squeeze(1)
+          rpy_offset += self._camera_euler_offset[:self._num_camera_envs]
+          
+        self._sensor_offset_quat = quat_from_euler_xyz(rpy_offset[:, 0], 
+                                                       rpy_offset[:, 1], 
+                                                       rpy_offset[:, 2])
+        
+        self._warp_tensor_dict["depth_image_tensor"] = self._depth_image_tensor_warp
+        self._warp_tensor_dict['device'] = self._device
+        self._warp_tensor_dict['num_envs'] = self._num_camera_envs
+        self._warp_tensor_dict['num_sensors'] = self._cfg.sensor.depth_camera_config.num_sensors
+        self._warp_tensor_dict['sensor_pos_tensor'] = self._sensor_pos_tensor
+        self._warp_tensor_dict['sensor_quat_tensor'] = self._sensor_quat_tensor
+        self._warp_tensor_dict['mesh_ids'] = self._mesh_ids
     
     def _create_ground_plane(self):
         import isaaclab.sim as sim_utils
@@ -949,6 +1138,7 @@ class IsaacLabSimulator(Simulator):
         
         self._height_samples = torch.tensor(self._terrain.heightsamples).view(
             self._terrain.tot_rows, self._terrain.tot_cols).to(self._device)
+        self._edge_mask = torch.tensor(self._terrain.edge_mask).view(self._terrain.tot_rows, self._terrain.tot_cols).to(self._device)
     
     def _build_lights(self):
         import isaaclab.sim as sim_utils

@@ -1004,11 +1004,6 @@ class GenesisSimulator(Simulator):
         self._height_samples = torch.tensor(self._terrain.heightsamples).view(
             self._terrain.tot_rows, self._terrain.tot_cols).to(self._device)
 
-    def _setup_depth_camera(self):
-        ''' Set camera position and direction
-        '''
-        pass
-
     #----- Properties -----#
     @property
     def feet_contact_indices(self):
