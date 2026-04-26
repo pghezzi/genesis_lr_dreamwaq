@@ -199,7 +199,8 @@ def discrete_obstacles_terrain(terrain : SubTerrain,
                                max_size : float, 
                                num_rects : int, 
                                platform_size: float = 1.,
-                               terrain_type: str = None) -> SubTerrain:
+                               terrain_type: str = None,
+                               simplify_mesh: bool = False) -> SubTerrain:
     """
     Generate a terrain with gaps
 
@@ -211,6 +212,7 @@ def discrete_obstacles_terrain(terrain : SubTerrain,
         num_rects (int): number of randomly generated obstacles
         platform_size (float): size of the flat platform at the center of the terrain [meters]
         terrain_type (str): type of the terrain ("heightfield" or "trimesh")
+        simplify_mesh (bool): whether to simplify the generated mesh
     Returns:
         terrain (SubTerrain): update terrain
     """
@@ -301,42 +303,44 @@ def discrete_obstacles_terrain(terrain : SubTerrain,
     
     # generate the terrain mesh for trimesh terrain type
     if terrain_type == "trimesh":
-        # vertices, triangles = convert_heightfield_to_trimesh(terrain.height_field_raw, terrain.horizontal_scale, terrain.vertical_scale)
-        # terrain_mesh = trimesh.Trimesh(vertices=vertices, faces=triangles)
-        # # add a border mesh to avoid holes at the edges of the terrain
-        # border_meshes = make_border(
-        #     size=(terrain.length * terrain.horizontal_scale,
-        #           terrain.width * terrain.horizontal_scale),
-        #     inner_size=((terrain.length - 2) * terrain.horizontal_scale,
-        #                 (terrain.width - 2) * terrain.horizontal_scale),
-        #     height=1.0,
-        #     position=(0.5 * terrain.length * terrain.horizontal_scale, 
-        #               0.5 * terrain.width * terrain.horizontal_scale, 
-        #               -0.5)
-        # )
-        # border_mesh = trimesh.util.concatenate(border_meshes)
-        # # update the faces to have minimal triangles
-        # selector = ~(np.asarray(border_mesh.triangles)[:, :, 2] < -0.1).any(1)
-        # border_mesh.update_faces(selector)
-        # # add a small offset to align the terrain mesh with the border
-        # translation = np.array([
-        #         terrain.horizontal_scale,
-        #         terrain.horizontal_scale,
-        #         0
-        #     ])
-        # terrain_mesh.apply_translation(translation)
-        # terrain.terrain_mesh = trimesh.util.concatenate([terrain_mesh, border_mesh])
-        
-        # add ground mesh
-        ground_center = (terrain.length * terrain.horizontal_scale / 2,
-                        terrain.width * terrain.horizontal_scale / 2,
+        if not simplify_mesh:
+          vertices, triangles = convert_heightfield_to_trimesh(terrain.height_field_raw, terrain.horizontal_scale, terrain.vertical_scale)
+          terrain_mesh = trimesh.Trimesh(vertices=vertices, faces=triangles)
+          # add a border mesh to avoid holes at the edges of the terrain
+          border_meshes = make_border(
+              size=(terrain.length * terrain.horizontal_scale,
+                    terrain.width * terrain.horizontal_scale),
+              inner_size=((terrain.length - 2) * terrain.horizontal_scale,
+                          (terrain.width - 2) * terrain.horizontal_scale),
+              height=1.0,
+              position=(0.5 * terrain.length * terrain.horizontal_scale, 
+                        0.5 * terrain.width * terrain.horizontal_scale, 
                         -0.5)
-        ground_dim = (terrain.length * terrain.horizontal_scale,
-                      terrain.width * terrain.horizontal_scale,
-                      1.0)
-        ground_mesh = trimesh.creation.box(ground_dim, trimesh.transformations.translation_matrix(ground_center))
-        meshes_list.append(ground_mesh)
-        terrain.terrain_mesh = trimesh.util.concatenate(meshes_list)
+          )
+          border_mesh = trimesh.util.concatenate(border_meshes)
+          # update the faces to have minimal triangles
+          selector = ~(np.asarray(border_mesh.triangles)[:, :, 2] < -0.1).any(1)
+          border_mesh.update_faces(selector)
+          # add a small offset to align the terrain mesh with the border
+          translation = np.array([
+                  terrain.horizontal_scale,
+                  terrain.horizontal_scale,
+                  0
+              ])
+          terrain_mesh.apply_translation(translation)
+          terrain.terrain_mesh = trimesh.util.concatenate([terrain_mesh, border_mesh])
+        
+        else:
+          # add ground mesh
+          ground_center = (terrain.length * terrain.horizontal_scale / 2,
+                          terrain.width * terrain.horizontal_scale / 2,
+                          -0.5)
+          ground_dim = (terrain.length * terrain.horizontal_scale,
+                        terrain.width * terrain.horizontal_scale,
+                        1.0)
+          ground_mesh = trimesh.creation.box(ground_dim, trimesh.transformations.translation_matrix(ground_center))
+          meshes_list.append(ground_mesh)
+          terrain.terrain_mesh = trimesh.util.concatenate(meshes_list)
     
     return terrain
 
@@ -407,7 +411,8 @@ def pyramid_stairs_terrain(terrain : SubTerrain,
                            step_width : float, 
                            step_height : float, 
                            platform_size: float = 1.,
-                           terrain_type: str = None) -> SubTerrain:
+                           terrain_type: str = None,
+                           simplify_mesh: bool = False) -> SubTerrain:
     """
     Generate stairs
 
@@ -417,6 +422,7 @@ def pyramid_stairs_terrain(terrain : SubTerrain,
         step_height (float): the step_height [meters]
         platform_size (float): size of the flat platform at the center of the terrain [meters]
         terrain_type (str): type of the terrain ("heightfield" or "trimesh")
+        simplify_mesh (bool): whether to simplify the generated mesh
     Returns:
         terrain (SubTerrain): update terrain
     Note:
@@ -456,16 +462,28 @@ def pyramid_stairs_terrain(terrain : SubTerrain,
     
     # generate the terrain mesh for trimesh terrain type
     if terrain_type == "trimesh":
-        if step_height >= 0:
-            terrain.terrain_mesh = mesh_pyramid_stairs_terrain(terrain,
-                                                           step_width=step_width * terrain.horizontal_scale, 
-                                                           step_height=step_height * terrain.vertical_scale, 
-                                                           platform_size=platform_size * terrain.horizontal_scale)
-        elif step_height < 0:
-            terrain.terrain_mesh = mesh_inverted_pyramid_stairs_terrain(terrain,
-                                                           step_width=step_width * terrain.horizontal_scale, 
-                                                           step_height=-step_height * terrain.vertical_scale, 
-                                                           platform_size=platform_size * terrain.horizontal_scale)
+        if not simplify_mesh:
+          vertices, triangles = convert_heightfield_to_trimesh(terrain.height_field_raw, terrain.horizontal_scale, terrain.vertical_scale)
+          terrain.terrain_mesh = trimesh.Trimesh(vertices=vertices, faces=triangles)
+          # add a small offset to align the terrain mesh with the border
+          translation = np.array([
+                  terrain.horizontal_scale / 2.0,
+                  terrain.horizontal_scale / 2.0,
+                  0
+              ])
+          terrain.terrain_mesh.apply_translation(translation)
+        
+        else:
+          if step_height >= 0:
+              terrain.terrain_mesh = mesh_pyramid_stairs_terrain(terrain,
+                                                            step_width=step_width * terrain.horizontal_scale, 
+                                                            step_height=step_height * terrain.vertical_scale, 
+                                                            platform_size=platform_size * terrain.horizontal_scale)
+          elif step_height < 0:
+              terrain.terrain_mesh = mesh_inverted_pyramid_stairs_terrain(terrain,
+                                                            step_width=step_width * terrain.horizontal_scale, 
+                                                            step_height=-step_height * terrain.vertical_scale, 
+                                                            platform_size=platform_size * terrain.horizontal_scale)
         
     return terrain
 
@@ -478,7 +496,8 @@ def stepping_stones_terrain(terrain : SubTerrain,
                             max_height : float, 
                             platform_size : float =1., 
                             depth : float =-10,
-                            terrain_type: str = None) -> SubTerrain:
+                            terrain_type: str = None,
+                            simplify_mesh: bool = False) -> SubTerrain:
     """
     Generate a stepping stones terrain
 
@@ -491,6 +510,8 @@ def stepping_stones_terrain(terrain : SubTerrain,
         max_height (float): maximum height of the stones (positive and negative) [meters]
         platform_size (float): size of the flat platform at the center of the terrain [meters]
         depth (float): depth of the holes (default=-10.) [meters]
+        terrain_type (str): type of the terrain (heightfield or trimesh)
+        simplify_mesh (bool): whether to simplify the mesh
     Returns:
         terrain (SubTerrain): update terrain
     """
@@ -588,16 +609,18 @@ def stepping_stones_terrain(terrain : SubTerrain,
     
     # generate the terrain mesh for trimesh terrain type
     if terrain_type == "trimesh":
-        # vertices, triangles = convert_heightfield_to_trimesh(terrain.height_field_raw, terrain.horizontal_scale, terrain.vertical_scale)
-        # terrain.terrain_mesh = trimesh.Trimesh(vertices=vertices, faces=triangles)
-        # # add a small offset to align the terrain mesh with the border
-        # translation = np.array([
-        #         terrain.horizontal_scale / 2.0,
-        #         terrain.horizontal_scale / 2.0,
-        #         0
-        #     ])
-        # terrain.terrain_mesh.apply_translation(translation)
-        
+      if not simplify_mesh:
+        vertices, triangles = convert_heightfield_to_trimesh(terrain.height_field_raw, terrain.horizontal_scale, terrain.vertical_scale)
+        terrain.terrain_mesh = trimesh.Trimesh(vertices=vertices, faces=triangles)
+        # add a small offset to align the terrain mesh with the border
+        translation = np.array([
+                terrain.horizontal_scale / 2.0,
+                terrain.horizontal_scale / 2.0,
+                0
+            ])
+        terrain.terrain_mesh.apply_translation(translation)
+      
+      else:
         # generate the bottom mesh for the holes
         bottom_center = (terrain.length * terrain.horizontal_scale / 2, 
                          terrain.width * terrain.horizontal_scale / 2, 
@@ -616,7 +639,8 @@ def stepping_stones_terrain(terrain : SubTerrain,
 def gap_terrain(terrain : SubTerrain, 
                 gap_size : float, 
                 platform_size : float =1.,
-                terrain_type : str = None) -> SubTerrain:
+                terrain_type : str = None,
+                simplify_mesh : bool = False) -> SubTerrain:
     if terrain_type in [None, "plane"]:
         raise ValueError("gap_terrain can only be used for heightfield or trimesh terrain type")
     
@@ -646,6 +670,19 @@ def gap_terrain(terrain : SubTerrain,
     
     # generate the terrain mesh for trimesh terrain type
     if terrain_type == "trimesh":
+      
+      if not simplify_mesh:
+        vertices, triangles = convert_heightfield_to_trimesh(terrain.height_field_raw, terrain.horizontal_scale, terrain.vertical_scale)
+        terrain.terrain_mesh = trimesh.Trimesh(vertices=vertices, faces=triangles)
+        # add a small offset to align the terrain mesh with the border
+        translation = np.array([
+                terrain.horizontal_scale / 2.0,
+                terrain.horizontal_scale / 2.0,
+                0
+            ])
+        terrain.terrain_mesh.apply_translation(translation)
+      
+      else:
         terrain.terrain_mesh = mesh_gap_terrain(terrain,
                                                gap_size=gap_size * terrain.horizontal_scale, 
                                                platform_size=platform_size * terrain.horizontal_scale)
@@ -655,7 +692,8 @@ def gap_terrain(terrain : SubTerrain,
 def pit_terrain(terrain : SubTerrain, 
                 depth : float, 
                 platform_size : float =1.,
-                terrain_type : str = None,) -> SubTerrain:
+                terrain_type : str = None,
+                simplify_mesh : bool = False) -> SubTerrain:
     depth = int(depth / terrain.vertical_scale)
     platform_size = int(platform_size / terrain.horizontal_scale / 2) # half platform size for easier calculation
     x1 = terrain.length // 2 - platform_size
@@ -677,6 +715,18 @@ def pit_terrain(terrain : SubTerrain,
     
     # generate the terrain mesh for trimesh terrain type
     if terrain_type == "trimesh":
+      if not simplify_mesh:
+        vertices, triangles = convert_heightfield_to_trimesh(terrain.height_field_raw, terrain.horizontal_scale, terrain.vertical_scale)
+        terrain.terrain_mesh = trimesh.Trimesh(vertices=vertices, faces=triangles)
+        # add a small offset to align the terrain mesh with the border
+        translation = np.array([
+                terrain.horizontal_scale / 2.0,
+                terrain.horizontal_scale / 2.0,
+                0
+            ])
+        terrain.terrain_mesh.apply_translation(translation)
+      
+      else:
         # platform_size in heightfield is half-width (radius) in cells
         # mesh_pit_terrain expects full platform size in meters
         terrain.terrain_mesh = mesh_pit_terrain(terrain, 
@@ -691,7 +741,8 @@ def multiple_high_platforms_terrain(terrain : SubTerrain,
                           high_platform_width: float,
                           high_platform_interval: float,
                           platform_size: float = 1.,
-                          terrain_type: str = None) -> SubTerrain:
+                          terrain_type: str = None,
+                          simplify_mesh: bool = False) -> SubTerrain:
     """Generate multiple high platforms in the X direction track
 
     Args:
@@ -702,7 +753,7 @@ def multiple_high_platforms_terrain(terrain : SubTerrain,
         high_platform_interval (float): the interval between two high platforms (in meters)
         platform_size (float, optional): size of the platform in the middle of the terrain. Defaults to 1..
         terrain_type (str, optional): type of the terrain. Defaults to None.
-
+        simplify_mesh (bool, optional): whether to simplify the terrain mesh. Defaults to False.
     Returns:
         SubTerrain: updated terrain with multiple high platforms
     """
@@ -772,6 +823,18 @@ def multiple_high_platforms_terrain(terrain : SubTerrain,
     
     # add a flat ground mesh for the rest of the terrain and concatenate with the high_platform meshes to get the final terrain mesh
     if terrain_type == "trimesh":
+      if not simplify_mesh:
+        vertices, triangles = convert_heightfield_to_trimesh(terrain.height_field_raw, terrain.horizontal_scale, terrain.vertical_scale)
+        terrain.terrain_mesh = trimesh.Trimesh(vertices=vertices, faces=triangles)
+        # add a small offset to align the terrain mesh with the border
+        translation = np.array([
+                terrain.horizontal_scale / 2.0,
+                terrain.horizontal_scale / 2.0,
+                0
+            ])
+        terrain.terrain_mesh.apply_translation(translation)
+        
+      else:
         # add ground mesh
         ground_center = (0.5 * terrain.length * terrain.horizontal_scale,
                          0.5 * terrain.width * terrain.horizontal_scale,
@@ -794,7 +857,8 @@ def high_platform_gaps_terrain(terrain : SubTerrain,
                     high_platform_distance_y: float,
                     platform_size: float = 1.,
                     depth: float = -10.,
-                    terrain_type: str = None) -> SubTerrain:
+                    terrain_type: str = None,
+                    simplify_mesh: bool = False) -> SubTerrain:
     """Generate a terrain with a high platform and multiple gaps in the X direction track
 
     Args:
@@ -807,7 +871,7 @@ def high_platform_gaps_terrain(terrain : SubTerrain,
         platform_size (float, optional): size of the platform in the middle of the terrain. Defaults to 1..
         depth (float, optional): depth of the gap. Defaults to -10..
         terrain_type (str, optional): type of the terrain. Defaults to None.
-
+        simplify_mesh (bool, optional): whether to simplify the terrain mesh. Defaults to False.
     Returns:
         SubTerrain: updated terrain with a gap and a high platform
     """
@@ -921,6 +985,18 @@ def high_platform_gaps_terrain(terrain : SubTerrain,
                 terrain.edge_mask[i, j] = True
                 
     if terrain_type == "trimesh":
+      if not simplify_mesh:
+        vertices, triangles = convert_heightfield_to_trimesh(terrain.height_field_raw, terrain.horizontal_scale, terrain.vertical_scale)
+        terrain.terrain_mesh = trimesh.Trimesh(vertices=vertices, faces=triangles)
+        # add a small offset to align the terrain mesh with the border
+        translation = np.array([
+                terrain.horizontal_scale / 2.0,
+                terrain.horizontal_scale / 2.0,
+                0
+            ])
+        terrain.terrain_mesh.apply_translation(translation)
+      
+      else:
         platform_center = (0.5 * (x1 + x2) * terrain.horizontal_scale,
                            0.5 * (y1 + y2) * terrain.horizontal_scale,
                            0.5 * depth * terrain.vertical_scale)

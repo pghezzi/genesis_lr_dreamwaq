@@ -30,6 +30,7 @@ class LeggedRobotCfg(BaseConfig):
         # heightfield uses a grid of height samples to represent the terrain, creating enormous points
         # trimesh creates terrain mesh directly, reducing the number of triangles compared with heightfield
         mesh_type: str = 'plane' # plane, heightfield, trimesh
+        simplify_mesh: bool = True # whether to simplify the mesh by merging coplanar triangles, only for trimesh
         plane_length: float = 200.0 # [m]. plane size is 200x200x10 by default
         horizontal_scale: float = 0.1 # [m] distance between height samples in x and y direction
         vertical_scale: float = 0.005 # [m] distance between height samples in z direction

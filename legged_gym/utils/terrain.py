@@ -39,6 +39,7 @@ class Terrain:
 
         self.cfg = cfg
         self.type = cfg.mesh_type
+        self.simplify_mesh = cfg.simplify_mesh
         if self.type in ["none", 'plane']:
             return
         self.env_length = cfg.terrain_length
@@ -155,7 +156,8 @@ class Terrain:
                                                  step_width=0.4, 
                                                  step_height=step_height, 
                                                  platform_size=self.platform_size,
-                                                 terrain_type=self.type)
+                                                 terrain_type=self.type,
+                                                 simplify_mesh=self.simplify_mesh)
         elif choice < self.proportions[4]: # discrete obstacles
             num_rectangles = 20
             rectangle_min_size = 1.
@@ -166,7 +168,8 @@ class Terrain:
                                                      rectangle_max_size, 
                                                      num_rectangles, 
                                                      platform_size=self.platform_size,
-                                                     terrain_type=self.type)
+                                                     terrain_type=self.type,
+                                                     simplify_mesh=self.simplify_mesh)
         elif choice < self.proportions[5]: # stepping stones
             terrain_utils.stepping_stones_terrain(terrain, 
                                                   stone_length=eval(stepping_stones_params["stone_length"]), 
@@ -175,17 +178,20 @@ class Terrain:
                                                   stone_distance_y=eval(stepping_stones_params["stone_distance_y"]), 
                                                   max_height=eval(stepping_stones_params["max_height"]), 
                                                   platform_size=self.platform_size,
-                                                  terrain_type=self.type)
+                                                  terrain_type=self.type,
+                                                  simplify_mesh=self.simplify_mesh)
         elif choice < self.proportions[6]: # gap
             terrain_utils.gap_terrain(terrain, 
                                       gap_size=gap_size, 
                                       platform_size=self.platform_size,
-                                      terrain_type=self.type)
+                                      terrain_type=self.type,
+                                      simplify_mesh=self.simplify_mesh)
         elif choice < self.proportions[7]: # pit
             terrain_utils.pit_terrain(terrain, 
                                       depth=pit_depth, 
                                       platform_size=self.platform_size,
-                                      terrain_type=self.type)
+                                      terrain_type=self.type,
+                                      simplify_mesh=self.simplify_mesh)
         elif choice < self.proportions[8]: # multiple high platforms
             if high_platform_params is None:
                 raise ValueError("high_platform_params is required for multiple high platforms terrain.")
@@ -195,7 +201,8 @@ class Terrain:
                                                         high_platform_width=eval(high_platform_params["high_platform_width"]), 
                                                         high_platform_interval=eval(high_platform_params["high_platform_interval"]), 
                                                         platform_size=self.platform_size,
-                                                        terrain_type=self.type)
+                                                        terrain_type=self.type,
+                                                        simplify_mesh=self.simplify_mesh)
         elif choice < self.proportions[9]: # high platform gaps
             if high_platform_gaps_params is None:
                 raise ValueError("high_platform_gaps_params is required for high platform gaps terrain.")
@@ -206,7 +213,8 @@ class Terrain:
                                                         high_platform_distance_y=eval(high_platform_gaps_params["high_platform_distance_y"]), 
                                                         gap_size=eval(high_platform_gaps_params["gap_size"]),
                                                         platform_size=self.platform_size,
-                                                        terrain_type=self.type)
+                                                        terrain_type=self.type,
+                                                        simplify_mesh=self.simplify_mesh)
         
         return terrain
 

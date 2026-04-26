@@ -24,6 +24,7 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
     
     class terrain( Go2RoughCommonCfg.terrain ):
         # rough terrain only:
+        simplify_mesh: bool = True
         measure_heights = True
         measured_points_x = [-0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.4, 1.6, 1.8] # 19x9=171
         measured_points_y = [-0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4]
