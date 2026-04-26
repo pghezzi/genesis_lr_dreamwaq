@@ -8,6 +8,14 @@ def normalize(x, eps: float = 1e-9):
     return x / x.norm(p=2, dim=-1).clamp(min=eps, max=None).unsqueeze(-1)
 
 @torch.jit.script
+def quat_xyzw_to_wxyz(quat):
+    return quat[:, [3, 0, 1, 2]]
+
+@torch.jit.script
+def quat_wxyz_to_xyzw(quat):
+    return quat[:, [1, 2, 3, 0]]
+
+@torch.jit.script
 def quat_mul(a, b):
     assert a.shape == b.shape
     shape = a.shape

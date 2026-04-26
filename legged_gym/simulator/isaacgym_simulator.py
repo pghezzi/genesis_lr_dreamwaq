@@ -7,11 +7,11 @@ import os
 from legged_gym.utils.terrain import Terrain
 from legged_gym.utils.math_utils import *
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg
+import warp as wp
+import trimesh
+from legged_gym.warp.warp_cam import WarpCam
 if SIMULATOR == "isaacgym":
     from isaacgym import gymtorch, gymapi, gymutil
-    import warp as wp
-    import trimesh
-    from legged_gym.warp.warp_cam import WarpCam
 
 import warnings
 
@@ -1263,10 +1263,11 @@ class IsaacGymSimulator(Simulator):
                                   self._terrain.heightsamples.transpose(), # column first order
                                   hf_params)
         self._height_samples = torch.tensor(self._terrain.heightsamples).view(self._terrain.tot_rows, self._terrain.tot_cols).to(self._device)
-
+        self._edge_mask = torch.tensor(self._terrain.edge_mask).view(self._terrain.tot_rows, self._terrain.tot_cols).to(self._device)
+    
     def _create_trimesh(self):
         """ Adds a triangle mesh terrain to the simulation, sets parameters based on the cfg.
-        # """
+        """
         tm_params = gymapi.TriangleMeshParams()
         tm_params.nb_vertices = self._terrain.terrain_mesh.vertices.shape[0]
         tm_params.nb_triangles = self._terrain.terrain_mesh.faces.shape[0]
