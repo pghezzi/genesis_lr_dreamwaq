@@ -20,7 +20,7 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
         debug_draw_depth_images = True
         debug_draw_height_points_around_base = False
         debug_draw_terrain_edge_points = False
-        debug = True
+        debug = False
     
     class terrain( Go2RoughCommonCfg.terrain ):
         # rough terrain only:
