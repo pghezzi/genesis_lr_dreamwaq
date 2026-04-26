@@ -59,6 +59,7 @@ Please refer to the [doc of this repo](https://leggedgym-ex-doc.readthedocs.io/e
 - [unitree_rl_gym](https://github.com/unitreerobotics/unitree_rl_gym)
 - [tron1-rl-isaacgym](https://github.com/limxdynamics/tron1-rl-isaacgym)
 - [isaaclab](https://github.com/isaac-sim/IsaacLab/tree/8e15af9f2ca18a0c3940b44e36fdc128995ecf16)
+- [aerial_gym_simulator](https://github.com/ntnu-arl/aerial_gym_simulator)
 
 ## TODO
 
@@ -67,8 +68,9 @@ Please refer to the [doc of this repo](https://leggedgym-ex-doc.readthedocs.io/e
 - [x] Add support for DeepMimic Implementation (2026/02/28)
 - [x] Add support for Booster K1 Robot (2026/03/18)
 - [x] Add support for AMP Implementation (2026/03/28)
-- [ ] Add support for warp-based depth camera
-- [ ] Add support for TRON1_WF
+- [x] Add support for warp-based depth camera (2026/04/26)
+- [ ] Add support for warp-based height query
+- [ ] Add support for latest rsl-rl-lib
 
 ## Contacts
 

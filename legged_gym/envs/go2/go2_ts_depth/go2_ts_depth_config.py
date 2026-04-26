@@ -153,7 +153,6 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
     
     class sensor( Go2RoughCommonCfg.sensor ):
         add_depth = True
-        use_warp = True       # whether to use warp-based model
         class depth_camera_config( Go2RoughCommonCfg.sensor.depth_camera_config ):
             num_sensors = 1
             num_history = 1        # history frames for depth images
@@ -164,7 +163,6 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
             resolution = (60, 80)  # (height, width)
             horizontal_fov_deg = 75
             pos =   (0.3, 0.0, 0.1)
-            euler_gym = (0.0, 0.3, 0.0)
             euler = (0.0, 1.57 + 0.3, 0.0) # 0.3 rad downward pitch
             decimation = 5                 # depth update decimation (1 means every control step, 5 means every 5 control steps, etc.)
             # Warp only

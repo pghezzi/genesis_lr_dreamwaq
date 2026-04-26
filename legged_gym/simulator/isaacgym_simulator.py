@@ -31,17 +31,16 @@ class IsaacGymSimulator(Simulator):
         super().__init__(cfg, sim_params, sim_device, headless)
         # warp init
         if self._cfg.sensor.add_depth:
-            if self._cfg.sensor.use_warp:
-                wp.init()
-                self._create_warp_envs()
-                self._create_warp_tensors()
-                self._depth_camera_sensor = WarpCam(self._warp_tensor_dict, 
-                                    self._num_camera_envs, 
-                                    self._cfg.sensor, 
-                                    self._mesh_ids, 
-                                    self._device)
-                pixels = self._depth_camera_sensor.update()
-                self._depth_images[:,0] = pixels[:,0] # pixels: [num_envs, num_sensors, H, W]
+            wp.init()
+            self._create_warp_envs()
+            self._create_warp_tensors()
+            self._depth_camera_sensor = WarpCam(self._warp_tensor_dict, 
+                                self._num_camera_envs, 
+                                self._cfg.sensor, 
+                                self._mesh_ids, 
+                                self._device)
+            pixels = self._depth_camera_sensor.update()
+            self._depth_images[:,0] = pixels[:,0] # pixels: [num_envs, num_sensors, H, W]
 
     #----- Public methods -----#
     def step(self, actions):
@@ -85,7 +84,7 @@ class IsaacGymSimulator(Simulator):
             if self._cfg.terrain.obtain_terrain_info_around_feet:
                 self._calc_terrain_info_around_feet()
         # Refresh warp sensor pose
-        if self._cfg.sensor.use_warp and self._cfg.sensor.add_depth:
+        if self._cfg.sensor.add_depth:
             sensor_quat = quat_mul(self._base_quat[:self._num_camera_envs], self._sensor_offset_quat)
             sensor_pos = self._base_pos[:self._num_camera_envs] + quat_apply(self._base_quat[:self._num_camera_envs], self._sensor_offset_pos)
             self._sensor_pos_tensor[:,:] = sensor_pos[:,:]
@@ -397,21 +396,6 @@ class IsaacGymSimulator(Simulator):
         # privileged information
         self._init_domain_params()
         
-        # IsaacGym camera sensor properties
-        if self._cfg.sensor.add_depth:
-            if not self._cfg.sensor.use_warp:
-                camera_props = gymapi.CameraProperties()
-                camera_props.width = self._cfg.sensor.depth_camera_config.resolution[1]
-                camera_props.height = self._cfg.sensor.depth_camera_config.resolution[0]
-                camera_props.near_plane = self._cfg.sensor.depth_camera_config.near_plane
-                camera_props.far_plane = self._cfg.sensor.depth_camera_config.far_plane
-                camera_props.enable_tensors = True # use tensors on gpu by default
-                camera_props.horizontal_fov = self._cfg.sensor.depth_camera_config.horizontal_fov_deg
-                default_camera_pos = self._cfg.sensor.depth_camera_config.pos
-                default_camera_euler = self._cfg.sensor.depth_camera_config.euler_gym
-                local_transform = gymapi.Transform()
-                self._camera_handles = []
-        
         for i in range(self._num_envs):
             # create env instance
             env_handle = self._gym.create_env(self._sim, env_lower, env_upper, int(np.sqrt(self._num_envs)))
@@ -429,60 +413,6 @@ class IsaacGymSimulator(Simulator):
             self._gym.set_actor_rigid_body_properties(env_handle, actor_handle, body_props, recomputeInertia=True)
             self._envs.append(env_handle)
             self._actor_handles.append(actor_handle)
-        
-        # Add IsaacGym depth camera sensors if necessary
-        if self._cfg.sensor.add_depth:
-            if not self._cfg.sensor.use_warp:
-                if self._cfg.domain_rand.randomize_camera_pos:
-                    self._camera_pos_offset[:, 0] = torch_rand_float(
-                        -self._cfg.domain_rand.camera_com_displacement_range[0], 
-                        self._cfg.domain_rand.camera_com_displacement_range[0],
-                        (self._num_camera_envs,1), device=self._device).squeeze(1)
-                    self._camera_pos_offset[:, 1] = torch_rand_float(
-                        -self._cfg.domain_rand.camera_com_displacement_range[1], 
-                        self._cfg.domain_rand.camera_com_displacement_range[1],
-                        (self._num_camera_envs,1), device=self._device).squeeze(1)
-                    self._camera_pos_offset[:, 2] = torch_rand_float(
-                        -self._cfg.domain_rand.camera_com_displacement_range[2], 
-                        self._cfg.domain_rand.camera_com_displacement_range[2],
-                        (self._num_camera_envs,1), device=self._device).squeeze(1)
-                if self._cfg.domain_rand.randomize_camera_euler:
-                    self._camera_euler_offset[:, 0] = torch_rand_float(
-                        -self._cfg.domain_rand.camera_euler_range[0], 
-                        self._cfg.domain_rand.camera_euler_range[0],
-                        (self._num_camera_envs,1), device=self._device).squeeze(1)
-                    self._camera_euler_offset[:, 1] = torch_rand_float(
-                        -self._cfg.domain_rand.camera_euler_range[1], 
-                        self._cfg.domain_rand.camera_euler_range[1],
-                        (self._num_camera_envs,1), device=self._device).squeeze(1)
-                    self._camera_euler_offset[:, 2] = torch_rand_float(
-                        -self._cfg.domain_rand.camera_euler_range[2], 
-                        self._cfg.domain_rand.camera_euler_range[2],
-                        (self._num_camera_envs,1), device=self._device).squeeze(1)
-                for i in range(self._num_camera_envs): # first num_camera_envs envs have cameras
-                    # randomize camera position
-                    if self._cfg.domain_rand.randomize_camera_pos:
-                        local_transform.p = gymapi.Vec3(
-                            default_camera_pos[0] + self._camera_pos_offset[i,0].item(),
-                            default_camera_pos[1] + self._camera_pos_offset[i,1].item(),
-                            default_camera_pos[2] + self._camera_pos_offset[i,2].item()
-                        )
-                    else:
-                        local_transform.p = gymapi.Vec3(*default_camera_pos)
-                    # randomize camera euler
-                    if self._cfg.domain_rand.randomize_camera_euler:
-                        local_transform.r = gymapi.Quat.from_euler_zyx(
-                            default_camera_euler[2] + self._camera_euler_offset[i,2].item(),
-                            default_camera_euler[1] + self._camera_euler_offset[i,1].item(),
-                            default_camera_euler[0] + self._camera_euler_offset[i,0].item()
-                        )
-                    else:
-                        local_transform.r = gymapi.Quat.from_euler_zyx(default_camera_euler[2], default_camera_euler[1], default_camera_euler[0])
-                    camera_handle = self._gym.create_camera_sensor(self._envs[i], camera_props)
-                    base_link_handle = self._gym.find_actor_rigid_body_handle(self._envs[i], self._actor_handles[i], self._cfg.asset.base_link_name)
-                    self._gym.attach_camera_to_body(camera_handle, self._envs[i], 
-                            base_link_handle, local_transform, gymapi.FOLLOW_TRANSFORM)
-                    self._camera_handles.append(camera_handle)
 
         self._feet_indices = torch.zeros(len(self._feet_names), dtype=torch.long, device=self._device, requires_grad=False)
         for i in range(len(self._feet_names)):
@@ -604,37 +534,24 @@ class IsaacGymSimulator(Simulator):
         
         # Camera image tensor
         if self._cfg.sensor.add_depth:
-            if not self._cfg.sensor.use_warp:
-                self._depth_image_tensors_raw = []
-                self._depth_images = torch.zeros(  # after processing
-                    self._num_camera_envs, 
+            pointcloud_dims = 3 * (self._cfg.sensor.depth_camera_config.return_pointcloud == True)
+            if pointcloud_dims > 0: # pointcloud returned by depth camera
+                self._depth_images = torch.zeros(
+                    (self._num_camera_envs, 
                     self._cfg.sensor.depth_camera_config.num_history,
                     *self._cfg.sensor.depth_camera_config.resolution,
-                dtype=torch.float, device=self._device
-            )
-                for i in range(self._num_camera_envs):
-                    depth_image = self._gym.get_camera_image_gpu_tensor(
-                        self._sim, self._envs[i], self._camera_handles[i], gymapi.IMAGE_DEPTH)
-                    self._depth_image_tensors_raw.append(gymtorch.wrap_tensor(depth_image))
-            else: # warp camera
-                pointcloud_dims = 3 * (self._cfg.sensor.depth_camera_config.return_pointcloud == True)
-                if pointcloud_dims > 0: # pointcloud returned by depth camera
-                    self._depth_images = torch.zeros(
-                        (self._num_camera_envs, 
-                        self._cfg.sensor.depth_camera_config.num_history,
-                        *self._cfg.sensor.depth_camera_config.resolution,
-                        pointcloud_dims), 
-                        device=self._device, 
-                        dtype=torch.float
-                    )
-                else:
-                    self._depth_images = torch.zeros(
-                        (self._num_camera_envs, 
-                        self._cfg.sensor.depth_camera_config.num_history,
-                        *self._cfg.sensor.depth_camera_config.resolution), 
-                        device=self._device, 
-                        dtype=torch.float
-                    )
+                    pointcloud_dims), 
+                    device=self._device, 
+                    dtype=torch.float
+                )
+            else:
+                self._depth_images = torch.zeros(
+                    (self._num_camera_envs, 
+                    self._cfg.sensor.depth_camera_config.num_history,
+                    *self._cfg.sensor.depth_camera_config.resolution), 
+                    device=self._device, 
+                    dtype=torch.float
+                )
         
         self._init_height_points()
         self._measured_heights = torch.zeros(self._num_envs, self._num_height_points, device=self._device, requires_grad=False)
@@ -820,12 +737,7 @@ class IsaacGymSimulator(Simulator):
             self._num_envs, self._num_dof, dtype=torch.float, device=self._device, requires_grad=False)
         self._kd_scale = torch.ones(
             self._num_envs, self._num_dof, dtype=torch.float, device=self._device, requires_grad=False)
-        if self._cfg.sensor.add_depth:
-            self._camera_pos_offset = torch.zeros(
-                self._num_camera_envs, 3, dtype=torch.float, device=self._device, requires_grad=False)
-            self._camera_euler_offset = torch.zeros(
-                self._num_camera_envs, 3, dtype=torch.float, device=self._device, requires_grad=False)
-        
+
     def _randomize_friction(self, env_ids):
         return super()._randomize_friction(env_ids)
 
@@ -854,36 +766,17 @@ class IsaacGymSimulator(Simulator):
                 self._cfg.domain_rand.kd_range[0], self._cfg.domain_rand.kd_range[1], (len(env_ids), self._num_actions), device=self._device)
     
     def _update_depth_camera(self):
-        if not self._cfg.sensor.use_warp:
-            self._gym.step_graphics(self._sim)
-            self._gym.render_all_camera_sensors(self._sim)
-            self._gym.start_access_image_tensors(self._sim)
-            if self._depth_images.shape[1] > 1: # stack history of depth images
-                self._depth_images[:, 1:] = self._depth_images[:, :-1].detach().clone()
-            # raw values are negative distance from camera to pixel in view direction in world coordinate units (meters)
-            depth_image = torch.stack(self._depth_image_tensors_raw, 
-                                                  dim=0).detach().clone().unsqueeze(1)  # shape: num_camera_envs, 1, H, W
-            depth_image = -1 * depth_image  # make it positive
-            self._depth_images[:, 0] = depth_image[:,0,:,:] # depth_image: [num_envs, H, W]
-            near_clip = self._cfg.sensor.depth_camera_config.near_clip
-            far_clip = self._cfg.sensor.depth_camera_config.far_clip
-            # clip values to [0,1]
-            self._depth_images[:, 0] = torch.clip(self._depth_images[:, 0], near_clip, far_clip)
-            # normalize values to [-0.5, 0.5]
-            self._depth_images[:, 0] = (self._depth_images[:, 0] - near_clip) / (far_clip - near_clip) - 0.5
-            self._gym.end_access_image_tensors(self._sim)
-        elif self._cfg.sensor.use_warp:
-            near_clip = self._cfg.sensor.depth_camera_config.near_clip
-            far_clip = self._cfg.sensor.depth_camera_config.far_clip
-            pixels = self._depth_camera_sensor.update().clone()
-            if self._depth_images.shape[1] > 1: # stack history of depth images
-                self._depth_images[:, 1:] = self._depth_images[:, :-1].detach().clone()
-            # store values for denoised depth images
-            self._depth_images[:, 0] = pixels[:,0,:,:] # pixels: [num_envs, num_sensors, H, W]
-            # clip values
-            self._depth_images[:, 0] = torch.clip(self._depth_images[:, 0], near_clip, far_clip)
-            # normalize the depth images to be within [-0.5, 0.5]
-            self._depth_images[:, 0] = (self._depth_images[:, 0] - near_clip) / (far_clip - near_clip) - 0.5
+        near_clip = self._cfg.sensor.depth_camera_config.near_clip
+        far_clip = self._cfg.sensor.depth_camera_config.far_clip
+        pixels = self._depth_camera_sensor.update().clone()
+        if self._depth_images.shape[1] > 1: # stack history of depth images
+            self._depth_images[:, 1:] = self._depth_images[:, :-1].detach().clone()
+        # store values for denoised depth images
+        self._depth_images[:, 0] = pixels[:,0,:,:] # pixels: [num_envs, num_sensors, H, W]
+        # clip values
+        self._depth_images[:, 0] = torch.clip(self._depth_images[:, 0], near_clip, far_clip)
+        # normalize the depth images to be within [-0.5, 0.5]
+        self._depth_images[:, 0] = (self._depth_images[:, 0] - near_clip) / (far_clip - near_clip) - 0.5
     
     def _create_warp_envs(self):
         terrain_mesh = self._terrain.terrain_mesh
@@ -939,9 +832,46 @@ class IsaacGymSimulator(Simulator):
                       self._cfg.sensor.depth_camera_config.euler[1], 
                       self._cfg.sensor.depth_camera_config.euler[2]]
         self._sensor_offset_pos = torch.tensor(pos_offset, device=self._device).repeat((self._num_camera_envs, 1))
-        rpy_offset = torch.tensor(rpy_offset, device=self._device)
-
-        self._sensor_offset_quat = quat_from_euler_xyz(rpy_offset[0], rpy_offset[1], rpy_offset[2]).repeat((self._num_camera_envs, 1))
+        rpy_offset = torch.tensor(rpy_offset, device=self._device).repeat((self._num_camera_envs, 1))
+        
+        # apply domain randomization to sensor position and sensor rotation
+        if self._cfg.domain_rand.randomize_camera_pos:
+          self._camera_pos_offset = torch.zeros(
+                self._num_camera_envs, 3, dtype=torch.float, device=self._device, requires_grad=False)
+          self._camera_pos_offset[:self._num_camera_envs, 0] = torch_rand_float(
+                -self._cfg.domain_rand.camera_com_displacement_range[0],
+                self._cfg.domain_rand.camera_com_displacement_range[0],
+                (self._num_camera_envs,1), device=self._device).squeeze(1)
+          self._camera_pos_offset[:self._num_camera_envs, 1] = torch_rand_float(
+                -self._cfg.domain_rand.camera_com_displacement_range[1],
+                self._cfg.domain_rand.camera_com_displacement_range[1],
+                (self._num_camera_envs,1), device=self._device).squeeze(1)
+          self._camera_pos_offset[:self._num_camera_envs, 2] = torch_rand_float(
+                -self._cfg.domain_rand.camera_com_displacement_range[2],
+                self._cfg.domain_rand.camera_com_displacement_range[2],
+                (self._num_camera_envs,1), device=self._device).squeeze(1)
+          self._sensor_offset_pos += self._camera_pos_offset[:self._num_camera_envs]
+          
+        if self._cfg.domain_rand.randomize_camera_euler:
+          self._camera_euler_offset = torch.zeros(
+                self._num_camera_envs, 3, dtype=torch.float, device=self._device, requires_grad=False)
+          self._camera_euler_offset[:self._num_camera_envs, 0] = torch_rand_float(
+                -self._cfg.domain_rand.camera_euler_offset_range[0],
+                self._cfg.domain_rand.camera_euler_offset_range[0],
+                (self._num_camera_envs,1), device=self._device).squeeze(1)
+          self._camera_euler_offset[:self._num_camera_envs, 1] = torch_rand_float(
+                -self._cfg.domain_rand.camera_euler_offset_range[1],
+                self._cfg.domain_rand.camera_euler_offset_range[1],
+                (self._num_camera_envs,1), device=self._device).squeeze(1)
+          self._camera_euler_offset[:self._num_camera_envs, 2] = torch_rand_float(
+                -self._cfg.domain_rand.camera_euler_offset_range[2],
+                self._cfg.domain_rand.camera_euler_offset_range[2],
+                (self._num_camera_envs,1), device=self._device).squeeze(1)
+          rpy_offset += self._camera_euler_offset[:self._num_camera_envs]
+          
+        self._sensor_offset_quat = quat_from_euler_xyz(rpy_offset[:, 0], 
+                                                       rpy_offset[:, 1], 
+                                                       rpy_offset[:, 2])
         
         self._warp_tensor_dict["depth_image_tensor"] = self._depth_image_tensor_warp
         self._warp_tensor_dict['device'] = self._device

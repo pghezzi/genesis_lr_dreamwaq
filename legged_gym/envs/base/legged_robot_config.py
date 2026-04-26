@@ -264,7 +264,6 @@ class LeggedRobotCfg(BaseConfig):
     # sensor configuration:
     class sensor:
         add_depth: bool = False
-        use_warp: bool = False       # whether to use warp-based model
         class depth_camera_config:
             num_sensors: int = 1         # number of depth cameras, currently only support 1
             num_history: int = 1         # history frames for depth images
@@ -275,7 +274,6 @@ class LeggedRobotCfg(BaseConfig):
             resolution: Tuple[int, int] = (60, 80)   # (height, width)
             horizontal_fov_deg: int = 75 # horizontal field of view in degrees
             pos: Tuple[float, float, float] = (0.3, 0.0, 0.1)
-            euler_gym: Tuple[float, float, float] = (0.0, 0.0, 0.0)  # (roll, pitch, yaw) in radians, for IsaacGym Camera convention
             euler: Tuple[float, float, float] = (0.0, 1.57, 0.0)     # (roll, pitch, yaw) in radians, for Warp Camera convention
             decimation: int = 5           # decimation steps for depth image update, relative to control step
             # Warp only
