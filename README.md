@@ -77,3 +77,5 @@ Please refer to the [doc of this repo](https://leggedgym-ex-doc.readthedocs.io/e
 You can add our Feishu group to get latest update or ask questions:
 
 <img src="https://github.com/lupinjia/leggedgym-ex-doc/blob/main/source/_static/images/feishu_group_qrcode.png?raw=true" width="350">
+
+Or you add our [discord channel](https://discord.gg/s9Hd8B7r6) to get updates or ask questions:
