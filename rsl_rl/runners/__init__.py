@@ -46,3 +46,7 @@ runner_registry.register("DreamWaQRunner", DreamWaQRunner)
 runner_registry.register("TSDepthRunner", TSDepthRunner)
 runner_registry.register("AMPRunner", AMPRunner)
 runner_registry.register("CTS_AMP_Runner", CTS_AMP_Runner)
+
+# CUSTOM
+from .dreamwaq_depth_runner import DreamWaQDepthRunner
+runner_registry.register("DreamWaQDepthRunner", DreamWaQDepthRunner)

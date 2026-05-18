@@ -55,8 +55,8 @@ class Go2FlatCommonCfg(LeggedRobotCfg):
     class asset(LeggedRobotCfg.asset):
         # Common
         name = "go2"
-        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/unitree_robotics/go2/urdf/go2.urdf'
-        xml_file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/unitree_robotics/go2/go2.xml'
+        file = "{LEGGED_GYM_ROOT_DIR}/resources/robots/unitree_robotics/go2/urdf/go2.urdf"
+        xml_file = "{LEGGED_GYM_ROOT_DIR}/resources/robots/unitree_robotics/go2/go2.xml"
         foot_name = "foot"
         penalize_contacts_on = ["thigh", "calf"]
         terminate_after_contacts_on = ["base", "Head"]

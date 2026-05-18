@@ -36,3 +36,6 @@ from .ppo_dreamwaq import PPO_DreamWaQ
 from .ppo_ts_depth import PPO_TSDepth
 from .ppo_amp import PPO_AMP
 from .ppo_cts_amp import PPO_CTS_AMP
+
+# CUSTOM
+from .ppo_dreamwaq_depth import PPO_DreamWaQ_Depth
