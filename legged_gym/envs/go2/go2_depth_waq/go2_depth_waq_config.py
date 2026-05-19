@@ -33,7 +33,7 @@ experiment_extra = f"exp{terrain_index+1}"
 
 class Go2DepthCfg( LeggedRobotDreamwaqCfg ):
     class env( LeggedRobotDreamwaqCfg.env ):
-        num_envs = 1000
+        num_envs = 3000
         num_camera_envs = 256
         num_actions = 12
         num_observations = 45 # 45 num_obs
@@ -48,6 +48,10 @@ class Go2DepthCfg( LeggedRobotDreamwaqCfg ):
         #mesh_type = "plane"
         terrain_proportions = terrain_list
         pass
+
+    class viewer(Go2RoughCommonCfg.viewer):
+        rendered_envs_idx = [0] 
+
     class init_state( Go2RoughCommonCfg.init_state ):
         pass
     class control( Go2RoughCommonCfg.control ):
@@ -178,4 +182,4 @@ class Go2DepthCfgPPO( LeggedRobotDreamwaqCfgPPO ):
         experiment_name = f'go2_depth_{experiment_extra}'
         base_model = finetune if finetune else None
         save_interval = 500
-        max_iterations = 60000
+        max_iterations = 3000

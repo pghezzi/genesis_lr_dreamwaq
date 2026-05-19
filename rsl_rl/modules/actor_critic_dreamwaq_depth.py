@@ -160,25 +160,28 @@ class ActorCriticDreamWaQDepth(nn.Module):
     def entropy(self):
         return self.distribution.entropy().sum(dim=-1)
 
+
+    def depth_actor(self, observations, samples, depth_image):
+        #print(depth_image)
+        visual_latent = torch.zeros(
+            observations.shape[0], self.visual_encoder._output_size,
+            device=observations.device
+        )
+        visual_latent[:depth_image.shape[0]] = self.visual_encoder(depth_image)
+        return self.actor(torch.cat(
+            (
+            observations, samples, visual_latent
+            ), dim=-1))
+        
+
+
     def update_distribution(self, observations, obs_history, depth_image):
         """When inferring the actor, use the current observation and latent"""
         sampled_out, distribution_params = self.vae.sample(obs_history)
         z, vel = sampled_out
         latent_mu, latent_var, vel_mu, vel_var = distribution_params
         sampled_out = torch.cat((z, vel), dim=-1)
-
-        visual_latent = torch.zeros(
-            observations.shape[0], self.visual_encoder._output_size,
-            device=observations.device
-        )
-
-        visual_latent[:depth_image.shape[0]] = self.visual_encoder(depth_image) 
-
-        mean = self.actor(torch.cat(
-            (
-            observations, sampled_out, visual_latent
-            ), dim=-1))
-            
+        mean = self.depth_actor(observations, sampled_out, depth_image)
         self.distribution = Normal(mean, mean*0. + self.std)
 
     def act(self, observations, obs_history, depth_image, **kwargs):
@@ -190,15 +193,7 @@ class ActorCriticDreamWaQDepth(nn.Module):
 
     def act_inference(self, observations, observation_history, depth_image, **kwargs):
         mean_out = self.vae.inference(observation_history)
-        visual_latent = torch.zeros(
-            observations.shape[0], self.visual_encoder._output_size,
-            device=observations.device
-        )
-        visual_latent[:depth_image.shape[0]] = self.visual_encoder(depth_image)
-        actions_mean = self.actor(torch.cat(
-            (
-            observations, mean_out, visual_latent
-            ), dim=-1))
+        actions_mean = self.depth_actor(observations, mean_out, depth_image)
         return actions_mean
 
     def evaluate(self, critic_obs, **kwargs):

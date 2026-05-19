@@ -80,6 +80,24 @@ class GenesisSimulator(Simulator):
             sensor_pos = self._base_pos[:self._num_camera_envs] + quat_apply(self._base_quat[:self._num_camera_envs], self._sensor_offset_pos)
             self._sensor_pos_tensor[:,:] = sensor_pos[:,:]
             self._sensor_quat_tensor[:,:] = sensor_quat[:,:]
+            #forward = torch.zeros_like(sensor_pos)
+            #forward[:, 0] = 1.0  # local +X is forward
+            #sensor_forward = quat_apply(sensor_quat, forward)  # world-space direction
+#
+            #for i in range(self._num_camera_envs):
+            #    pos = sensor_pos[i]
+            #    tip = pos + sensor_forward[i] * 0.5  # line length in meters
+#
+            #    self._scene.draw_sphere(
+            #        pos=pos.tolist(),
+            #        radius=0.03,
+            #        color=(1.0, 0.0, 0.0, 1.0),  # red dot
+            #    )
+            #    self._scene.draw_line(
+            #        start=pos.tolist(),
+            #        end=tip.tolist(),
+            #        color=(0.0, 1.0, 0.0, 1.0),  # green line
+            #    )
 
     def reset_idx(self, env_ids):
         # domain randomization
@@ -830,9 +848,9 @@ class GenesisSimulator(Simulator):
         # store values for denoised depth images
         self._depth_images[:, 0] = pixels[:,0,:,:] # pixels: [num_envs, num_sensors, H, W]
         # clip values
-        self._depth_images[:, 0] = torch.clip(self._depth_images[:, 0], near_clip, far_clip)
+        #self._depth_images[:, 0] = torch.clip(self._depth_images[:, 0], near_clip, far_clip)
         # normalize the depth images to be within [-0.5, 0.5]
-        self._depth_images[:, 0] = (self._depth_images[:, 0] - near_clip) / (far_clip - near_clip) - 0.5
+        #self._depth_images[:, 0] = (self._depth_images[:, 0] - near_clip) / (far_clip - near_clip) - 0.5
     
     def _create_warp_envs(self):
       # extract terrain mesh

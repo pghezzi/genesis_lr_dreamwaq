@@ -99,11 +99,12 @@ class Go2Depth(LeggedRobotDreamwaq):
         #     depth = self._normalize_depth_images(self.simulator.depth_images[:, 0])[self.RAND]
         #     with open("tensor.txt", "w") as f:
         #         f.write(str(depth))
-        # import numpy as np
-        # import cv2 as cv
-        # if depth is not None:
-        #     cv.imshow("Depth Camera", (self.depth_images[self.RAND].view(*self.output_resolution) * 255.0).cpu().numpy().astype(np.uint8))
-        #     cv.waitKey(1)
+        #import numpy as np
+        #import cv2 as cv
+        #import random
+        #print(self.simulator.depth_images[0, 0])
+        #cv.imshow("Depth Camera", ((self._normalize_depth_images(self.simulator.depth_images[0, 0]) - 0.5) * 255.0).cpu().numpy().astype(np.uint8))
+        #cv.waitKey(1)
         self.obs_buf = torch.cat((
             self.commands[:, :3] * self.commands_scale,                     # 3
             self.simulator.projected_gravity,                                         # 3
@@ -747,9 +748,9 @@ class Go2Depth(LeggedRobotDreamwaq):
         ]
 
     def _normalize_depth_images(self, depth_images):
-        # normalize depth image to (0, 1)
+        # normalize depth image to (0.5, 1.5)
         near, far = self.cfg.sensor.depth_camera_config.near_clip, self.cfg.sensor.depth_camera_config.far_clip
-        return ( depth_images.clamp(near, far) - near ) / ( far - near )
+        return ( depth_images.clamp(near, far) - near ) / ( far - near ) + 0.5
     
     @torch.no_grad()
     def _process_depth_image(self, depth_images):
