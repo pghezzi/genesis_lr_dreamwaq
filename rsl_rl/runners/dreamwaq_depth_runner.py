@@ -54,6 +54,7 @@ class DreamWaQDepthRunner(OnPolicyRunner):
     
     def _init_agent_and_algo(self):
         actor_critic_class = eval(self.cfg["policy_class_name"]) # ActorCriticTS
+        print(self.policy_cfg)
         actor_critic: ActorCriticDreamWaQDepth = actor_critic_class( 
                                                         self.env.num_obs,
                                                         self.env.num_actions,

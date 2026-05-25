@@ -34,7 +34,7 @@ experiment_extra = f"exp{terrain_index+1}"
 class Go2DepthCfg( LeggedRobotDreamwaqCfg ):
     class env( LeggedRobotDreamwaqCfg.env ):
         num_envs = 3000
-        num_camera_envs = 256
+        num_camera_envs = 3000
         num_actions = 12
         num_observations = 45 # 45 num_obs
         frame_stack = 20    # number of frames to stack for obs_history
@@ -165,6 +165,12 @@ class Go2DepthCfgPPO( LeggedRobotDreamwaqCfgPPO ):
         critic_hidden_dims = [1024, 256, 128]
         encoder_hidden_dims = [256, 128]
         decoder_hidden_dims = [256, 128]
+        depth_image_resolution = Go2DepthCfg.sensor.depth_camera_config.resized_resolution
+        cnn_input_channel = Go2DepthCfg.sensor.depth_camera_config.num_history
+        cnn_channel_dims = [8, 8]
+        cnn_strides = [1, 1]
+        cnn_fc_layer_dims = [128, 64]
+        cnn_kernel_sizes = [5, 3]
     class algorithm( LeggedRobotDreamwaqCfgPPO.algorithm ):
         encoder_lr = 2.e-4
         num_encoder_epochs = 1

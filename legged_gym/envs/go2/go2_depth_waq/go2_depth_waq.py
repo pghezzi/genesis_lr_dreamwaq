@@ -85,6 +85,10 @@ class Go2Depth(LeggedRobotDreamwaq):
         self.set_latency_buffer_for_sensor()
         self.set_obs_buffers_for_component()
         self.build_depth_image_processor_buffers()
+
+        print(f"Num of envs: {self.num_envs}")
+        print(f"Num of cam envs: {self.num_camera_envs}")
+
         return return_
 
     def _pre_sim_step(self, actions):

@@ -39,6 +39,76 @@ from rsl_rl.modules.actor_critic_ts import ActorCriticTS
 from .actor_critic import get_activation, init_orhtogonal, init_normal, init_constant, init_xavier
 from .vae import VAE
 
+import torch
+import torch.nn as nn
+from rsl_rl.utils import unpad_trajectories
+
+class DepthEncoder(nn.Module):
+    """Encodes a depth image into a latent vector."""
+
+    def __init__(
+        self,
+        depth_image_resolution,
+        cnn_input_channel,
+        cnn_channel_dims,
+        cnn_strides,
+        cnn_fc_layer_dims,
+        cnn_kernel_sizes,
+        cnn_activation_fn,
+    ):
+        super().__init__()
+
+        cnn_activation_fn = get_activation(cnn_activation_fn)
+
+        in_channels = cnn_input_channel
+        in_height, in_width = depth_image_resolution
+
+        cnn_layers = []
+
+        for i, out_channels in enumerate(cnn_channel_dims):
+            cnn_layers.append(
+                nn.Conv2d(
+                    in_channels,
+                    out_channels,
+                    kernel_size=cnn_kernel_sizes[i],
+                    stride=cnn_strides[i],
+                )
+            )
+
+            if i != 0:
+                cnn_layers.append(cnn_activation_fn)
+
+            in_channels = out_channels
+
+            # Output size after conv
+            in_height = (in_height - cnn_kernel_sizes[i]) // cnn_strides[i] + 1
+            in_width = (in_width - cnn_kernel_sizes[i]) // cnn_strides[i] + 1
+
+            # MaxPool after first conv
+            if i == 0:
+                cnn_layers.append(nn.MaxPool2d(kernel_size=2, stride=2))
+                cnn_layers.append(cnn_activation_fn)
+
+                in_height = (in_height - 2) // 2 + 1
+                in_width = (in_width - 2) // 2 + 1
+
+        cnn_layers.append(nn.Flatten())
+
+        cnn_out_dim = in_height * in_width * cnn_channel_dims[-1]
+
+        for l, dim in enumerate(cnn_fc_layer_dims):
+            in_dim = cnn_out_dim if l == 0 else cnn_fc_layer_dims[l - 1]
+
+            cnn_layers.append(nn.Linear(in_dim, dim))
+            cnn_layers.append(cnn_activation_fn)
+
+
+        self._output_size = cnn_fc_layer_dims[-1]
+        self.cnn = nn.Sequential(*cnn_layers)
+
+    def forward(self, depth_image):
+        return self.cnn(depth_image)
+
 '''
 Actor-Critic for Hybrid Implicit-Explicit architecture using VAE
 '''
@@ -47,39 +117,37 @@ class ActorCriticDreamWaQDepth(nn.Module):
     is_recurrent = False
 
     def __init__(self,  
-                 num_actor_obs,
-                 num_actions,
-                 num_privileged_obs, 
-                 num_history_input,
-                 num_latent_dims,
-                 num_explicit_dims,
-                 num_decoder_output,
-                 actor_hidden_dims=[256, 256, 256],
-                 critic_hidden_dims=[256, 256, 256],
-                 encoder_hidden_dims=[256, 128],
-                 decoder_hidden_dims=[256, 128],
-                 activation='elu',
-                 init_noise_std=1.0,
-                 visual_kwargs= dict(),
-                 visual_orignal_size=[1, 40, 64],
-                 visual_latent_size= 256,
+                num_actor_obs,
+                num_actions,
+                num_privileged_obs, 
+                num_history_input,
+                num_latent_dims,
+                num_explicit_dims,
+                num_decoder_output,
+                
+                actor_hidden_dims=[256, 256, 256],
+                critic_hidden_dims=[256, 256, 256],
+                encoder_hidden_dims=[256, 128],
+                decoder_hidden_dims=[256, 128],
+                activation='elu',
+                depth_image_resolution=[48, 64],
+                init_noise_std=1.0,
+                cnn_input_channel=1,
+                cnn_channel_dims=[8, 8],
+                cnn_strides=[1,1],
+                cnn_fc_layer_dims=[128, 64],
+                cnn_kernel_sizes=[5, 3],
                  **kwargs):
         if kwargs:
             print("ActorCritic.__init__ got unexpected arguments, which will be ignored: " +
                   str([key for key in kwargs.keys()]))
         super().__init__()
 
-        self.visual_kwargs = dict(
-            channels= [64, 64],
-            kernel_sizes= [3, 3],
-            strides= [1, 1],
-            hidden_sizes= [256],
-        ); self.visual_kwargs.update(visual_kwargs)
-
         # Input dimension of actor (proprioceptive obs + base_lin_vel(estimated) + latent)
-        mlp_input_dim_a = num_actor_obs + num_explicit_dims + num_latent_dims + visual_latent_size
+        mlp_input_dim_a = num_actor_obs + num_explicit_dims + num_latent_dims + cnn_fc_layer_dims[-1]
         # Input dimension of actor (proprioceptive obs + base_lin_vel(true) + latent)
         mlp_input_dim_c = num_privileged_obs
+
         
         self.vae = VAE(num_history_input = num_history_input,
                        num_latent_dims=num_latent_dims,
@@ -88,14 +156,22 @@ class ActorCriticDreamWaQDepth(nn.Module):
                        activation=activation,
                        encoder_hidden_dims=encoder_hidden_dims,
                        decoder_hidden_dims=decoder_hidden_dims)
-                    
-        self.visual_encoder = Conv2dHeadModel(
-            image_shape=visual_orignal_size,
-            output_size=visual_latent_size,
-            **self.visual_kwargs,
-        )
+
+
         
+
+        self.visual_encoder = DepthEncoder(
+            depth_image_resolution = depth_image_resolution,
+            cnn_input_channel = cnn_input_channel,
+            cnn_channel_dims = cnn_channel_dims,
+            cnn_strides = cnn_strides,
+            cnn_fc_layer_dims = cnn_fc_layer_dims,
+            cnn_kernel_sizes = cnn_kernel_sizes,
+            cnn_activation_fn=activation,
+        )
+
         activation = get_activation(activation)
+    
 
         # Policy
         actor_layers = []
