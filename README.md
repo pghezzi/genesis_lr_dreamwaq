@@ -18,6 +18,10 @@ A [legged_gym](https://github.com/leggedrobotics/legged_gym) based framework for
   - Both training speed and support for fluid, soft materials -> Genesis 
   - More realistic rendering at the cost of training speed -> IsaacSim.
 
+- **Accelerated depth image rendering based on warp**
+  
+  We integrate [warp](https://github.com/nvidia/warp) into this framework to accelerate the depth image rendering on Nvidia GPU.
+
 - **Incorporation of various methods in published RL papers**
   
   | Method | Paper Link | Code |
@@ -60,6 +64,7 @@ Please refer to the [doc of this repo](https://leggedgym-ex-doc.readthedocs.io/e
 - [tron1-rl-isaacgym](https://github.com/limxdynamics/tron1-rl-isaacgym)
 - [isaaclab](https://github.com/isaac-sim/IsaacLab/tree/8e15af9f2ca18a0c3940b44e36fdc128995ecf16)
 - [aerial_gym_simulator](https://github.com/ntnu-arl/aerial_gym_simulator)
+- [warp](https://github.com/nvidia/warp)
 
 ## TODO
 
