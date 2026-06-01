@@ -1,3 +1,6 @@
+THIS IS NOT THE ORIGINAL REPO. THIS A REPUPOSING OF THE ORIGINAL.
+TEXT BELOW IS FROM THE ORIGINAL
+
 # 🦿 LeggedGym-Ex
 
 A [legged_gym](https://github.com/leggedrobotics/legged_gym) based framework for training legged robots in [Genesis](https://github.com/Genesis-Embodied-AI/Genesis/tree/main), [IsaacGym](https://developer.nvidia.com/isaac-gym) and [IsaacSim](https://developer.nvidia.com/isaac/sim).
