@@ -38,8 +38,7 @@ genesis = [
     "genesis-world==1.0.0"
 ]
 isaaclab = [
-    "isaaclab",
-    "isaacsim"
+    "warp-lang==1.12.0",
 ]
 
 [tool.setuptools]

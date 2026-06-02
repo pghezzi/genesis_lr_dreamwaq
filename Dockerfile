@@ -41,6 +41,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     libegl-dev \
     libgl1-mesa-glx \
+    libglu1-mesa \
     libvulkan-dev \
     vulkan-tools \
     libglib2.0-0 \
@@ -50,6 +51,7 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     bash-completion \
     vim \
+    ncurses-bin \
     && rm -rf /var/lib/apt/lists/*
 
 # ---- 配置 PyPI 镜像源（加速下载）----
@@ -66,8 +68,14 @@ WORKDIR /workspace
 # ---- 复制 IsaacGym ----
 COPY isaacgym /workspace/isaacgym
 
+# ---- 复制 IsaacLab（预先下载）----
+COPY IsaacLab /workspace/IsaacLab
+
 # ---- 复制项目文件 ----
 COPY LeggedGym-Ex/pyproject.toml /workspace/LeggedGym-Ex/
+COPY LeggedGym-Ex/rsl_rl /workspace/LeggedGym-Ex/rsl_rl
+COPY LeggedGym-Ex/legged_gym /workspace/LeggedGym-Ex/legged_gym
+COPY LeggedGym-Ex/resources /workspace/LeggedGym-Ex/resources
 
 # ---- 创建并安装 IsaacGym 环境 (Python 3.8 + cu121) ----
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -92,18 +100,20 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install ".[genesis]"
 
 # ---- 创建并安装 IsaacSim 环境 (Python 3.11 + cu128) ----
+ENV TERM=xterm
+RUN touch /.dockerenv
 RUN --mount=type=cache,target=/root/.cache/uv \
     cd /workspace/LeggedGym-Ex && \
     uv venv --python 3.11 .venv-isaaclab && \
     . .venv-isaaclab/bin/activate && \
     uv pip install "isaacsim[all,extscache]==5.1.0" \
         --extra-index-url https://pypi.nvidia.com && \
-    cd /workspace && \
-    git clone https://github.com/isaac-sim/IsaacLab.git && \
-    cd IsaacLab && git checkout v2.3.2 && \
+    cd /workspace/IsaacLab && \
     ./isaaclab.sh --install none && \
     cd /workspace/LeggedGym-Ex && \
-    uv pip install ".[isaaclab]"
+    uv pip install matplotlib tensorboard xlsxwriter pandas wandb tqdm scipy numpy pygame trimesh rich-argparse && \
+    uv pip install warp-lang==1.12.0 && \
+    uv pip install -e . --no-deps
 
 # ---- 复制项目源码 ----
 COPY LeggedGym-Ex /workspace/LeggedGym-Ex
@@ -133,19 +143,27 @@ case "$1" in
         export SIMULATOR=isaaclab
         ;;
     *)
-        echo "Usage: docker run ... leggedgym-ex:all [isaacgym|genesis|isaacsim]"
+        echo "Usage: docker run ... leggedgym-ex:all [isaacgym|genesis|isaacsim] [command]"
         echo ""
         echo "Available simulators:"
         echo "  isaacgym  - IsaacGym (Python 3.8, cu121)"
         echo "  genesis   - Genesis (Python 3.10, cu126)"
         echo "  isaacsim  - IsaacSim/IsaacLab (Python 3.11, cu128)"
+        echo ""
+        echo "Example:"
+        echo "  docker run --gpus all -it --rm leggedgym-ex:all genesis bash"
         exit 1
         ;;
 esac
 
 cd /workspace/LeggedGym-Ex
 export PYTHONPATH=/workspace/LeggedGym-Ex:$PYTHONPATH
-exec "${@:2}"
+
+if [ $# -gt 1 ]; then
+    exec "${@:2}"
+else
+    exec bash
+fi
 EOF
 RUN chmod +x /workspace/entrypoint.sh
 
