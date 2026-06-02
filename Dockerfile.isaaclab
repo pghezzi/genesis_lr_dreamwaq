@@ -68,7 +68,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ---- 安装 IsaacLab ----
 ENV TERM=xterm
 RUN touch /.dockerenv
-RUN cd /workspace/IsaacLab && \
+RUN cd /workspace/LeggedGym-Ex && \
+    . .venv/bin/activate && \
+    cd /workspace/IsaacLab && \
     ./isaaclab.sh --install none
 
 # ---- 安装 LeggedGym-Ex 及依赖 ----
