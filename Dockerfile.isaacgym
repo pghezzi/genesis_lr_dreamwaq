@@ -9,7 +9,7 @@
 #   docker run --gpus all -it --rm leggedgym-ex:isaacgym
 
 # ---- 基础镜像 ----
-FROM nvidia/cuda:12.1.1-cudnn-devel-ubuntu22.04
+FROM nvidia/cuda:12.6.3-cudnn-devel-ubuntu22.04
 
 # ---- 复制 uv 工具 ----
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/

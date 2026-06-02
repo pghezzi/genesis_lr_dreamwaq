@@ -71,18 +71,13 @@ RUN touch /.dockerenv
 RUN cd /workspace/IsaacLab && \
     ./isaaclab.sh --install none
 
-# ---- 卸载 warp-lang（使用 isaacsim 自带的 warp）----
+# ---- 安装 LeggedGym-Ex 及依赖 ----
 RUN --mount=type=cache,target=/root/.cache/uv \
     cd /workspace/LeggedGym-Ex && \
     . .venv/bin/activate && \
-    uv pip uninstall warp-lang
-
-# ---- 安装 LeggedGym-Ex ----
-RUN --mount=type=cache,target=/root/.cache/uv \
-    cd /workspace/LeggedGym-Ex && \
-    . .venv/bin/activate && \
-    uv pip install -e . --no-deps && \
-    uv pip install matplotlib tensorboard xlsxwriter pandas wandb tqdm scipy numpy pygame trimesh warp-lang rich-argparse
+    uv pip install matplotlib tensorboard xlsxwriter pandas wandb tqdm scipy numpy pygame trimesh rich-argparse && \
+    uv pip install warp-lang==1.12.0 && \
+    uv pip install -e . --no-deps
 
 # ---- 配置环境变量 ----
 ENV SIMULATOR=isaaclab
