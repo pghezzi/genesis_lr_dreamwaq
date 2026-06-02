@@ -30,7 +30,8 @@ isaacgym = [
     "fsspec<=2025.3.0",  # fsspec==2025.3.1 has bug with python 3.8
     "isaacgym==1.0rc4",
     "onnx>=1.17.0",
-    "protobuf==4.25.0"
+    "protobuf==4.25.0",
+    "warp-lang==1.10.0"
 ]
 genesis = [
     "torch==2.8.0+cu126",
