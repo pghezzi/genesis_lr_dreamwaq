@@ -5,6 +5,8 @@ import numpy as np
 import random
 import argparse
 
+from rsl_rl.modules import ActorCriticTSDepth
+
 try:
     from rich_argparse import RichHelpFormatter
     HAS_RICH_ARGPARSE = True
@@ -296,6 +298,55 @@ class PolicyExporterWaQ(torch.nn.Module):
             dummy_obs = torch.randn(1, env_cfg.env.num_observations)
             dummy_history = torch.randn(1, env_cfg.env.num_history_obs)
             torch.onnx.export(self, (dummy_obs, dummy_history), path_onnx, 
+                              verbose=True, 
+                              export_params=True,
+                              input_names=input_names,
+                              output_names=output_names,
+                              opset_version=11)
+
+class PolicyExporterDepth(torch.nn.Module):
+    """Policy exporter for depth-based policies
+    
+    Attention: This module is consistent with ActorCriticDepth in rsl_rl/modules/actor_critic_depth.py
+               When ActorCriticDepth is updated, please remember to update this module accordingly.
+    """
+    def __init__(self, actor_critic: ActorCriticTSDepth, train_cfg):
+        super().__init__()
+        self.actor = copy.deepcopy(actor_critic.actor)
+        self.cnn = copy.deepcopy(actor_critic.depth_history_encoder.cnn)
+        self.combination_mlp = copy.deepcopy(actor_critic.depth_history_encoder.combination_mlp)
+        self.rnn = copy.deepcopy(actor_critic.depth_history_encoder.rnn)
+        self.latent_output_mlp = copy.deepcopy(actor_critic.depth_history_encoder.latent_output_mlp)
+        self.register_buffer("hidden_states", 
+                              torch.zeros(train_cfg.policy.rnn_num_layers, 1, train_cfg.policy.rnn_hidden_size))
+    
+    def forward(self, obs, depth_obs):
+        cnn_encoding = self.cnn(depth_obs)
+        combined_input = torch.cat((obs, cnn_encoding), dim=-1)
+        combined_encoding = self.combination_mlp(combined_input)
+        rnn_out, self.hidden_states = self.rnn(combined_encoding.unsqueeze(0), self.hidden_states)
+        latent_output = self.latent_output_mlp(rnn_out.squeeze(0))
+        x = torch.cat([obs, latent_output], dim=-1)
+        return self.actor(x)
+ 
+    def export(self, path, env_cfg, export_onnx=False, train_cfg=None):
+        os.makedirs(path, exist_ok=True)
+        filename = train_cfg.runner.load_run + "_ite" + str(train_cfg.runner.checkpoint) + ".pt"
+        path = os.path.join(path, filename)
+        self.to('cpu')
+        traced_script_module = torch.jit.script(self)
+        traced_script_module.save(path)
+        
+        # export onnx model if needed
+        if export_onnx:
+            filename = train_cfg.runner.load_run + "_ite" + str(train_cfg.runner.checkpoint) + ".onnx"
+            path_onnx = os.path.join(path, filename)
+            input_names = ["obs_input", "depth_obs_input"]
+            output_names = ["nn_output"]
+            dummy_obs = torch.randn(1, env_cfg.env.num_observations)
+            depth_cfg = env_cfg.sensor.depth_camera_config
+            dummy_depth_obs = torch.randn(1, depth_cfg.resolution[0]*depth_cfg.resolution[1])
+            torch.onnx.export(self, (dummy_obs, dummy_depth_obs), path_onnx, 
                               verbose=True, 
                               export_params=True,
                               input_names=input_names,
