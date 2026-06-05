@@ -13,7 +13,7 @@ TERRAIN_MAP = {
     for idx, name in enumerate(TERRAIN_KEYS)
 }
 
-terrain_name = os.environ.get("TERRAIN", "rough").lower()
+terrain_name = os.environ.get("TERRAIN", "random_uniform").lower()
 finetune = os.environ.get("FINETUNE", "")
 
 
