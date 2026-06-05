@@ -51,6 +51,7 @@ Thumbs.db
 .vscode
 # logs
 logs
+exp_logs
 runs
 
 # other
