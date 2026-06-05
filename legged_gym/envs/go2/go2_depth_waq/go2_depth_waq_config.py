@@ -1,18 +1,12 @@
 from legged_gym import *
 from legged_gym.envs.base.legged_robot_dreamwaq_config import LeggedRobotDreamwaqCfg, LeggedRobotDreamwaqCfgPPO
 from legged_gym.envs.base.common_cfgs import Go2RoughCommonCfg
+from legged_gym.utils.terrain_vars import terrain_list
 
 
 import os
 
-TERRAIN_KEYS = [
-    "rough",
-    "slope",
-    "stairs",
-    "discrete",
-    "wave",
-    "stepping_stones",
-]
+TERRAIN_KEYS = terrain_list
 
 TERRAIN_MAP = {
     name: [1 if i == idx else 0 for i in range(len(TERRAIN_KEYS))]
