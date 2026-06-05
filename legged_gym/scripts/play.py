@@ -228,7 +228,8 @@ def export_policy(alg_runner, path: str, args, env_cfg, train_cfg, task_type):
         train_cfg: training configuration
     """
     if task_type == "ts_depth":
-        pass
+        exporter = PolicyExporterDepth(alg_runner.alg.actor_critic, train_cfg)
+        exporter.export(path, env_cfg, args.export_onnx, train_cfg)
     elif task_type == "ts" or task_type == "cat" or task_type == "cts" or task_type == "cts_amp":
         exporter = PolicyExporterTS(alg_runner.alg.actor_critic)
         exporter.export(path, env_cfg, args.export_onnx, train_cfg)
@@ -277,7 +278,7 @@ def play(args):
     path = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 
                             train_cfg.runner.load_run, 'exported')
     export_policy(ppo_runner, path, args, env_cfg, train_cfg, task_type)
-
+    
     interaction_loop(env, policy, args, task_type)
     
     

@@ -379,6 +379,22 @@ class GenesisSimulator(Simulator):
             raise NotImplementedError("Please specify xml file path for Genesis simulator!")
         
         # build
+        if self._headless:
+            # Monkey-patch the visualizer to skip building
+            original_build = self._scene.build
+            def patched_build(n_envs):
+                # Store the original visualizer build method
+                original_visualizer_build = self._scene._visualizer.build
+                # Temporarily replace it with a no-op
+                self._scene._visualizer.build = lambda: None
+                # Build the scene
+                result = original_build(n_envs)
+                # Restore the original method
+                self._scene._visualizer.build = original_visualizer_build
+                return result
+            # Apply the patch
+            self._scene.build = patched_build
+        # Build the scene
         self._scene.build(n_envs=self._num_envs)
 
         self._get_env_origins()
