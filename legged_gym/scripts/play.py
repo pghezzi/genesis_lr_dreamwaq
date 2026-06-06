@@ -107,7 +107,7 @@ def print_debug_info(env, robot_index):
     # print(f"dr_ctrl_delay: {env.simulator.dr_ctrl_delay[robot_index].item()}")
     pass
 
-def interaction_loop(env, policy, args, task_type):
+def interaction_loop(env, policy, args, task_type, train_cfg=None):
     """Run interaction loop between environment and policy
 
     Args:
@@ -124,6 +124,8 @@ def interaction_loop(env, policy, args, task_type):
         
     # Get initial observations according to task type
     if task_type == "ts_depth":
+        hidden_states = torch.zeros(train_cfg.policy.rnn_num_layers, 1, train_cfg.policy.rnn_hidden_size,
+                                    device=env.device) # initialize hidden states for RNN
         obs_buf, privileged_obs_buf, depth_image, critic_obs = env.get_observations()
     elif task_type == "ts" or task_type == "cat" or task_type == "cts" or task_type == "cts_amp": # teacher-student specific (including AMP)
         obs_buf, privileged_obs_buf, obs_history, critic_obs = env.get_observations()
@@ -158,7 +160,7 @@ def interaction_loop(env, policy, args, task_type):
             
         # Step the environment according to task type
         if task_type == "ts_depth":
-            actions = policy(obs_buf, depth_image)
+            actions, hidden_states = policy(obs_buf, depth_image, hidden_states)
             obs_buf, privileged_obs_buf, depth_image, critic_obs, rews, dones, infos = env.step(actions.detach())
         elif task_type == "ts" or task_type == "cat" or task_type == "cts":
             actions = policy(obs_buf, obs_history)
@@ -247,6 +249,7 @@ def export_policy(alg_runner, path: str, args, env_cfg, train_cfg, task_type):
     if args.export_onnx:
         print('Exported policy as onnx to: ', path)
     
+    return exporter
 
 def play(args):
     """Main function to run the play script
@@ -277,9 +280,11 @@ def play(args):
     # export policy as a jit module (used to run it from C++ or python)
     path = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 
                             train_cfg.runner.load_run, 'exported')
-    export_policy(ppo_runner, path, args, env_cfg, train_cfg, task_type)
+    policy = export_policy(ppo_runner, path, args, env_cfg, train_cfg, task_type)
+    policy.to(env.device)
+    policy.eval()
     
-    interaction_loop(env, policy, args, task_type)
+    interaction_loop(env, policy, args, task_type, train_cfg)
     
     
 if __name__ == '__main__':
