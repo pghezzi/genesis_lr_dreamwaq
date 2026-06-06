@@ -19,8 +19,7 @@ class TSDepthRunner(OnPolicyRunner):
                  env: VecEnv,
                  train_cfg,
                  log_dir=None,
-                 device='cpu',
-                 distillation=False):
+                 device='cpu'):
         """
         Runner for Teacher-Student learning with depth image observation.
         Args:
@@ -28,16 +27,12 @@ class TSDepthRunner(OnPolicyRunner):
             train_cfg (_type_): training configuration dictionary
             log_dir (_type_, optional): log directory. Defaults to None.
             device (str, optional): device to use. Defaults to 'cpu'.
-            distillation (bool, optional): whether to use distillation(for student policy). Defaults to False.
         """
-        self.distillation = distillation
         super().__init__(env, train_cfg, log_dir, device)
     
     def _init_agent_and_algo(self):
         assert self.cfg["policy_class_name"] == "ActorCriticTSDepth"
         actor_critic_class = eval(self.cfg["policy_class_name"])
-        log_root = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', self.cfg["experiment_name"])
-        teacher_model_path = os.path.join(log_root, self.cfg["teacher_model_path"])
 
         actor_critic : ActorCriticTSDepth = actor_critic_class(
                                                     self.env.num_obs,
@@ -48,53 +43,19 @@ class TSDepthRunner(OnPolicyRunner):
                                                     self.env.depth_image_resolution,
                                                     **self.policy_cfg).to(self.device)
 
-        if self.distillation:
-            print(f"Loading teacher model from {teacher_model_path}")
-            loaded_dict = torch.load(teacher_model_path)
-            actor_critic.load_state_dict(loaded_dict['model_state_dict'])
-
-            self.teacher_actor_critic = ActorCriticTSDepthTeacher(
-                self.env.num_obs,
-                self.env.num_actions,
-                self.env.num_privileged_obs,
-                self.env.num_latent_dims,
-                self.env.num_critic_obs,
-                **self.policy_cfg
-            ).to(self.device)
-            self.teacher_actor_critic.actor.load_state_dict(actor_critic.actor.state_dict())
-            self.teacher_actor_critic.critic.load_state_dict(actor_critic.critic.state_dict())
-            self.teacher_actor_critic.privilege_encoder.load_state_dict(actor_critic.privilege_encoder.state_dict())
-            self.teacher_actor_critic.eval()
-            for param in self.teacher_actor_critic.parameters():
-                param.requires_grad = False
-            print("Teacher model frozen for DAgger supervision")
-        else:
-            self.teacher_actor_critic = None
-
         alg_class = eval(self.cfg["algorithm_class_name"])
         self.alg: PPO_TSDepth = alg_class(actor_critic, device=self.device,
                                           **self.alg_cfg,
-                                          num_student=self.env.num_student,
-                                          distillation=self.distillation,
-                                          teacher_actor_critic=self.teacher_actor_critic)
+                                          num_student=self.env.num_student)
     
     def _init_storage(self):
-        if self.distillation:
-            self.storage_student = RolloutStorageTSDepth(
-                self.env.num_student, self.env.num_student, self.num_steps_per_env,
-                [self.env.num_obs], [self.env.num_privileged_obs],
-                self.env.depth_image_features_shape, [self.env.num_critic_obs],
-                [self.env.num_actions], self.device)
-            self.alg.init_storage(self.storage_student)
-            self.current_num_envs = self.env.num_student
-        else:
-            self.storage_full = RolloutStorageTSDepth(
-                self.env.num_envs, self.env.num_student, self.num_steps_per_env,
-                [self.env.num_obs], [self.env.num_privileged_obs],
-                self.env.depth_image_features_shape, [self.env.num_critic_obs],
-                [self.env.num_actions], self.device)
-            self.alg.init_storage(self.storage_full)
-            self.current_num_envs = self.env.num_envs
+        self.storage_full = RolloutStorageTSDepth(
+            self.env.num_envs, self.env.num_student, self.num_steps_per_env,
+            [self.env.num_obs], [self.env.num_privileged_obs],
+            self.env.depth_image_features_shape, [self.env.num_critic_obs],
+            [self.env.num_actions], self.device)
+        self.alg.init_storage(self.storage_full)
+        self.current_num_envs = self.env.num_envs
         
     def learn(self, num_learning_iterations, init_at_random_ep_len=False):
         self._pre_learn(init_at_random_ep_len)
@@ -114,26 +75,11 @@ class TSDepthRunner(OnPolicyRunner):
             start = time.time()
             with torch.inference_mode():
                 for i in range(self.num_steps_per_env):
-                    if self.distillation: # phase 2 training, only student policy interacts with env
-                        obs_student = obs[:self.env.num_student]
-                        privileged_obs_student = privileged_obs[:self.env.num_student]
-                        depth_student = depth_image_features[:self.env.num_student]
-                        critic_obs_student = critic_obs[:self.env.num_student]
-                        actions_student = self.alg.act(obs_student, privileged_obs_student, depth_student, critic_obs_student)
-                        actions = torch.zeros(self.env.num_envs, actions_student.shape[1], device=self.device)
-                        actions[:self.env.num_student] = actions_student
-                        obs, privileged_obs, depth_image_features, critic_obs, rewards, dones, infos = self.env.step(actions)
-                        obs, privileged_obs, depth_image_features, rewards, dones, critic_obs = obs[:self.env.num_student].to(self.device), \
-                            privileged_obs[:self.env.num_student].to(self.device), depth_image_features.to(self.device), \
-                            rewards[:self.env.num_student].to(self.device), dones[:self.env.num_student].to(self.device), \
-                            critic_obs[:self.env.num_student].to(self.device)
-                        self.alg.process_env_step(rewards, dones, infos)
-                    else: # phase 1 training, teacher policy interacts with env
-                        actions = self.alg.act(obs, privileged_obs, depth_image_features, critic_obs)
-                        obs, privileged_obs, depth_image_features, critic_obs, rewards, dones, infos = self.env.step(actions)
-                        obs, privileged_obs, depth_image_features, rewards, dones, critic_obs = obs.to(self.device), \
-                            privileged_obs.to(self.device), depth_image_features.to(self.device), rewards.to(self.device), dones.to(self.device), critic_obs.to(self.device)
-                        self.alg.process_env_step(rewards, dones, infos)
+                    actions = self.alg.act(obs, privileged_obs, depth_image_features, critic_obs)
+                    obs, privileged_obs, depth_image_features, critic_obs, rewards, dones, infos = self.env.step(actions)
+                    obs, privileged_obs, depth_image_features, rewards, dones, critic_obs = obs.to(self.device), \
+                        privileged_obs.to(self.device), depth_image_features.to(self.device), rewards.to(self.device), dones.to(self.device), critic_obs.to(self.device)
+                    self.alg.process_env_step(rewards, dones, infos)
 
                     if self.log_dir is not None:
                         if 'episode' in infos:
@@ -152,8 +98,7 @@ class TSDepthRunner(OnPolicyRunner):
                 start = stop
                 self.alg.compute_returns(critic_obs)
 
-            mean_value_loss, mean_surrogate_loss, mean_latent_reconstruction_loss, \
-                    mean_action_reconstruction_loss = self.alg.update()
+            mean_value_loss, mean_surrogate_loss, mean_latent_reconstruction_loss = self.alg.update()
             stop = time.time()
             learn_time = stop - start
 
@@ -193,7 +138,6 @@ class TSDepthRunner(OnPolicyRunner):
         self.writer.add_scalar('Loss/value_function', locs['mean_value_loss'], locs['it'])
         self.writer.add_scalar('Loss/surrogate', locs['mean_surrogate_loss'], locs['it'])
         self.writer.add_scalar('Loss/latent_reconstruction', locs['mean_latent_reconstruction_loss'], locs['it'])
-        self.writer.add_scalar('Loss/action_reconstruction', locs['mean_action_reconstruction_loss'], locs['it'])
         self.writer.add_scalar('Loss/learning_rate', self.alg.learning_rate, locs['it'])
         self.writer.add_scalar('Policy/mean_noise_std', mean_std.item(), locs['it'])
         self.writer.add_scalar('Perf/total_fps', fps, locs['it'])
@@ -215,7 +159,6 @@ class TSDepthRunner(OnPolicyRunner):
                           f"""{'Value function loss:':>{pad}} {locs['mean_value_loss']:.4f}\n"""
                           f"""{'Surrogate loss:':>{pad}} {locs['mean_surrogate_loss']:.4f}\n"""
                           f"""{'Latent reconstruction loss:':>{pad}} {locs['mean_latent_reconstruction_loss']:.4f}\n"""
-                          f"""{'Action reconstruction loss:':>{pad}} {locs['mean_action_reconstruction_loss']:.4f}\n"""
                           f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n"""
                           f"""{'Mean reward:':>{pad}} {statistics.mean(locs['rewbuffer']):.2f}\n"""
                           f"""{'Mean episode length:':>{pad}} {statistics.mean(locs['lenbuffer']):.2f}\n""")
@@ -229,7 +172,6 @@ class TSDepthRunner(OnPolicyRunner):
                           f"""{'Value function loss:':>{pad}} {locs['mean_value_loss']:.4f}\n"""
                           f"""{'Surrogate loss:':>{pad}} {locs['mean_surrogate_loss']:.4f}\n"""
                           f"""{'Latent reconstruction loss:':>{pad}} {locs['mean_latent_reconstruction_loss']:.4f}\n"""
-                          f"""{'Action reconstruction loss:':>{pad}} {locs['mean_action_reconstruction_loss']:.4f}\n"""
                           f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n""")
                         #   f"""{'Mean reward/step:':>{pad}} {locs['mean_reward']:.2f}\n"""
                         #   f"""{'Mean episode length/episode:':>{pad}} {locs['mean_trajectory_length']:.2f}\n""")
