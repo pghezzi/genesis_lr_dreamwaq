@@ -115,8 +115,7 @@ class TaskRegistry():
         # select runner according to runner_class_name
         runner_class = runner_registry.get_runner_class(train_cfg.runner_class_name)
         if "TSDepth" in train_cfg.runner_class_name:
-            runner = runner_class(env, train_cfg_dict, log_dir, device=sim_device,
-                                  distillation=train_cfg.distillation)
+            runner = runner_class(env, train_cfg_dict, log_dir, device=sim_device)
         else:
             runner = runner_class(env, train_cfg_dict, log_dir, device=sim_device)
         #save resume path before creating a new log_dir

@@ -110,7 +110,7 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
             hip_pos = -0.15
             foot_clearance = 0.2
             feet_stumble = -1.0
-            feet_contact_stand_still = 0.1
+            # feet_contact_stand_still = 0.1
             feet_near_edge = -1.0
 
     class commands( Go2RoughCommonCfg.commands ):
@@ -179,7 +179,6 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
 
 class Go2TSDepthCfgPPO( LeggedRobotTSDepthCfgPPO ):
     seed = 42
-    distillation = False
     class policy( LeggedRobotTSDepthCfgPPO.policy ):
         clip_actions = Go2TSDepthCfg.normalization.clip_actions
         critic_hidden_dims = [1024, 256, 128]
@@ -199,7 +198,6 @@ class Go2TSDepthCfgPPO( LeggedRobotTSDepthCfgPPO ):
         encoder_lr = 2.e-4
         
     class runner( LeggedRobotTSDepthCfgPPO.runner ):
-        teacher_model_path = "Mar09_17-57-51_/model_4500.pt"
         run_name = ''
         experiment_name = 'go2_depth'
         save_interval = 500
