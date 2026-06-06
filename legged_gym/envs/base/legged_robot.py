@@ -10,7 +10,7 @@ from torch import Tensor
 from typing import Tuple, Dict, List, Callable, Optional, Union, Any
 
 from legged_gym.envs.base.base_task import BaseTask
-from legged_gym.utils.math_utils import wrap_to_pi, torch_rand_float, quat_apply
+from legged_gym.utils.math_utils import wrap_to_pi, torch_rand_float, quat_apply, quat_from_euler_xyz
 from legged_gym.utils.terrain import Terrain
 from legged_gym.utils.helpers import class_to_dict
 from .legged_robot_config import LeggedRobotCfg
@@ -475,7 +475,14 @@ class LeggedRobot(BaseTask):
             base_pos = self.simulator.base_init_pos.reshape(1, -1).repeat(len(env_ids), 1)
             base_pos += self.simulator.env_origins[env_ids]
         # base quat
-        base_quat = self.simulator.base_init_quat.reshape(1, -1).repeat(len(env_ids), 1)
+        roll_scale = self.cfg.init_state.roll_random_scale
+        pitch_scale = self.cfg.init_state.pitch_random_scale
+        yaw_scale = self.cfg.init_state.yaw_random_scale
+        base_quat = quat_from_euler_xyz(
+            torch_rand_float(-roll_scale, roll_scale, (len(env_ids), 1), self.device).squeeze(1),
+            torch_rand_float(-pitch_scale, pitch_scale, (len(env_ids), 1), self.device).squeeze(1),
+            torch_rand_float(-yaw_scale, yaw_scale, (len(env_ids), 1), self.device).squeeze(1)
+        )
         # base lin vel
         base_lin_vel = torch_rand_float(-0.5, 0.5, (len(env_ids), 3), self.device)
         # base ang vel
