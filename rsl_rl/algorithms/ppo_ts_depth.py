@@ -62,10 +62,13 @@ class PPO_TSDepth(PPO):
         self.actor_critic.to(self.device)
         self.storage = None  # initialized later
         self.teacher_params = list(self.actor_critic.actor.parameters()) + \
-                            list(self.actor_critic.privilege_encoder.parameters()) + \
                             list(self.actor_critic.critic.parameters()) + \
                             [self.actor_critic.std]
-        self.teacher_optimizer = optim.Adam(self.teacher_params, lr=learning_rate)  # do not consider paramters of student encoder during RL update
+        self.teacher_optimizer = optim.Adam([
+            {'params': self.teacher_params, 'lr': learning_rate},
+            {'params': list(self.actor_critic.privilege_encoder.parameters()), 
+             'lr': self.encoder_lr * 0.5}
+        ])
         self.student_params = list(self.actor_critic.depth_history_encoder.parameters())
         self.student_optimizer = optim.Adam(
             self.student_params, lr=self.encoder_lr)
@@ -105,7 +108,7 @@ class PPO_TSDepth(PPO):
         mean_value_loss = 0
         mean_surrogate_loss = 0
         mean_latent_reconstruction_loss = 0
-        # FIX: Separate teacher and student updates completely
+        
         # First, update teacher for all mini-batches
         generator = self.storage.teacher_mini_batch_generator(
                 self.num_mini_batches, self.num_learning_epochs)
@@ -141,8 +144,7 @@ class PPO_TSDepth(PPO):
                         self.learning_rate = min(
                             1e-2, self.learning_rate * 1.5)
 
-                    for param_group in self.teacher_optimizer.param_groups:
-                        param_group['lr'] = self.learning_rate
+                    self.teacher_optimizer.param_groups[0]['lr'] = self.learning_rate
 
             ## Surrogate loss
             ratio = torch.exp(actions_log_prob_batch -
@@ -175,8 +177,6 @@ class PPO_TSDepth(PPO):
             mean_value_loss += value_loss.item()
             mean_surrogate_loss += surrogate_loss.item()
         
-        # Then, update student encoder separately with frozen teacher
-        # This ensures stable targets for student training
         generator = self.storage.teacher_mini_batch_generator(
                 self.num_mini_batches, self.num_learning_epochs)
         for obs_batch, privileged_obs_batch, critic_obs_batch, actions_batch, \
@@ -185,14 +185,12 @@ class PPO_TSDepth(PPO):
             student_obs_batch, student_privileged_obs_batch, depth_features_batch,\
             hid_states_batch, masks_batch in generator:
             
-            # Student encoder update only (teacher is frozen)
             latent = self.actor_critic.depth_history_encoder(student_obs_batch, 
                                                             depth_features_batch, 
                                                             hidden_states=hid_states_batch,
                                                             masks=masks_batch)
                 
             with torch.no_grad():
-                # Target from frozen privilege encoder (no gradient)
                 unpadded_student_privileged_obs = unpad_trajectories(student_privileged_obs_batch, masks_batch)
                 latent_targets = self.actor_critic.privilege_encoder(unpadded_student_privileged_obs)
 
