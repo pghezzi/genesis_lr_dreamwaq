@@ -89,6 +89,11 @@ class Go2DepthCfg( LeggedRobotDreamwaqCfg ):
         joint_friction_range = [0.01, 0.02]
         randomize_joint_damping = False
         joint_damping_range = [0.25, 0.3]
+        randomize_camera_pos = True
+        camera_com_displacement_range = [0.01, 0.0025, 0.03]
+        randomize_camera_euler = True
+        camera_euler_offset_range = [0.0577, 0.0173, 0.0577]
+        
 
     class sensor(LeggedRobotDreamwaqCfg.sensor):
         add_depth = True
@@ -103,11 +108,7 @@ class Go2DepthCfg( LeggedRobotDreamwaqCfg ):
             calculate_depth = True
             horizontal_fov_deg = 88
             pos = (0.32, 0.0, 0.07)
-            pos_std = [0.01, 0.0025, 0.03]
-            #pos_std = [1.00, 0.0025, 0.03] #exaggerated for testing
             euler = (0, 0, 0)
-            euler_std = [0.0577, 0.0173, 0.0577]
-            #euler_std = [1.5, 0.5, 1.5] #exaggerated for testing
             near_plane = 0.05
             far_plane = 4.00
             near_clip = 0.00
