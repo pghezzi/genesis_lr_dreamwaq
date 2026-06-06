@@ -8,7 +8,7 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
         num_camera_envs = 1500
         num_observations = 45
         num_privileged_obs = 268
-        num_latent_dims = 64
+        num_latent_dims = 32
         c_frame_stack = 5
         num_single_critic_obs = num_observations + 31 + 15 + 3 + 48 + 171
         num_critic_obs = c_frame_stack * num_single_critic_obs
