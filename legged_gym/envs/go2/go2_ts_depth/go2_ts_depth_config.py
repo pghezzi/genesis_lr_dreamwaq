@@ -141,6 +141,12 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
         randomize_pd_gain = True
         kp_range = [0.8, 1.2]
         kd_range = [0.8, 1.2]
+        # randomize position of the camera relative to the fixed pos
+        randomize_camera_pos = True
+        camera_com_displacement_range = [0.01, 0.01, 0.01] # [m], random displacement of the camera position along x, y, z axes
+        # randomize orientation of the camera
+        randomize_camera_euler = True
+        camera_euler_range = [0.1, 0.1, 0.1] # [rad], randomize roll, pitch, yaw of the camera
     
     class normalization( Go2RoughCommonCfg.normalization):
         class obs_scales( Go2RoughCommonCfg.normalization.obs_scales ):

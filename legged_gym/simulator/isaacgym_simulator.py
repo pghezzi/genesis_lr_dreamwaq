@@ -856,16 +856,16 @@ class IsaacGymSimulator(Simulator):
           self._camera_euler_offset = torch.zeros(
                 self._num_camera_envs, 3, dtype=torch.float, device=self._device, requires_grad=False)
           self._camera_euler_offset[:self._num_camera_envs, 0] = torch_rand_float(
-                -self._cfg.domain_rand.camera_euler_offset_range[0],
-                self._cfg.domain_rand.camera_euler_offset_range[0],
+                -self._cfg.domain_rand.camera_euler_range[0],
+                self._cfg.domain_rand.camera_euler_range[0],
                 (self._num_camera_envs,1), device=self._device).squeeze(1)
           self._camera_euler_offset[:self._num_camera_envs, 1] = torch_rand_float(
-                -self._cfg.domain_rand.camera_euler_offset_range[1],
-                self._cfg.domain_rand.camera_euler_offset_range[1],
+                -self._cfg.domain_rand.camera_euler_range[1],
+                self._cfg.domain_rand.camera_euler_range[1],
                 (self._num_camera_envs,1), device=self._device).squeeze(1)
           self._camera_euler_offset[:self._num_camera_envs, 2] = torch_rand_float(
-                -self._cfg.domain_rand.camera_euler_offset_range[2],
-                self._cfg.domain_rand.camera_euler_offset_range[2],
+                -self._cfg.domain_rand.camera_euler_range[2],
+                self._cfg.domain_rand.camera_euler_range[2],
                 (self._num_camera_envs,1), device=self._device).squeeze(1)
           rpy_offset += self._camera_euler_offset[:self._num_camera_envs]
           
