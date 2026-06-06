@@ -100,7 +100,6 @@ class LeggedRobotTSDepthCfg(LeggedRobotCfg):
         clip_actions = 100.0
     
 class LeggedRobotTSDepthCfgPPO(LeggedRobotCfgPPO):
-    distillation = False # false -> teacher training, true -> student training
     runner_class_name = 'TSDepthRunner'
     class policy( LeggedRobotCfgPPO.policy ):
         critic_hidden_dims = [1024, 256, 128]
@@ -122,7 +121,6 @@ class LeggedRobotTSDepthCfgPPO(LeggedRobotCfgPPO):
     class runner( LeggedRobotCfgPPO.runner ):
         policy_class_name = "ActorCriticTSDepth"
         algorithm_class_name = "PPO_TSDepth"
-        teacher_model_path = "" # path to the teacher model checkpoint for distillation learning, necessary for student training
 
 
 # ----- Template configuration for DreamWaQ -----#

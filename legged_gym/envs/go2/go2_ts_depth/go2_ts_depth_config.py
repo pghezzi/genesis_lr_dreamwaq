@@ -173,7 +173,6 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
 
 class Go2TSDepthCfgPPO( LeggedRobotTSDepthCfgPPO ):
     seed = 42
-    distillation = False
     class policy( LeggedRobotTSDepthCfgPPO.policy ):
         clip_actions = Go2TSDepthCfg.normalization.clip_actions
         critic_hidden_dims = [1024, 256, 128]
