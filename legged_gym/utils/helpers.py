@@ -311,17 +311,18 @@ class PolicyExporterDepth(torch.nn.Module):
         self.combination_mlp = copy.deepcopy(actor_critic.depth_history_encoder.combination_mlp)
         self.rnn = copy.deepcopy(actor_critic.depth_history_encoder.rnn)
         self.latent_output_mlp = copy.deepcopy(actor_critic.depth_history_encoder.latent_output_mlp)
-        self.register_buffer("hidden_states", 
-                              torch.zeros(train_cfg.policy.rnn_num_layers, 1, train_cfg.policy.rnn_hidden_size))
+        # self.register_buffer("hidden_states", 
+        #                       torch.zeros(train_cfg.policy.rnn_num_layers, 1, train_cfg.policy.rnn_hidden_size))
     
-    def forward(self, obs, depth_obs):
+    def forward(self, obs, depth_obs, hidden_states):
         cnn_encoding = self.cnn(depth_obs)
-        combined_input = torch.cat((obs, cnn_encoding), dim=-1)
+        combined_input = torch.cat((obs.unsqueeze(0), cnn_encoding.unsqueeze(0)), dim=-1)
         combined_encoding = self.combination_mlp(combined_input)
-        rnn_out, self.hidden_states = self.rnn(combined_encoding.unsqueeze(0), self.hidden_states)
-        latent_output = self.latent_output_mlp(rnn_out.squeeze(0))
-        x = torch.cat([obs, latent_output], dim=-1)
-        return self.actor(x)
+        rnn_out, hidden_states = self.rnn(combined_encoding, hidden_states)
+        latent_output = self.latent_output_mlp(rnn_out)
+        x = torch.cat([obs, latent_output.squeeze(0)], dim=-1)
+        actions = self.actor(x)
+        return actions, hidden_states
  
     def export(self, path, env_cfg, export_onnx=False, train_cfg=None):
         os.makedirs(path, exist_ok=True)

@@ -60,10 +60,13 @@ class PPO_TSDepth(PPO):
         self.actor_critic.to(self.device)
         self.storage = None  # initialized later
         self.teacher_params = list(self.actor_critic.actor.parameters()) + \
-                            list(self.actor_critic.privilege_encoder.parameters()) + \
                             list(self.actor_critic.critic.parameters()) + \
                             [self.actor_critic.std]
-        self.teacher_optimizer = optim.Adam(self.teacher_params, lr=learning_rate)  # do not consider paramters of student encoder during RL update
+        self.teacher_optimizer = optim.Adam([
+            {'params': self.teacher_params, 'lr': learning_rate},
+            {'params': list(self.actor_critic.privilege_encoder.parameters()), 
+             'lr': self.encoder_lr * 0.5}
+        ])
         self.student_params = list(self.actor_critic.depth_history_encoder.parameters())
         self.student_optimizer = optim.Adam(
             self.student_params, lr=self.encoder_lr)
@@ -72,10 +75,9 @@ class PPO_TSDepth(PPO):
     def init_storage(self, storage):
         self.storage: RolloutStorageTSDepth = storage
 
-    def act(self, obs, privileged_obs, depth_image_features, critic_obs):
-        num_envs_batch = obs.shape[0]
-        _ = self.actor_critic.depth_history_encoder(obs[0:self.num_student], depth_image_features)
+    def act(self, obs, privileged_obs, depth_image_features, critic_obs):          
         self.transition.hidden_states = self.actor_critic.get_hidden_states()
+        _ = self.actor_critic.depth_history_encoder(obs[0:self.num_student], depth_image_features)
         self.transition.actions = self.actor_critic.act(obs, None, privileged_obs,
                                                         "teacher", None, None).detach()
         self.transition.teacher_actions = None

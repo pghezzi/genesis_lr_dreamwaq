@@ -8,7 +8,7 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
         num_camera_envs = 1500
         num_observations = 45
         num_privileged_obs = 268
-        num_latent_dims = 64
+        num_latent_dims = 32
         c_frame_stack = 5
         num_single_critic_obs = num_observations + 31 + 15 + 3 + 48 + 171
         num_critic_obs = c_frame_stack * num_single_critic_obs
@@ -110,7 +110,7 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
             hip_pos = -0.15
             foot_clearance = 0.2
             feet_stumble = -1.0
-            feet_contact_stand_still = 0.1
+            # feet_contact_stand_still = 0.1
             feet_near_edge = -1.0
 
     class commands( Go2RoughCommonCfg.commands ):
@@ -141,6 +141,12 @@ class Go2TSDepthCfg( Go2RoughCommonCfg ):
         randomize_pd_gain = True
         kp_range = [0.8, 1.2]
         kd_range = [0.8, 1.2]
+        # randomize position of the camera relative to the fixed pos
+        randomize_camera_pos = True
+        camera_com_displacement_range = [0.01, 0.01, 0.01] # [m], random displacement of the camera position along x, y, z axes
+        # randomize orientation of the camera
+        randomize_camera_euler = True
+        camera_euler_range = [0.1, 0.1, 0.1] # [rad], randomize roll, pitch, yaw of the camera
     
     class normalization( Go2RoughCommonCfg.normalization):
         class obs_scales( Go2RoughCommonCfg.normalization.obs_scales ):
@@ -192,7 +198,6 @@ class Go2TSDepthCfgPPO( LeggedRobotTSDepthCfgPPO ):
         encoder_lr = 2.e-4
         
     class runner( LeggedRobotTSDepthCfgPPO.runner ):
-        teacher_model_path = "Mar09_17-57-51_/model_4500.pt"
         run_name = ''
         experiment_name = 'go2_depth'
         save_interval = 500

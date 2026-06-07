@@ -98,12 +98,13 @@ class TSDepthRunner(OnPolicyRunner):
                 start = stop
                 self.alg.compute_returns(critic_obs)
 
-            mean_value_loss, mean_surrogate_loss, mean_latent_reconstruction_loss = self.alg.update()
+            mean_value_loss, mean_surrogate_loss, mean_latent_reconstruction_loss, \
+                    mean_action_reconstruction_loss = self.alg.update()
             stop = time.time()
             learn_time = stop - start
 
-            if it % 5 == 0:
-                self.alg.actor_critic.detach_hidden_states()
+            # if it % 5 == 0:
+            #     self.alg.actor_critic.detach_hidden_states()
 
             if self.log_dir is not None:
                 self.log(locals())
