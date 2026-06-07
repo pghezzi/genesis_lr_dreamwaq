@@ -77,10 +77,9 @@ class PPO_TSDepth(PPO):
     def init_storage(self, storage):
         self.storage: RolloutStorageTSDepth = storage
 
-    def act(self, obs, privileged_obs, depth_image_features, critic_obs):
-        num_envs_batch = obs.shape[0]
-        _ = self.actor_critic.depth_history_encoder(obs[0:self.num_student], depth_image_features)
+    def act(self, obs, privileged_obs, depth_image_features, critic_obs):          
         self.transition.hidden_states = self.actor_critic.get_hidden_states()
+        _ = self.actor_critic.depth_history_encoder(obs[0:self.num_student], depth_image_features)
         self.transition.actions = self.actor_critic.act(obs, None, privileged_obs,
                                                         "teacher", None, None).detach()
         self.transition.teacher_actions = None
