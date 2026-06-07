@@ -7,7 +7,7 @@ import torch
 
 from legged_gym import LEGGED_GYM_ROOT_DIR
 from rsl_rl.algorithms import PPO_TSDepth
-from rsl_rl.modules import ActorCriticTSDepth, ActorCriticTSDepthTeacher
+from rsl_rl.modules import ActorCriticTSDepth
 from rsl_rl.env import VecEnv
 from .on_policy_runner import OnPolicyRunner
 from rsl_rl.storage import RolloutStorageTSDepth
@@ -98,8 +98,7 @@ class TSDepthRunner(OnPolicyRunner):
                 start = stop
                 self.alg.compute_returns(critic_obs)
 
-            mean_value_loss, mean_surrogate_loss, mean_latent_reconstruction_loss, \
-                    mean_action_reconstruction_loss = self.alg.update()
+            mean_value_loss, mean_surrogate_loss, mean_latent_reconstruction_loss = self.alg.update()
             stop = time.time()
             learn_time = stop - start
 

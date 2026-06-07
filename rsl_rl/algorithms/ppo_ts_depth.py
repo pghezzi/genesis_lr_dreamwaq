@@ -141,8 +141,7 @@ class PPO_TSDepth(PPO):
                         self.learning_rate = min(
                             1e-2, self.learning_rate * 1.5)
 
-                    for param_group in self.teacher_optimizer.param_groups:
-                        param_group['lr'] = self.learning_rate
+                    self.teacher_optimizer.param_groups[0]['lr'] = self.learning_rate
 
             ## Surrogate loss
             ratio = torch.exp(actions_log_prob_batch -

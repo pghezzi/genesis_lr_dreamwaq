@@ -37,7 +37,6 @@ from .actor_critic_ee import ActorCriticEE
 from .actor_critic_cts import ActorCriticCTS
 from .actor_critic_dreamwaq import ActorCriticDreamWaQ
 from .actor_critic_ts_depth import ActorCriticTSDepth
-from .actor_critic_ts_depth_teacher import ActorCriticTSDepthTeacher
 
 __all__: List[str] = [
     "ActorCritic",
@@ -46,6 +45,5 @@ __all__: List[str] = [
     "ActorCriticEE",
     "ActorCriticCTS",
     "ActorCriticDreamWaQ",
-    "ActorCriticTSDepth",
-    "ActorCriticTSDepthTeacher"
+    "ActorCriticTSDepth"
 ]
