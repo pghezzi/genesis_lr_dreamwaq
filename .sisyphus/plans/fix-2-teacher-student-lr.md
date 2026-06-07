@@ -1,5 +1,8 @@
 # Fix 2: Teacher-Student Learning Rate Decoupling
 
+## 状态
+- [x] 已实现（方案B：特权编码器使用独立学习率）
+
 ## 问题描述
 
 **严重程度**: HIGH

@@ -316,12 +316,13 @@ class PolicyExporterDepth(torch.nn.Module):
     
     def forward(self, obs, depth_obs, hidden_states):
         cnn_encoding = self.cnn(depth_obs)
-        combined_input = torch.cat((obs, cnn_encoding), dim=-1)
+        combined_input = torch.cat((obs.unsqueeze(0), cnn_encoding.unsqueeze(0)), dim=-1)
         combined_encoding = self.combination_mlp(combined_input)
-        rnn_out, hidden_states = self.rnn(combined_encoding.unsqueeze(0), hidden_states)
-        latent_output = self.latent_output_mlp(rnn_out.squeeze(0))
-        x = torch.cat([obs, latent_output], dim=-1)
-        return self.actor(x), hidden_states
+        rnn_out, hidden_states = self.rnn(combined_encoding, hidden_states)
+        latent_output = self.latent_output_mlp(rnn_out)
+        x = torch.cat([obs, latent_output.squeeze(0)], dim=-1)
+        actions = self.actor(x)
+        return actions, hidden_states
  
     def export(self, path, env_cfg, export_onnx=False, train_cfg=None):
         os.makedirs(path, exist_ok=True)
