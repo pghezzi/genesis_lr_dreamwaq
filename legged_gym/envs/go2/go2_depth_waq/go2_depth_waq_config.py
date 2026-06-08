@@ -108,7 +108,7 @@ class Go2DepthCfg( LeggedRobotDreamwaqCfg ):
             calculate_depth = True
             horizontal_fov_deg = 88
             pos = (0.32, 0.0, 0.07)
-            euler = (0, 0, 0)
+            euler = (0.0, 0.0, 0.0)
             near_plane = 0.05
             far_plane = 4.00
             near_clip = 0.00
