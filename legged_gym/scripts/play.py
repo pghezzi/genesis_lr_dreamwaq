@@ -154,6 +154,12 @@ def interaction_loop(env, policy, args, task_type, viser_viewer=None):
             env.commands[:, 0] = -joystick.ly
             env.commands[:, 1] = -joystick.lx
             env.commands[:, 2] = -joystick.rx
+        # update commands from viser GUI sliders
+        elif viser_viewer is not None:
+            cmd = viser_viewer.get_command()
+            env.commands[:, 0] = cmd[0]
+            env.commands[:, 1] = cmd[1]
+            env.commands[:, 2] = cmd[2]
         
         # set the viewer camera to follow the first environment by default
         if args.follow_robot:

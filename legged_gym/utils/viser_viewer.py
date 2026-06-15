@@ -434,6 +434,7 @@ class ViserViewer:
         )
 
         self._setup_camera()
+        self._setup_command_sliders()
 
     def _setup_camera(self) -> None:
         @self.server.on_client_connect
@@ -441,6 +442,48 @@ class ViserViewer:
             client.camera.position = np.array([2.0, 2.0, 1.5])
             client.camera.look_at = np.array([0.0, 0.0, 0.3])
             client.camera.fov = np.radians(60.0)
+
+    def _setup_command_sliders(self) -> None:
+        """Add sliders for velocity commands (lin_vel_x, lin_vel_y, ang_vel_z)."""
+        self._command_sliders = {}
+
+        with self.server.gui.add_folder("Velocity Commands", expand_by_default=True):
+            self._command_sliders['lin_vel_x'] = self.server.gui.add_slider(
+                "Linear X (m/s)",
+                min=-2.0,
+                max=2.0,
+                step=0.1,
+                initial_value=0.0,
+            )
+            self._command_sliders['lin_vel_y'] = self.server.gui.add_slider(
+                "Linear Y (m/s)",
+                min=-1.0,
+                max=1.0,
+                step=0.1,
+                initial_value=0.0,
+            )
+            self._command_sliders['ang_vel_yaw'] = self.server.gui.add_slider(
+                "Angular Yaw (rad/s)",
+                min=-1.0,
+                max=1.0,
+                step=0.1,
+                initial_value=0.0,
+            )
+
+    def get_command(self) -> np.ndarray:
+        """Get current velocity command from sliders.
+
+        Returns:
+            np.ndarray: [lin_vel_x, lin_vel_y, ang_vel_yaw]
+        """
+        if not hasattr(self, '_command_sliders'):
+            return np.array([0.0, 0.0, 0.0])
+
+        return np.array([
+            self._command_sliders['lin_vel_x'].value,
+            self._command_sliders['lin_vel_y'].value,
+            self._command_sliders['ang_vel_yaw'].value,
+        ])
 
     def set_terrain_mesh(self, terrain_mesh: Optional[trimesh.Trimesh]) -> None:
         if terrain_mesh is None:
