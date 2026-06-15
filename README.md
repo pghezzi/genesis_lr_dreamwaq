@@ -68,12 +68,12 @@ Please refer to the [doc of this repo](https://leggedgym-ex-doc.readthedocs.io/e
 
 ## TODO
 
-- [x] Add support for TRON1_SF (2026/02/13)
 - [x] Add support for IsaacSim simulator (2026/02/15)
 - [x] Add support for DeepMimic Implementation (2026/02/28)
 - [x] Add support for Booster K1 Robot (2026/03/18)
 - [x] Add support for AMP Implementation (2026/03/28)
 - [x] Add support for warp-based depth camera (2026/04/26)
+- [x] Add Dockerfiles and viser visualization support for training in cloud server (2026/06/15)
 - [ ] Add support for warp-based height query
 - [ ] Add support for latest rsl-rl-lib
 
