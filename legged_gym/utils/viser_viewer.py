@@ -434,14 +434,47 @@ class ViserViewer:
         )
 
         self._setup_camera()
+        self._setup_camera_gui()
         self._setup_command_sliders()
 
     def _setup_camera(self) -> None:
+        self._camera_offset = np.array([2.0, 2.0, 1.5])
+        self._camera_look_at_offset = np.array([0.0, 0.0, 0.3])
+
         @self.server.on_client_connect
         def _(client: viser.ClientHandle) -> None:
-            client.camera.position = np.array([2.0, 2.0, 1.5])
-            client.camera.look_at = np.array([0.0, 0.0, 0.3])
+            client.camera.position = self._camera_offset.copy()
+            client.camera.look_at = self._camera_look_at_offset.copy()
             client.camera.fov = np.radians(60.0)
+
+    def _setup_camera_gui(self) -> None:
+        """Add camera tracking and FOV controls."""
+        self._camera_tracking_enabled = True
+        self._camera_fov_degrees = 60.0
+
+        with self.server.gui.add_folder("Camera"):
+            cb_tracking = self.server.gui.add_checkbox(
+                "Track robot",
+                initial_value=self._camera_tracking_enabled,
+            )
+
+            @cb_tracking.on_update
+            def _(_) -> None:
+                self._camera_tracking_enabled = cb_tracking.value
+
+            slider_fov = self.server.gui.add_slider(
+                "FOV (\u00b0)",
+                min=30.0,
+                max=120.0,
+                step=1.0,
+                initial_value=self._camera_fov_degrees,
+            )
+
+            @slider_fov.on_update
+            def _(_) -> None:
+                self._camera_fov_degrees = slider_fov.value
+                for client in self.server.get_clients().values():
+                    client.camera.fov = np.radians(slider_fov.value)
 
     def _setup_command_sliders(self) -> None:
         """Add sliders for velocity commands (lin_vel_x, lin_vel_y, ang_vel_z)."""
@@ -558,6 +591,11 @@ class ViserViewer:
                 if handle is not None:
                     handle.position = pos
                     handle.wxyz = quat
+
+            if self._camera_tracking_enabled:
+                for client in self.server.get_clients().values():
+                    client.camera.position = base_pos + self._camera_offset
+                    client.camera.look_at = base_pos + self._camera_look_at_offset
 
         self.server.flush()
 
