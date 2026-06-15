@@ -5,6 +5,7 @@ import os
 
 from legged_gym.envs import *
 from legged_gym.utils import *
+from legged_gym.utils.viser_viewer import create_viser_viewer
 
 import numpy as np
 import torch
@@ -107,13 +108,14 @@ def print_debug_info(env, robot_index):
     # print(f"dr_ctrl_delay: {env.simulator.dr_ctrl_delay[robot_index].item()}")
     pass
 
-def interaction_loop(env, policy, args, task_type):
+def interaction_loop(env, policy, args, task_type, viser_viewer=None):
     """Run interaction loop between environment and policy
 
     Args:
         env: environment object
         policy : a policy that takes observations and outputs actions
         args: command line arguments
+        viser_viewer: optional ViserViewer for web-based visualization
     """
     
     logger = Logger(env.dt)
@@ -179,7 +181,9 @@ def interaction_loop(env, policy, args, task_type):
             actions = policy(obs_buf.detach())
             obs_buf, _, rews, dones, infos = env.step(actions.detach())
         
-        # print debug info
+        if viser_viewer is not None:
+            viser_viewer.update_from_simulator(env, robot_index)
+
         print_debug_info(env, robot_index)
         
         # Update logger info
@@ -279,7 +283,15 @@ def play(args):
                             train_cfg.runner.load_run, 'exported')
     export_policy(ppo_runner, path, args, env_cfg, train_cfg, task_type)
     
-    interaction_loop(env, policy, args, task_type)
+    viser_viewer = None
+    if args.viewer == 'viser':
+        viser_viewer = create_viser_viewer(env, port=args.viser_port)
+        print(f"Viser web viewer started at http://localhost:{args.viser_port}")
+    
+    interaction_loop(env, policy, args, task_type, viser_viewer=viser_viewer)
+    
+    if viser_viewer is not None:
+        viser_viewer.stop()
     
     
 if __name__ == '__main__':
