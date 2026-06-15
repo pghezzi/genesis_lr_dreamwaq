@@ -88,6 +88,9 @@ def override_configs(env_cfg, args, task_type):
     
     if args.use_joystick:
         env_cfg.commands.heading_command = False
+    
+    if args.viewer == "viser":
+        args.headless = True
 
 def print_debug_info(env, robot_index):
     """Print debug information while interacting
