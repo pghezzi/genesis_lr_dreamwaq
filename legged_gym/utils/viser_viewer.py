@@ -461,7 +461,8 @@ class ViserViewer:
         height_samples: np.ndarray,
         horizontal_scale: float = 0.1,
         vertical_scale: float = 0.005,
-    ) -> None:
+        return_mesh: bool = False,
+    ):
         hfield = height_samples.astype(np.float64) * vertical_scale
         nrow, ncol = hfield.shape
 
@@ -493,6 +494,8 @@ class ViserViewer:
         colors[:, 3] = 255
         mesh.visual = trimesh.visual.ColorVisuals(vertex_colors=colors)
 
+        if return_mesh:
+            return mesh
         self.set_terrain_mesh(mesh)
 
     def update(
@@ -550,13 +553,30 @@ def create_viser_viewer(env, port: int = 8080, robot_index: int = 0) -> ViserVie
         if mesh_type == 'plane':
             pass
         elif mesh_type == 'trimesh' and hasattr(terrain, 'terrain_mesh'):
-            viewer.set_terrain_mesh(terrain.terrain_mesh)
+            import copy
+            terrain_mesh = copy.deepcopy(terrain.terrain_mesh)
+            transform = np.zeros((3,))
+            transform[0] = -env.cfg.terrain.border_size
+            transform[1] = -env.cfg.terrain.border_size
+            transform[2] = 0.0
+            translation = trimesh.transformations.translation_matrix(transform)
+            terrain_mesh.apply_transform(translation)
+            viewer.set_terrain_mesh(terrain_mesh)
         elif mesh_type == 'heightfield' and hasattr(terrain, 'heightsamples'):
-            viewer.set_terrain_from_heightfield(
+            transform = np.zeros((3,))
+            transform[0] = -env.cfg.terrain.border_size
+            transform[1] = -env.cfg.terrain.border_size
+            transform[2] = 0.0
+            mesh = viewer.set_terrain_from_heightfield(
                 terrain.heightsamples,
                 horizontal_scale=env.cfg.terrain.horizontal_scale,
                 vertical_scale=env.cfg.terrain.vertical_scale,
+                return_mesh=True,
             )
+            if mesh is not None:
+                translation = trimesh.transformations.translation_matrix(transform)
+                mesh.apply_transform(translation)
+                viewer.set_terrain_mesh(mesh)
     except Exception as e:
         print(f"[viser_viewer] Warning: Could not load terrain: {e}")
 

@@ -47,8 +47,8 @@ def override_configs(env_cfg, args, task_type):
         # env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.pyramid_sloped_terrain",
         #                                   "slope": -0.4, "platform_size": 3.0}
         # stairs
-        # env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.pyramid_stairs_terrain",
-        #                                 "step_width": 0.4, "step_height": -0.2, "platform_size": 3.0}
+        env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.pyramid_stairs_terrain",
+                                        "step_width": 0.4, "step_height": -0.1, "platform_size": 3.0}
         # discrete obstacles
         # env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.discrete_obstacles_terrain",
         #                                   "max_height": 0.2,
@@ -74,9 +74,9 @@ def override_configs(env_cfg, args, task_type):
         #                                   "high_platform_height": 0.5, "high_platform_length": 0.5, "high_platform_width": 2.0,
         #                                   "high_platform_interval": 1.8, "platform_size": 3.0}
         # high_platform_gaps_terrain
-        env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.high_platform_gaps_terrain",
-                                          "high_platform_height": 0.5, "high_platform_length": 1.6, "high_platform_width": 1.0,
-                                          "high_platform_distance_y": 2.0, "gap_size": 0.6, "platform_size": 4.0}
+        # env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.high_platform_gaps_terrain",
+        #                                   "high_platform_height": 0.5, "high_platform_length": 1.6, "high_platform_width": 1.0,
+        #                                   "high_platform_distance_y": 2.0, "gap_size": 0.6, "platform_size": 4.0}
         
         
     env_cfg.env.debug = True
