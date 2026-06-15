@@ -163,11 +163,11 @@ class MjcfKinematicModel:
         quat_str = body_elem.get('quat')
         
         if quat_str is not None:
-            quat_parts = self._parse_xyz(quat_str)
+            quat_parts = np.array([float(x) for x in quat_str.split()])
             if len(quat_parts) == 3:
                 quat = np.array([1, quat_parts[0], quat_parts[1], quat_parts[2]])
             else:
-                quat = np.array([quat_parts[3], quat_parts[0], quat_parts[1], quat_parts[2]])
+                quat = quat_parts
         elif euler_str is not None:
             quat = self._rpy_to_quat(self._parse_rpy(euler_str))
         else:
@@ -225,11 +225,11 @@ class MjcfKinematicModel:
         quat_str = geom_elem.get('quat')
         
         if quat_str is not None:
-            quat_parts = self._parse_xyz(quat_str)
+            quat_parts = np.array([float(x) for x in quat_str.split()])
             if len(quat_parts) == 3:
                 quat = np.array([1, quat_parts[0], quat_parts[1], quat_parts[2]])
             else:
-                quat = np.array([quat_parts[3], quat_parts[0], quat_parts[1], quat_parts[2]])
+                quat = quat_parts
         elif euler_str is not None:
             quat = self._rpy_to_quat(self._parse_rpy(euler_str))
         else:

@@ -15,7 +15,8 @@ dependencies = [
                 'numpy',
                 'pygame',
                 'trimesh',
-                'rich-argparse'
+                'rich-argparse',
+                'viser'
 ]
 
 [project.optional-dependencies]
