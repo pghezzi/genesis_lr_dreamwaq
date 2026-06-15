@@ -60,6 +60,7 @@ class MjcfKinematicModel:
         self.materials: Dict[str, np.ndarray] = {}
         self._dof_indices: Dict[str, int] = {}
         self._mesh_cache: Dict[str, trimesh.Trimesh] = {}
+        self._default_joint_axis: Dict[str, np.ndarray] = {}
         
         self._parse_xml()
         self._assign_dof_indices()
@@ -93,8 +94,38 @@ class MjcfKinematicModel:
         compiler = root.find('compiler')
         self.meshdir = compiler.get('meshdir', 'meshes') if compiler is not None else 'meshes'
 
+        self._parse_defaults(root)
         self._parse_assets(root)
         self._parse_worldbody(root)
+        
+    def _parse_defaults(self, root: ET.Element) -> None:
+        default = root.find('default')
+        if default is None:
+            return
+        
+        parent_axis = np.array([0.0, 1.0, 0.0])
+        
+        def parse_default_class(elem: ET.Element, parent_joint_axis: np.ndarray, class_prefix: str = "") -> None:
+            class_name = elem.get('class', class_prefix)
+            
+            joint = elem.find('joint')
+            if joint is not None:
+                axis_str = joint.get('axis')
+                if axis_str:
+                    current_axis = self._parse_xyz(axis_str)
+                else:
+                    current_axis = parent_joint_axis.copy()
+                self._default_joint_axis[class_name] = current_axis
+            elif class_name:
+                self._default_joint_axis[class_name] = parent_joint_axis.copy()
+            
+            for child in elem.findall('default'):
+                parse_default_class(child, 
+                    self._default_joint_axis.get(class_name, parent_joint_axis), 
+                    child.get('class', ''))
+        
+        for child in default.findall('default'):
+            parse_default_class(child, parent_axis)
         
     def _parse_assets(self, root: ET.Element) -> None:
         asset = root.find('asset')
@@ -151,6 +182,15 @@ class MjcfKinematicModel:
             axis_str = joint_elem.get('axis')
             if axis_str:
                 joint_axis = self._parse_xyz(axis_str)
+            else:
+                class_name = joint_elem.get('class', '')
+                joint_axis = self._default_joint_axis.get(class_name)
+                if joint_axis is None:
+                    for key in self._default_joint_axis:
+                        if key in class_name or class_name in key:
+                            joint_axis = self._default_joint_axis[key]
+                            break
+            
             range_str = joint_elem.get('range')
             if range_str:
                 parts = range_str.split()
@@ -282,6 +322,14 @@ class MjcfKinematicModel:
                 result[body_name] = trimesh.util.concatenate(meshes)
         return result
 
+    def _axis_angle_to_quat(self, axis: np.ndarray, angle: float) -> np.ndarray:
+        if abs(angle) < 1e-10:
+            return np.array([1.0, 0.0, 0.0, 0.0])
+        axis = axis / (np.linalg.norm(axis) + 1e-12)
+        c = np.cos(angle / 2)
+        s = np.sin(angle / 2)
+        return np.array([c, axis[0] * s, axis[1] * s, axis[2] * s])
+
     def forward_kinematics(
         self,
         base_pos: np.ndarray,
@@ -310,10 +358,24 @@ class MjcfKinematicModel:
                 
                 parent_pos = world_pos[body.parent]
                 parent_quat = world_quat[body.parent]
-                
                 parent_rot = self._quat_to_matrix(parent_quat)
+                
+                if body.joint_name and body.joint_axis is not None:
+                    dof_idx = self._dof_indices.get(body.joint_name, -1)
+                    if dof_idx >= 0 and dof_idx < len(dof_pos):
+                        joint_angle = float(dof_pos[dof_idx])
+                        joint_quat = self._axis_angle_to_quat(body.joint_axis, joint_angle)
+                        effective_quat = self._quat_mul(joint_quat, body.quat)
+                    else:
+                        effective_quat = body.quat
+                else:
+                    effective_quat = body.quat
+                
+                world_quat[name] = self._quat_mul(parent_quat, effective_quat)
+                
+                # body.pos is in PARENT frame, only apply parent rotation
                 world_pos[name] = parent_pos + parent_rot @ body.pos
-                world_quat[name] = self._quat_mul(parent_quat, body.quat)
+                
                 changed = True
         
         return {name: (world_pos[name], world_quat[name]) for name in world_pos}
