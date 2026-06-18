@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+from pathlib import Path
 
 from rsl_rl.env import VecEnv
 from rsl_rl.runners import OnPolicyRunner
@@ -125,6 +126,10 @@ class TaskRegistry():
             resume_path = get_load_path(log_root, load_run=train_cfg.runner.load_run, checkpoint=train_cfg.runner.checkpoint)
             print(f"Loading model from: {resume_path}")
             runner.load(resume_path)
+        elif train_cfg.runner.pre_trained:
+            pretrained_path = Path(train_cfg.runner.pre_trained).expanduser().resolve()
+            print(f"Loading model from: {pretrained_path}")
+            runner.load(pretrained_path)
         return runner, train_cfg
 
 # make global task registry

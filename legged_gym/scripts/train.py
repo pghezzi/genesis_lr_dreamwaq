@@ -13,8 +13,8 @@ def train(args):
             logging_level='warning')
     # Make environment and algorithm runner
     env, env_cfg = task_registry.make_env(name=args.task, args=args)
-    ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args)
     
+    ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args)
     # Copy env.py and env_config.py to log_dir for backup
     log_dir = ppo_runner.log_dir
     if not os.path.exists(log_dir):

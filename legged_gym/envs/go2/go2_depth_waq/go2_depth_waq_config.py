@@ -15,6 +15,7 @@ TERRAIN_MAP = {
 
 terrain_name = os.environ.get("TERRAIN", "random_uniform").lower()
 finetune = os.environ.get("FINETUNE", "")
+extreme = os.environ.get("EXTREME", "")
 
 
 if terrain_name not in TERRAIN_MAP:
@@ -23,12 +24,14 @@ if terrain_name not in TERRAIN_MAP:
 terrain_index = TERRAIN_KEYS.index(terrain_name)
 terrain_list = TERRAIN_MAP[terrain_name]
 
-experiment_extra = f"exp{terrain_index+1}"
+experiment_extra = f"exp{terrain_index+1}" if not extreme else ''
 
 class Go2DepthCfg( LeggedRobotDreamwaqCfg ):
     class env( LeggedRobotDreamwaqCfg.env ):
         num_envs = 3000
+        #num_envs = 256
         num_camera_envs = 3000
+        #num_camera_envs = 256
         num_actions = 12
         num_observations = 45 # 45 num_obs
         frame_stack = 20    # number of frames to stack for obs_history
@@ -40,8 +43,38 @@ class Go2DepthCfg( LeggedRobotDreamwaqCfg ):
     
     class terrain( Go2RoughCommonCfg.terrain ):
         #mesh_type = "plane"
-        terrain_proportions = terrain_list
-        pass
+        #print(f"EXTREME: {extreme}")
+        if extreme:
+            terrain_proportions = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+            terrain_curriculum_difficulty = {
+                "slope": "difficulty * 0.4", # max slope in radians, will be multiplied by curriculum difficulty
+                "step_height": "0.05 + 0.2 * difficulty", 
+                "discrete_height": "0.05 + 0.2 * difficulty",
+                "stepping_stones_params": {
+                    "stone_length": "np.random.uniform(1.6, 2.0)",
+                    "stone_width": "np.random.uniform(1.0, 2.0)",
+                    "stone_distance_x": "0.1 + 0.8 * difficulty",
+                    "stone_distance_y": "np.random.uniform(0.3, 0.5)",
+                    "max_height": "0"
+                },
+                "gap_size": "0.1 + difficulty * 0.8",
+                "pit_depth": "0.1 + 0.5 * difficulty",
+                "high_platform_params": {
+                    "high_platform_height": "0.1 + 0.5 * difficulty",
+                    "high_platform_length": "np.random.uniform(0.6, 1.6)",
+                    "high_platform_width": "np.random.uniform(1.0, 2.0)",
+                    "high_platform_interval": "np.random.uniform(1.0, 2.0)"
+                },
+                "high_platform_gaps_params": {
+                    "high_platform_height": "0.1 + 0.5 * difficulty",
+                    "high_platform_length": "np.random.uniform(1.6, 2.0)",
+                    "high_platform_width": "np.random.uniform(1.0, 2.0)",
+                    "high_platform_distance_y": "np.random.uniform(0.2, 2.0)",
+                    "gap_size": "0.1 + difficulty * 0.8"
+                }
+            }
+        else:
+            terrain_proportions = terrain_list
 
     class viewer(Go2RoughCommonCfg.viewer):
         rendered_envs_idx = [0] 
@@ -180,7 +213,7 @@ class Go2DepthCfgPPO( LeggedRobotDreamwaqCfgPPO ):
             run_name += "_isaacgym"
         elif SIMULATOR == "isaaclab":
             run_name += "_isaaclab"
-        experiment_name = f'go2_depth_{experiment_extra}'
-        base_model = finetune if finetune else None
+        experiment_name = f"go2_depth_waq{'_' + experiment_extra if not extreme else ''}{'_extreme' if extreme else ''}"
+        pre_trained = finetune if finetune else None
         save_interval = 500
         max_iterations = 3000

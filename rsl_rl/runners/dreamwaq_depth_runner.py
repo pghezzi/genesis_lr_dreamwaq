@@ -199,12 +199,17 @@ class DreamWaQDepthRunner(OnPolicyRunner):
                           f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n""")
                         #   f"""{'Mean reward/step:':>{pad}} {locs['mean_reward']:.2f}\n"""
                         #   f"""{'Mean episode length/episode:':>{pad}} {locs['mean_trajectory_length']:.2f}\n""")
+        remaining_iters = (
+        self.current_learning_iteration +
+        locs['num_learning_iterations'] -
+        locs['it'] - 1
+        )
 
+        eta_seconds = remaining_iters * iteration_time
         log_string += ep_string
         log_string += (f"""{'-' * width}\n"""
                        f"""{'Total timesteps:':>{pad}} {self.tot_timesteps}\n"""
                        f"""{'Iteration time:':>{pad}} {iteration_time:.2f}s\n"""
                        f"""{'Total time:':>{pad}} {self.tot_time:.2f}s\n"""
-                       f"""{'ETA:':>{pad}} {self.tot_time / (locs['it'] + 1) * (
-                               locs['num_learning_iterations'] - locs['it']):.1f}s\n""")
+                                      f"""{'ETA:':>{pad}} {eta_seconds:.1f}s\n""")
         print(log_string)

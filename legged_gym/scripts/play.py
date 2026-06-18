@@ -9,6 +9,8 @@ from legged_gym.utils import *
 import numpy as np
 import torch
 from legged_gym.scripts.joystick import Joystick
+
+from legged_gym.utils.helpers import get_load_path
     
 def override_configs(env_cfg, args, task_type):
     """Override some environment configuration parameters for testing
@@ -275,7 +277,18 @@ def play(args):
     policy = ppo_runner.get_inference_policy(device=env.device)
     
     # export policy as a jit module (used to run it from C++ or python)
-    path = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 
+    print(train_cfg.runner.experiment_name, train_cfg.runner.load_run)
+    if train_cfg.runner.load_run == -1:
+        root = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name)
+        try:
+            runs = os.listdir(root)
+            runs.sort()
+            if 'exported' in runs: runs.remove('exported')
+            last_run = runs[-1]
+        except:
+            raise ValueError("No runs in this directory: " + root)
+        train_cfg.runner.load_run = last_run
+    path = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs',  train_cfg.runner.experiment_name, 
                             train_cfg.runner.load_run, 'exported')
     export_policy(ppo_runner, path, args, env_cfg, train_cfg, task_type)
     

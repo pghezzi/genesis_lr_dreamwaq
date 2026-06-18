@@ -178,6 +178,6 @@ class Go2DepthCfgPPO( LeggedRobotDreamwaqCfgPPO ):
         elif SIMULATOR == "isaaclab":
             run_name += "_isaaclab"
         experiment_name = f'go2_depth_{experiment_extra}'
-        base_model = finetune if finetune else None
+        pre_trained = finetune if finetune else None
         save_interval = 500
         max_iterations = 3000

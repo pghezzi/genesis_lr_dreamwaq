@@ -108,6 +108,6 @@ class Go2DreamwaqFftCfgPPO( LeggedRobotDreamwaqCfgPPO ):
         elif SIMULATOR == "isaaclab":
             run_name += "_isaaclab"
         experiment_name = f'go2_fft_{experiment_extra}'
-        base_model = finetune if finetune else None
+        pre_trained = finetune if finetune else None
         save_interval = 500
         max_iterations = 3000

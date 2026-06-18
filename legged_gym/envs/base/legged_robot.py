@@ -429,10 +429,10 @@ class LeggedRobot(BaseTask):
         self.last_actions[:] = self.actions[:]
         self.actions[:] = actions[:]
         # during training, the camera follows the first environment
-        if not self.debug and not self.headless:
-            pos = self.simulator.base_pos[0].cpu().numpy() + np.array(self.cfg.viewer.pos)
-            lookat = self.simulator.base_pos[0].cpu().numpy() + np.array(self.cfg.viewer.lookat)
-            self.set_viewer_camera(pos, lookat)
+        #if not self.debug and not self.headless:
+        #    pos = self.simulator.base_pos[0].cpu().numpy() + np.array(self.cfg.viewer.pos)
+        #    lookat = self.simulator.base_pos[0].cpu().numpy() + np.array(self.cfg.viewer.lookat)
+        #    self.set_viewer_camera(pos, lookat)
         
         return actions
     

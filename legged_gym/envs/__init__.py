@@ -127,4 +127,5 @@ task_registry.register( "tron1sf", TRON1SF, TRON1SFCfg(), TRON1SFCfgPPO())
 
 from legged_gym.envs.go2.go2_depth_waq.go2_depth_waq import Go2Depth
 from legged_gym.envs.go2.go2_depth_waq.go2_depth_waq_config import Go2DepthCfg, Go2DepthCfgPPO
+
 task_registry.register( "go2_depth_waq", Go2Depth, Go2DepthCfg(), Go2DepthCfgPPO())
