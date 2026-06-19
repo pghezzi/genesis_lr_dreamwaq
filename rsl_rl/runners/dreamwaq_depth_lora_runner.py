@@ -37,13 +37,13 @@ from torch.utils.tensorboard import SummaryWriter
 import torch
 
 from rsl_rl.algorithms import PPO_DreamWaQ_Depth
-from rsl_rl.modules import ActorCriticDreamWaQDepth
+from rsl_rl.modules import ActorCriticDreamWaQDepthLora
 from rsl_rl.env import VecEnv
 from .on_policy_runner import OnPolicyRunner
 
 from .log_utils import add_timing_info
 
-class DreamWaQDepthRunner(OnPolicyRunner):
+class DreamWaQDepthLoraRunner(OnPolicyRunner):
 
     def __init__(self,
                  env: VecEnv,
@@ -56,7 +56,7 @@ class DreamWaQDepthRunner(OnPolicyRunner):
     def _init_agent_and_algo(self):
         actor_critic_class = eval(self.cfg["policy_class_name"]) # ActorCriticTS
         print(self.policy_cfg)
-        actor_critic: ActorCriticDreamWaQDepth = actor_critic_class( 
+        actor_critic: ActorCriticDreamWaQDepthLora = actor_critic_class( 
                                                         self.env.num_obs,
                                                         self.env.num_actions,
                                                         self.env.num_privileged_obs,
@@ -176,7 +176,6 @@ class DreamWaQDepthRunner(OnPolicyRunner):
         str = f" \033[1m Learning iteration {locs['it']}/{self.current_learning_iteration + locs['num_learning_iterations']} \033[0m "
 
         if len(locs['rewbuffer']) > 0:
-            print(locs)
             log_string = (f"""{'#' * width}\n"""
                           f"""{str.center(width, ' ')}\n\n"""
                           f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
@@ -213,5 +212,4 @@ class DreamWaQDepthRunner(OnPolicyRunner):
             self.tot_timesteps,
             self.tot_time,
         )
-        
         print(log_string)

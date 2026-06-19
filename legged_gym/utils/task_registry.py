@@ -126,7 +126,7 @@ class TaskRegistry():
             resume_path = get_load_path(log_root, load_run=train_cfg.runner.load_run, checkpoint=train_cfg.runner.checkpoint)
             print(f"Loading model from: {resume_path}")
             runner.load(resume_path)
-        elif train_cfg.runner.pre_trained:
+        elif hasattr(train_cfg.runner, 'pre_trained') and train_cfg.runner.pre_trained is not None:
             pretrained_path = Path(train_cfg.runner.pre_trained).expanduser().resolve()
             print(f"Loading model from: {pretrained_path}")
             runner.load(pretrained_path)

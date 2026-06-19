@@ -53,5 +53,6 @@ __all__: List[str] = [
 # CUSTOM CHANGES
 from .actor_critic_dreamwaq_lora import ActorCriticDreamWaQLoRA
 from .actor_critic_dreamwaq_depth import ActorCriticDreamWaQDepth
+from .actor_critic_dreamwaq_depth_lora import ActorCriticDreamWaQDepthLora
 
-__all__ += ["ActorCriticDreamWaQLoRA", "ActorCriticDreamWaQDepth"]
+__all__ += ["ActorCriticDreamWaQLoRA", "ActorCriticDreamWaQDepth", "ActorCriticDreamWaQDepthLora"]

@@ -1,0 +1,1 @@
+/home/pablo/Documents/Legged_Gym_EX/legged_gym/envs/go2/go2_depth_waq/go2_depth_waq.py

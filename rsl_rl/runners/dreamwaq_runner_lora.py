@@ -41,6 +41,7 @@ from rsl_rl.modules import ActorCriticDreamWaQLoRA
 from rsl_rl.env import VecEnv
 from .on_policy_runner import OnPolicyRunner
 
+from .log_utils import add_timing_info
 
 class DreamWaQLoRaRunner(OnPolicyRunner):
 
@@ -198,11 +199,15 @@ class DreamWaQLoRaRunner(OnPolicyRunner):
                         #   f"""{'Mean reward/step:':>{pad}} {locs['mean_reward']:.2f}\n"""
                         #   f"""{'Mean episode length/episode:':>{pad}} {locs['mean_trajectory_length']:.2f}\n""")
 
-        log_string += ep_string
-        log_string += (f"""{'-' * width}\n"""
-                       f"""{'Total timesteps:':>{pad}} {self.tot_timesteps}\n"""
-                       f"""{'Iteration time:':>{pad}} {iteration_time:.2f}s\n"""
-                       f"""{'Total time:':>{pad}} {self.tot_time:.2f}s\n"""
-                       f"""{'ETA:':>{pad}} {self.tot_time / (locs['it'] + 1) * (
-                               locs['num_learning_iterations'] - locs['it']):.1f}s\n""")
+        log_string += add_timing_info(
+            self.current_learning_iteration,
+            locs['num_learning_iterations'],
+            locs['it'],
+            ep_string,
+            iteration_time,
+            width,
+            pad,
+            self.tot_timesteps,
+            self.tot_time,
+        )
         print(log_string)

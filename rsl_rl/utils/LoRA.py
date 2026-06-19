@@ -60,7 +60,196 @@ class FrozenLinear(nn.Linear):
                 "_from_linear classmethod supports only objects "
                 f"of torch.nn.Linear class, but {str(type(module))} is given."
             )
+
+class LoRAConv2d(nn.Conv2d, LoRALayer):
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        kernel_size,
+        rank: int,
+        stride=1,
+        padding=0,
+        dilation=1,
+        groups=1,
+        bias=True,
+        padding_mode='zeros',
+        lora_alpha: int = 1, 
+        lora_dropout: float = 0.,
+        merge_weights: bool = True,
+        device=None,
+        dtype=None
+    ):
+        assert rank > 0, "LoRA rank must be greater than 0"
+        factory_kwargs = {"device": device, "dtype": dtype}
+        nn.Conv2d.__init__(
+            self,
+            in_channels=in_features,
+            out_channels=out_features,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+            bias=bias,
+            padding_mode=padding_mode,
+            **factory_kwargs
+        )
+        # Freezing the pre-trained weight matrix and bias (following peft example)
+        self.weight.requires_grad = False
+        if self.bias is not None:
+            self.bias.requires_grad = False
+        out_channels, in_channels, kH, kW = self.weight.size()
+
+        LoRALayer.__init__(self, rank=rank, lora_alpha=lora_alpha, lora_dropout=lora_dropout, merge_weights=merge_weights)
+        # Actual trainable parameters
+
+        flattened_in = in_channels * kH * kW
+        
+        self.lora_A = nn.Parameter(
+            torch.zeros(rank, flattened_in, **factory_kwargs),
+            requires_grad=True,
+        )
+        self.lora_B = nn.Parameter(
+            torch.zeros(out_channels, rank, **factory_kwargs),
+            requires_grad=True,
+        )
+        
+        # Reset
+        # only for testing, remove in prod version
+        self.size_diff = torch.numel(self.lora_A) + torch.numel(self.lora_B) - torch.numel(self.weight)
+        self.reset_parameters()
+        self.merged = False
     
+    def _lora_weight(self):
+        """
+        Returns LoRA weight update reshaped to Conv2d weight shape.
+        """
+        delta = self.lora_B @ self.lora_A
+        return delta.view_as(self.weight) * self.scaling
+
+    def reset_parameters(self):
+        super().reset_parameters()
+        if hasattr(self, "lora_A"):
+            nn.init.uniform_(self.lora_A)
+            nn.init.zeros_(self.lora_B)
+
+    @torch.no_grad()
+    def train(self, mode: bool = True):
+        nn.Linear.train(self, mode)
+        if mode:
+            if self.merge_weights and self.merged:
+                self.weight.data -= self._lora_weight()
+                self.merged = False
+        else:
+            if self.merge_weights and not self.merged:
+                self.weight.data += self._lora_weight()
+                self.merged = True
+    
+    @torch.jit.export
+    def merge(self, merge: bool = True):
+        with torch.no_grad():
+            if merge and not self.merged:
+                self.weight.add_(self._lora_weight())
+                self.merged = True
+            if not merge and self.merged:
+                self.weight.sub_(self._lora_weight())
+                self.merged = False     
+
+    def forward(self, x: torch.Tensor):
+        if not self.merged:
+            weight = self.weight + self._lora_weight()
+            return F.conv2d(
+                x,
+                weight,
+                self.bias,
+                self.stride,
+                self.padding,
+                self.dilation,
+                self.groups,
+            )
+        else:
+            return F.conv2d(
+            x,
+            self.weight,
+            self.bias,
+            self.stride,
+            self.padding,
+            self.dilation,
+            self.groups,
+        )
+
+    def extra_repr(self) -> str:
+        return (
+            f"in_channels={self.in_channels}, "
+            f"out_channels={self.out_channels}, "
+            f"kernel_size={self.kernel_size}, "
+            f"bias={self.bias is not None}, "
+            f"rank={self.rank}, "
+            f"size_diff={self.size_diff}"
+        )
+    
+    def state_dict(self, *args, keep_weights=False, keep_bias=False, **kwargs):
+        dest = super().state_dict(*args, **kwargs)
+        if not keep_weights or not keep_bias:
+            for k in list(dest.keys()):
+                if not keep_weights and "weight" in k:
+                    del dest[k]
+                elif not keep_bias and "bias" in k:
+                    del dest[k]
+        return dest
+    @staticmethod
+    def _from_conv2d(
+        module: nn.Conv2d,
+        rank: int,
+        lora_alpha: int = 1,
+        lora_dropout: float = 0.,
+        merge_weights: bool = True,
+        share_mem: bool = False,
+        device=None,
+        dtype=None,
+    ):
+        if not isinstance(module, nn.Conv2d):
+            raise ValueError(
+                "_from_conv2d method supports only objects "
+                f"of torch.nn.Conv2d class, but {type(module)} is given."
+            )
+
+        if rank == 0:
+            raise ValueError('Rank 0 not supported')
+
+        device = module.weight.device
+        dtype = module.weight.dtype
+
+        lora_module = LoRAConv2d(
+            in_features=module.in_channels,
+            out_features=module.out_channels,
+            kernel_size=module.kernel_size,
+            rank=rank,
+            stride=module.stride,
+            padding=module.padding,
+            dilation=module.dilation,
+            groups=module.groups,
+            bias=module.bias is not None,
+            padding_mode=module.padding_mode,
+            lora_alpha=lora_alpha,
+            lora_dropout=lora_dropout,
+            merge_weights=merge_weights,
+            device=device,
+            dtype=dtype,
+        )
+
+        if share_mem:
+            lora_module.weight = module.weight
+            lora_module.bias = module.bias
+        else:
+            lora_module.weight.data.copy_(module.weight.data)
+
+            if module.bias is not None:
+                lora_module.bias.data.copy_(module.bias.data)
+
+        return lora_module
+
 
 class LoRALinear(nn.Linear, LoRALayer):
     def __init__(
@@ -80,16 +269,18 @@ class LoRALinear(nn.Linear, LoRALayer):
         nn.Linear.__init__(self, in_features=in_features, out_features=out_features, bias=bias, **factory_kwargs)
         # Freezing the pre-trained weight matrix and bias (following peft example)
         self.weight.requires_grad = False
-        self.bias.requires_grad = False
+        self.weight.requires_grad = False
+        if self.bias is not None:
+            self.bias.requires_grad = False
 
         LoRALayer.__init__(self, rank=rank, lora_alpha=lora_alpha, lora_dropout=lora_dropout, merge_weights=merge_weights)
         # Actual trainable parameters
         self.lora_A = nn.Parameter(
-            self.weight.new_zeros((rank, in_features), **factory_kwargs),
+            torch.zeros(rank, in_features, **factory_kwargs),
             requires_grad=True,
         )
         self.lora_B = nn.Parameter(
-            self.weight.new_zeros((out_features, rank), **factory_kwargs),
+            torch.zeros(out_features, rank, **factory_kwargs),
             requires_grad=True,
         )
         
@@ -204,6 +395,9 @@ def _from_sequential(model: nn.Sequential, ranks = None, targets = None):
         if (check or i in targets) and isinstance(layer, nn.Linear):
             rank = next(ranks, 1)
             modules.append(LoRALinear._from_linear(layer, rank))
+        elif (check or i in targets) and isinstance(layer, nn.Conv2d):
+            rank = next(ranks, 1)
+            modules.append(LoRAConv2d._from_conv2d(layer, rank))
         elif isinstance(layer, nn.Linear):
             layer.weight.requires_grad = False
             layer.bias.requires_grad = False
