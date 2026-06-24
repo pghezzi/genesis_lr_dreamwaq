@@ -73,68 +73,132 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
         rendered_envs_idx = [0] 
 
     class init_state( Go2RoughCommonCfg.init_state ):
-        pass
+        if terrain_name == "gap":
+            roll_random_scale: float = 0 # small random roll to make the policy learn to balance in roll direction
+            pitch_random_scale: float = 0 # small random pitch to make the policy learn to balance in pitch direction and step up/down small obstacles
+            yaw_random_scale: float = 0 # initialize robot with random yaw to make it learn to rotate
     class control( Go2RoughCommonCfg.control ):
         pass
     class asset( Go2RoughCommonCfg.asset ):
         pass
     class rewards( Go2RoughCommonCfg.rewards ):
-        class scales( Go2RoughCommonCfg.rewards.scales ):
-            pass
+        if terrain_name != "random_uniform":
+            soft_dof_pos_limit = 0.9
+            base_height_target = 0.4
+            foot_clearance_target = 0.08 # desired foot clearance above ground [m]
+            foot_height_offset = 0.022   # height of the foot coordinate origin above ground [m]
+            foot_clearance_tracking_sigma = 0.01
+            tracking_sigma = 0.2
+            only_positive_rewards = True
+            feet_edge_threshold = 0.05 # distance threshold below which foot is considered to be near the edge of a terrain
+            class scales:
+                # limitation
+                dof_pos_limits = -2.0
+                collision = -10.0
+                # command tracking
+                tracking_lin_vel = 1.5
+                tracking_ang_vel = 1.0
+                # smooth
+                lin_vel_z = -1.0
+                ang_vel_xy = -0.05
+                orientation = -1.0
+                dof_power = -2.e-5
+                dof_acc = -2.e-7
+                action_rate = -0.01
+                action_smoothness = -0.01
+                # gait
+                hip_pos = -0.15
+                foot_clearance = 0.2
+                feet_stumble = -1.0
+                feet_contact_stand_still = 0.1
+                feet_near_edge = -1.0
+                feet_air_time = 0
 
     class commands( LeggedRobotDreamwaqCfg.commands ):
         curriculum = True
-        max_curriculum = 1.0
+        if terrain_name == "rough":
+            max_curriculum = 1.0
+        else:
+            max_curriculum = 1.5
         num_commands = 4 # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         resampling_time = 10.  # time before command are changed[s]
         heading_command = True # if true: compute ang vel command from heading error
+        if terrain_name == "rough":
+            zero_cmd_prob = 0.1
         class ranges( LeggedRobotDreamwaqCfg.commands.ranges ):
-            lin_vel_x = [-0.5, 0.5] # min max [m/s]
-            lin_vel_y = [-1.0, 1.0]   # min max [m/s]
-            ang_vel_yaw = [-1, 1]    # min max [rad/s]
-            heading = [-3.14, 3.14]
+            if terrain_name == "rough":
+                lin_vel_x = [-0.5, 0.5] # min max [m/s]
+                lin_vel_y = [-1.0, 1.0]   # min max [m/s]
+                ang_vel_yaw = [-1, 1]    # min max [rad/s]
+                heading = [-3.14, 3.14]
+            else:
+                lin_vel_x = [0.0, 0.5]   # min max [m/s]
+                lin_vel_y = [0.0, 0.0]   # min max [m/s]
+                ang_vel_yaw = [-1, 1]    # min max [rad/s]
+                heading = [0.0, 0.0]
             
     class domain_rand(LeggedRobotDreamwaqCfg.domain_rand):
-        randomize_friction = True
-        friction_range = [0.2, 1.7]
-        randomize_base_mass = True
-        added_mass_range = [-1., 1.]
-        push_robots = True
-        push_interval_s = 10
-        max_push_vel_xy = 1.
-        randomize_com_displacement = True
-        com_pos_x_range = [-0.03, 0.03]
-        com_pos_y_range = [-0.03, 0.03]
-        com_pos_z_range = [-0.03, 0.03]
-        randomize_pd_gain = True
-        kp_range = [0.8, 1.2]
-        kd_range = [0.8, 1.2]
-        randomize_joint_armature = False
-        joint_armature_range = [0.015, 0.025]  # [N*m*s/rad]
-        randomize_joint_friction = False
-        joint_friction_range = [0.01, 0.02]
-        randomize_joint_damping = False
-        joint_damping_range = [0.25, 0.3]
+        if terrain_name == "rough":
+            randomize_friction = True
+            friction_range = [0.2, 1.7]
+            randomize_base_mass = True
+            added_mass_range = [-1., 1.]
+            push_robots = True
+            push_interval_s = 10
+            max_push_vel_xy = 1.
+            randomize_com_displacement = True
+            com_pos_x_range = [-0.03, 0.03]
+            com_pos_y_range = [-0.03, 0.03]
+            com_pos_z_range = [-0.03, 0.03]
+            randomize_pd_gain = True
+            kp_range = [0.8, 1.2]
+            kd_range = [0.8, 1.2]
+            randomize_joint_armature = False
+            joint_armature_range = [0.015, 0.025]  # [N*m*s/rad]
+            randomize_joint_friction = False
+            joint_friction_range = [0.01, 0.02]
+            randomize_joint_damping = False
+            joint_damping_range = [0.25, 0.3]
+        else:
+            randomize_friction = True
+            friction_range = [0.2, 1.7]
+            randomize_base_mass = True
+            added_mass_range = [-1., 2.]
+            push_robots = True
+            push_interval_s = 3
+            max_push_vel_xy = 0.5
+            randomize_com_displacement = True
+            com_pos_x_range = [-0.03, 0.03]
+            com_pos_y_range = [-0.03, 0.03]
+            com_pos_z_range = [-0.03, 0.03]
+            randomize_pd_gain = True
+            kp_range = [0.8, 1.2]
+            kd_range = [0.8, 1.2]
         randomize_camera_pos = True
         camera_com_displacement_range = [0.01, 0.0025, 0.03]
         randomize_camera_euler = True
         camera_euler_offset_range = [0.0577, 0.0173, 0.0577]
+
+    class normalization( LeggedRobotDreamwaqCfg.normalization):
+        class obs_scales( LeggedRobotDreamwaqCfg.normalization.obs_scales ):
+            actions = 0.1
+        clip_actions = 10.0
         
 
     class sensor(LeggedRobotDreamwaqCfg.sensor):
         add_depth = True
         use_warp = True
-        num_sensors = 1
         class depth_camera_config(LeggedRobotDreamwaqCfg.sensor.depth_camera_config):
             decimation = 5
-            return_pointcloud = False
-            segmentation_camera = False
             resolution = [int(480/4), int(640/4)]
             num_history = 1
             calculate_depth = True
+            segmentation_camera = False
+            return_pointcloud = False
+            pointcloud_in_world_frame = False
             horizontal_fov_deg = 88
-            pos = (0.32, 0.0, 0.07)
-            euler = (0.0, 0.0, 0.0)
+            pos = (0.3, 0.0, 0.1)
+            euler = (0.0, 1.57 + 0.3, 0.0)
             near_plane = 0.05
             far_plane = 4.00
             near_clip = 0.00
@@ -162,25 +226,9 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
             sky_artifacts_height_mean_std = [2, 3.2]
             sky_artifacts_width_mean_std = [2, 3.2]
 
-#  class sensor( Go2FieldCfg.sensor ):
-#         class forward_camera:
-#             obs_components = ["forward_depth"]
-#             resolution = [int(480/4), int(640/4)]
-#             position = dict(
-#                 mean= [0.24, -0.0175, 0.12],
-#                 std= [0.01, 0.0025, 0.03],
-#             )
-#             rotation = dict(
-#                 lower= [-0.1, 0.37, -0.1],
-#                 upper= [0.1, 0.43, 0.1],
-#             )
-#             resized_resolution = [48, 64]
-#             output_resolution = [48, 64]
-#             horizontal_fov = [86, 90]
-#             crop_top_bottom = [int(48/4), 0]
-#             crop_left_right = [int(28/4), int(36/4)]
 
 class Go2DepthWaqCfgPPO( LeggedRobotDreamwaqCfgPPO ):
+    seed = 42
     runner_class_name = "DreamWaQDepthRunner"
     class policy( LeggedRobotDreamwaqCfgPPO.policy ):
         critic_hidden_dims = [1024, 256, 128]
@@ -209,4 +257,7 @@ class Go2DepthWaqCfgPPO( LeggedRobotDreamwaqCfgPPO ):
         experiment_name = f"go2_depth_waq{'_fft' if finetune else ''}{'_' + terrain_name}"
         pre_trained = finetune if finetune else None
         save_interval = 500
-        max_iterations = 3000
+        if terrain_name == "random_uniform":
+            max_iterations = 3000
+        else:
+            max_iterations = 5000

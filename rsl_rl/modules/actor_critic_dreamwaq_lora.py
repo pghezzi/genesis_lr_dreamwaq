@@ -64,22 +64,25 @@ class ActorCriticDreamWaQLoRA(ActorCriticDreamWaQ):
 
         # Apply LoRA
         self.actor = LoRA._from_sequential(self.actor, actor_ranks)
+
+        #encodeder
         self.vae.encoder = LoRA._from_sequential(self.vae.encoder, encoder_ranks)
 
+        # encodes
         self.vae.latent_mu = LoRA.LoRALinear._from_linear(
             self.vae.latent_mu, latent_mu_rank
         )
-        self.vae.vel_mu = LoRA.LoRALinear._from_linear(
-            self.vae.vel_mu, vel_mu_rank
-        )
-
         self.vae.latent_var = LoRA._from_sequential(
             self.vae.latent_var, latent_var_ranks
+        )
+        self.vae.vel_mu = LoRA.LoRALinear._from_linear(
+            self.vae.vel_mu, vel_mu_rank
         )
         self.vae.vel_var = LoRA._from_sequential(
             self.vae.vel_var, vel_var_ranks
         )
 
+        # decoder
         self.vae.decoder = LoRA._from_sequential(
             self.vae.decoder, decoder_ranks
         )

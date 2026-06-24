@@ -61,6 +61,44 @@ class FrozenLinear(nn.Linear):
                 f"of torch.nn.Linear class, but {str(type(module))} is given."
             )
 
+class FrozenConv2d(nn.Conv2d):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.weight.requires_grad = False
+        if self.bias is not None:
+            self.bias.requires_grad = False
+
+    @staticmethod
+    def _from_conv2d(module: nn.Conv2d, **kwargs):
+        if isinstance(module, nn.Conv2d):
+            out_channels, in_channels, kh, kw = module.weight.shape
+            device = module.weight.device
+            dtype = module.weight.dtype
+
+            frozen_module = FrozenConv2d(
+                in_channels,
+                out_channels,
+                kernel_size=(kh, kw),
+                stride=module.stride,
+                padding=module.padding,
+                dilation=module.dilation,
+                groups=module.groups,
+                bias=(module.bias is not None),
+                padding_mode=module.padding_mode,
+                **kwargs
+            )
+
+            frozen_module.weight.data = module.weight.data.clone()
+            if module.bias is not None:
+                frozen_module.bias.data = module.bias.data.clone()
+
+            return frozen_module
+        else:
+            raise ValueError(
+                "_from_conv2d supports only torch.nn.Conv2d, "
+                f"but got {type(module)}."
+            )
+
 class LoRAConv2d(nn.Conv2d, LoRALayer):
     def __init__(
         self,
@@ -198,6 +236,7 @@ class LoRAConv2d(nn.Conv2d, LoRALayer):
                 elif not keep_bias and "bias" in k:
                     del dest[k]
         return dest
+    
     @staticmethod
     def _from_conv2d(
         module: nn.Conv2d,

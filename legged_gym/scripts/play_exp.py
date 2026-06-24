@@ -10,6 +10,8 @@ from legged_gym.scripts.joystick import Joystick
 from legged_gym.utils.exp_data_logger import ExpLogger
 import argparse
 
+import cv2
+
 def _normalize_gpu_arg(gpu):
     gpu = str(gpu).strip().lower()
     if gpu.isdigit():
@@ -144,7 +146,7 @@ TERRAIN_CONFIGS = {
     "stairs": {
         "type": "terrain_utils.pyramid_stairs_terrain",
         "step_width": 0.31,
-        "step_height": 0.1,
+        "step_height": 0.3,
         "platform_size": 3.0,
     },
     "discrete": {
@@ -169,14 +171,21 @@ TERRAIN_CONFIGS = {
     },
     "gap": {
         "type": "terrain_utils.gap_terrain",
-        "gap_size": 0.2,
+        "gap_size": 0.7,
         "platform_size": 3.0,
     },
     "pit": {
         "type": "terrain_utils.pit_terrain",
-        "depth": 0.2,
+        "depth": 0.3,
         "platform_size": 3.0,
     },
+    "multiple_high_platforms" : {
+        "type": 'terrain_utils.multiple_high_platforms_terrain',
+        "high_platform_height": 0.6,
+        "high_platform_length": 1,
+        "high_platform_width": 1.5,
+        "high_platform_interval": 1.5,
+    }
 }
 
 test_terrain_name = os.environ.get("TEST_TERRAIN", "rough").lower()
@@ -196,7 +205,7 @@ def override_configs(env_cfg, args):
         env_cfg.env.num_camera_envs = min(env_cfg.env.num_camera_envs, 100)
     if "cts" in task_name:  # cts specific
         env_cfg.env.num_teacher = 1
-    env_cfg.viewer.rendered_envs_idx = list(range(env_cfg.env.num_envs))
+    env_cfg.viewer.rendered_envs_idx = [0]#list(range(env_cfg.env.num_envs))
     # adjust parameters according to terrain type
     if env_cfg.terrain.mesh_type in ["heightfield", "trimesh"]:
         env_cfg.terrain.num_rows = 4
@@ -205,11 +214,11 @@ def override_configs(env_cfg, args):
         env_cfg.terrain.curriculum = False
         env_cfg.terrain.selected   = True
         
-        #env_cfg.terrain.terrain_kwargs = TERRAIN_CONFIGS[test_terrain_name]
+        env_cfg.terrain.terrain_kwargs = TERRAIN_CONFIGS[test_terrain_name]
 
-        env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.random_uniform_terrain", 
-                                          "min_height" : -0.05, "max_height": 0.05, 
-                                          "step":0.005, "downsampled_scale" : 0.2}
+        #env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.random_uniform_terrain", 
+        #                                  "min_height" : -0.05, "max_height": 0.05, 
+        #                                  "step":0.005, "downsampled_scale" : 0.2}
 
         #env_cfg.terrain.terrain_kwargs = []
 
@@ -363,9 +372,9 @@ def interaction_loop(train_cfg, env, policy, args, new=""):
     # interaction loop
     for i in range(int(4.00*env.max_episode_length)):
 
-        # env.commands[:, 0] = 0.5
-        # env.commands[:, 1] = 0
-        # env.commands[:, 2] = 0
+        env.commands[:, 0] = 1
+        env.commands[:, 1] = 0
+        env.commands[:, 2] = 0
         
         # update commands from joystick
         if args.use_joystick:
@@ -387,6 +396,7 @@ def interaction_loop(train_cfg, env, policy, args, new=""):
         if "ts" in task_name or "cat" in task_name:
             actions = policy(obs_buf, obs_history)
             obs_buf, privileged_obs_buf, obs_history, critic_obs, rews, dones, infos = env.step(actions.detach())
+            
         elif "ee" in task_name:
             actions = policy(estimator_features.detach())
             estimator_features, estimator_labels, _, rews, dones, infos = env.step(actions.detach())
@@ -405,6 +415,11 @@ def interaction_loop(train_cfg, env, policy, args, new=""):
             actions = policy(obs.detach())
             obs, _, rews, dones, infos = env.step(actions.detach())
         
+        cv2.imshow("Depth", ((env.depth_sensor_output[0].squeeze())*255).to(torch.uint8).cpu().numpy())
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+        
+        #print(env.commands[0, :])
         # print debug info
         print_debug_info(env, robot_index)
         
@@ -450,6 +465,7 @@ def interaction_loop(train_cfg, env, policy, args, new=""):
                 'feet_pos':env.simulator.feet_pos.detach().cpu().numpy().tolist(),
                 'failure':list(map(int, env.get_failure_idx().detach().cpu().numpy().tolist())),
             })
+    cv2.destroyAllWindows()
 
 def export_policy(alg_runner, path: str, args, env_cfg, train_cfg):
     """export the policy as jit script according to different task types

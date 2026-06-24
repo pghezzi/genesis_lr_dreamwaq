@@ -250,6 +250,19 @@ class Go2Depth(LeggedRobotDreamwaq):
             noise_level * self.obs_scales.dof_vel
         noise_vec[33:45] = 0.  # previous actions
         return noise_vec
+
+    def _reward_tracking_lin_vel(self):
+        # Tracking of linear velocity commands (xy axes)
+        # refer to https://ieeexplore.ieee.org/document/11112615
+        heading_error = torch.abs(self.heading - self.commands[:, 3])
+        heading_coef = (1 + torch.cos(heading_error)) / 2
+        lin_vel_x_error = torch.square(self.commands[:, 0] - self.simulator.base_lin_vel[:, 0])
+        # double the weight of y velocity error to discourage y axis drifting
+        lin_vel_y_error = 2 * torch.square(self.commands[:, 1] - self.simulator.base_lin_vel[:, 1])
+        lin_vel_error = lin_vel_x_error + lin_vel_y_error
+        # add heading_coef to make the reward smaller when the robot is facing away from the commanded direction
+        # thus to encourage the robot to walk across the terrain in the commanded direction
+        return torch.exp(-lin_vel_error/self.cfg.rewards.tracking_sigma) * heading_coef
     
     def _reward_feet_air_time(self):
         # Reward long steps
@@ -287,6 +300,14 @@ class Go2Depth(LeggedRobotDreamwaq):
             self.simulator.dof_pos[:, hip_joint_indices] - 
             self.simulator.default_dof_pos[:, hip_joint_indices]), dim=-1)
         return dof_pos_error
+    
+    def _reward_feet_near_edge(self):
+        """ Penalize feet being too close to the edge of a terrain
+        """
+        feet_near_edge = self.simulator.calc_feet_near_edge()
+        feet_contact = self.feet_max_force_z > 10.0
+        # print(f"feet near edge: {torch.sum(feet_near_edge)}")
+        return torch.sum(feet_near_edge * feet_contact, dim=-1)
 
     def get_failure_idx(self):
         return self.reset_buf * ~self.time_out_buf

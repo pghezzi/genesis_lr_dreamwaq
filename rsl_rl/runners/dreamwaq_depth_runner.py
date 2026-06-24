@@ -176,7 +176,6 @@ class DreamWaQDepthRunner(OnPolicyRunner):
         str = f" \033[1m Learning iteration {locs['it']}/{self.current_learning_iteration + locs['num_learning_iterations']} \033[0m "
 
         if len(locs['rewbuffer']) > 0:
-            print(locs)
             log_string = (f"""{'#' * width}\n"""
                           f"""{str.center(width, ' ')}\n\n"""
                           f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[

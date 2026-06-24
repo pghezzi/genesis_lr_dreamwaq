@@ -11,7 +11,16 @@ class Go2DepthWaqLoraCfgPPO( Go2DepthWaqCfgPPO ):
     runner_class_name = "DreamWaQDepthLoraRunner"
     class policy( Go2DepthWaqCfgPPO.policy ):
         base_model = finetune
+        actor_ranks = 8
+        encoder_ranks = 8
+        decoder_ranks = 8
+        latent_mu_rank = 8
+        vel_mu_rank = 8
+        latent_var_ranks = 8 #can be in int too but list for consistency
+        vel_var_ranks = 8 #can be in int too but list for consistency
+        visual_encoder_ranks = 8
+
     class runner( Go2DepthWaqCfgPPO.runner ):
         policy_class_name = "ActorCriticDreamWaQDepthLora"
-        experiment_name = f"go2_depth_waq_lora{'_' + terrain_name}"
+        experiment_name = f"go2_depth_waq_lora_{8}{'_' + terrain_name}"
         pre_trained = None
