@@ -19,6 +19,9 @@ dist/
 # Package files
 *.jar
 
+# ignore pytorch checkpoint files
+*.pt
+
 # Maven
 target/
 dist/

@@ -73,12 +73,18 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
         rendered_envs_idx = [0] 
 
     class init_state( Go2RoughCommonCfg.init_state ):
-        if terrain_name == "gap":
-            roll_random_scale: float = 0 # small random roll to make the policy learn to balance in roll direction
-            pitch_random_scale: float = 0 # small random pitch to make the policy learn to balance in pitch direction and step up/down small obstacles
-            yaw_random_scale: float = 0 # initialize robot with random yaw to make it learn to rotate
+        roll_random_scale: float = 0.1  # small random roll to make the policy learn to balance in roll direction
+        pitch_random_scale: float = 0.1 # small random pitch to make the policy learn to balance in pitch direction and step up/down small obstacles
+        yaw_random_scale: float = 3.14  # initialize robot with random yaw to make it learn to rotate
     class control( Go2RoughCommonCfg.control ):
-        pass
+        # COPIED this up because I think we might need to up these gains to enable "jumping" behavior. 
+        # PD Drive parameters:
+        # control_type = 'P'
+        stiffness = {'joint': 20.}   # [N*m/rad]
+        damping = {'joint': 0.5}     # [N*m*s/rad]
+        action_scale = 0.25 # action scale: target angle = actionScale * action + defaultAngle
+        dt = 0.02  # control frequency 50Hz
+        decimation = 4 # decimation: Number of control action updates @ sim DT per policy DT
     class asset( Go2RoughCommonCfg.asset ):
         pass
     class rewards( Go2RoughCommonCfg.rewards ):
@@ -95,9 +101,11 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                 # limitation
                 dof_pos_limits = -2.0
                 collision = -10.0
+                
                 # command tracking
                 tracking_lin_vel = 1.5
                 tracking_ang_vel = 1.0
+                
                 # smooth
                 lin_vel_z = -1.0
                 ang_vel_xy = -0.05
@@ -106,13 +114,14 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                 dof_acc = -2.e-7
                 action_rate = -0.01
                 action_smoothness = -0.01
+                
                 # gait
                 hip_pos = -0.15
-                foot_clearance = 0.2
+                foot_clearance = 0.6   # I've found making this larger tends to help with "stepping" behavior
                 feet_stumble = -1.0
                 feet_contact_stand_still = 0.1
                 feet_near_edge = -1.0
-                feet_air_time = 0
+                feet_air_time = 0.6    # this is actually used in ts_depth via inhereitence from the base class. 
 
     class commands( LeggedRobotDreamwaqCfg.commands ):
         curriculum = True
@@ -120,9 +129,11 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
             max_curriculum = 1.0
         else:
             max_curriculum = 1.5
+        
         num_commands = 4 # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         resampling_time = 10.  # time before command are changed[s]
         heading_command = True # if true: compute ang vel command from heading error
+        
         if terrain_name == "rough":
             zero_cmd_prob = 0.1
         class ranges( LeggedRobotDreamwaqCfg.commands.ranges ):
