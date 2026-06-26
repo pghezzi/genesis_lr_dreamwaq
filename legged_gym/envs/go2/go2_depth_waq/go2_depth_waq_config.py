@@ -38,6 +38,12 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
         # § High-Platform [0.1 m – 0.6 m height]
         # difficulty ranges from 0 to (num_rows - 1) / num_rows
         terrain_curriculum_difficulty = {
+            "random_uniform_params" : {
+                "min_height": "-0.12",
+                "max_height": "0.12",
+                "step": "0.005",
+                "downsampled_scale": "0.2",
+            },
             "slope": "difficulty * 0.6",
             "discrete_height": "0.05 + 0.2 * difficulty",
             "stepping_stones_params": {
@@ -80,15 +86,15 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
         # COPIED this up because I think we might need to up these gains to enable "jumping" behavior. 
         # PD Drive parameters:
         # control_type = 'P'
-        stiffness = {'joint': 20.}   # [N*m/rad]
-        damping = {'joint': 0.5}     # [N*m*s/rad]
+        stiffness = {'joint': 30.}   # [N*m/rad]
+        damping = {'joint': 0.75}     # [N*m*s/rad]
         action_scale = 0.25 # action scale: target angle = actionScale * action + defaultAngle
         dt = 0.02  # control frequency 50Hz
         decimation = 4 # decimation: Number of control action updates @ sim DT per policy DT
     class asset( Go2RoughCommonCfg.asset ):
         pass
     class rewards( Go2RoughCommonCfg.rewards ):
-        if terrain_name != "random_uniform":
+        if terrain_name != "baseline":
             soft_dof_pos_limit = 0.9
             base_height_target = 0.4
             foot_clearance_target = 0.08 # desired foot clearance above ground [m]
@@ -125,7 +131,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
 
     class commands( LeggedRobotDreamwaqCfg.commands ):
         curriculum = True
-        if terrain_name == "rough":
+        if terrain_name == "baseline":
             max_curriculum = 1.0
         else:
             max_curriculum = 1.5
@@ -134,10 +140,10 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
         resampling_time = 10.  # time before command are changed[s]
         heading_command = True # if true: compute ang vel command from heading error
         
-        if terrain_name == "rough":
+        if terrain_name == "baseline":
             zero_cmd_prob = 0.1
         class ranges( LeggedRobotDreamwaqCfg.commands.ranges ):
-            if terrain_name == "rough":
+            if terrain_name == "baseline":
                 lin_vel_x = [-0.5, 0.5] # min max [m/s]
                 lin_vel_y = [-1.0, 1.0]   # min max [m/s]
                 ang_vel_yaw = [-1, 1]    # min max [rad/s]
@@ -149,7 +155,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                 heading = [0.0, 0.0]
             
     class domain_rand(LeggedRobotDreamwaqCfg.domain_rand):
-        if terrain_name == "rough":
+        if terrain_name == "baseline":
             randomize_friction = True
             friction_range = [0.2, 1.7]
             randomize_base_mass = True
@@ -268,7 +274,7 @@ class Go2DepthWaqCfgPPO( LeggedRobotDreamwaqCfgPPO ):
         experiment_name = f"go2_depth_waq{'_fft' if finetune else ''}{'_' + terrain_name}"
         pre_trained = finetune if finetune else None
         save_interval = 500
-        if terrain_name == "random_uniform":
+        if terrain_name == "baseline":
             max_iterations = 3000
         else:
             max_iterations = 5000

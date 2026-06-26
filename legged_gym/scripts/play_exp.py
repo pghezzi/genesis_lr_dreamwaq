@@ -131,7 +131,7 @@ def get_args():
     return configure_runtime_device(parser.parse_args())
 
 TERRAIN_CONFIGS = {
-    "rough": {
+    "random_uniform": {
         "type": "terrain_utils.random_uniform_terrain",
         "min_height": -0.05,
         "max_height": 0.05,
@@ -171,7 +171,7 @@ TERRAIN_CONFIGS = {
     },
     "gap": {
         "type": "terrain_utils.gap_terrain",
-        "gap_size": 0.7,
+        "gap_size": 1,
         "platform_size": 3.0,
     },
     "pit": {
@@ -214,7 +214,10 @@ def override_configs(env_cfg, args):
         env_cfg.terrain.curriculum = False
         env_cfg.terrain.selected   = True
         
-        env_cfg.terrain.terrain_kwargs = TERRAIN_CONFIGS[test_terrain_name]
+        if test_terrain_name == "baseline":
+            env_cfg.terrain.terrain_kwargs = TERRAIN_CONFIGS["random_uniform"]
+        else:
+            env_cfg.terrain.terrain_kwargs = TERRAIN_CONFIGS[test_terrain_name]
 
         #env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.random_uniform_terrain", 
         #                                  "min_height" : -0.05, "max_height": 0.05, 
@@ -280,6 +283,8 @@ def override_configs(env_cfg, args):
     env_cfg.commands.ranges.ang_vel_yaw = [-1.0, 1.0]
 
     env_cfg.commands.ranges.heading = [0.0, 0.0]
+    
+    env_cfg.init_state.yaw_random_scale = 0.2
 
     # Turn off/on domain randomization elements
     env_cfg.noise.add_noise = True

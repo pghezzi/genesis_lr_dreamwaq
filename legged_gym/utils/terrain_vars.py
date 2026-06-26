@@ -1,4 +1,6 @@
-terrain_list = [
+import os
+
+TERRAIN_KEYS =[
   "slope",
   "random_uniform",
   "stairs",
@@ -11,25 +13,32 @@ terrain_list = [
   "high_platform_gaps"
 ]
 
-TERRAIN_KEYS = terrain_list
-TERRAIN_MAP = {
-    name: [1 if i == idx else 0 for i in range(len(terrain_list))]
-    for idx, name in enumerate(TERRAIN_KEYS)
-}
+TERRAIN_INDEX = {name: idx for idx, name in enumerate(TERRAIN_KEYS)}
 
-import os
+def one_hot(idx):
+    v = [0] * len(TERRAIN_KEYS)
+    v[idx] = 1
+    return v
+
 
 def get_env_vars():
-  terrain_name = os.environ.get("TERRAIN", "random_uniform").lower()
-  finetune = os.environ.get("FINETUNE", "")
+    terrain_name = os.environ.get("TERRAIN", "random_uniform").lower()
+    finetune = os.environ.get("FINETUNE", "")
 
-  
-  
-  if terrain_name not in TERRAIN_MAP:
-      raise ValueError(f"Unknown TERRAIN '{terrain_name}'. Valid options: {TERRAIN_KEYS}")
+    if terrain_name == "baseline":
+        terrain_list = [0] * len(TERRAIN_KEYS)
+        terrain_list[TERRAIN_INDEX["slope"]] = 0.5
+        terrain_list[TERRAIN_INDEX["random_uniform"]] = 0.5
+        terrain_index = None
 
-  terrain_index = TERRAIN_KEYS.index(terrain_name)
-  print(TERRAIN_KEYS)
-  print(f"terrain_index:{terrain_index}")
-  terrain_list = TERRAIN_MAP[terrain_name]
-  return terrain_name, finetune, terrain_index, terrain_list
+    elif terrain_name in TERRAIN_INDEX:
+        terrain_index = TERRAIN_INDEX[terrain_name]
+        terrain_list = one_hot(terrain_index)
+
+    else:
+        raise ValueError(
+            f"Unknown TERRAIN '{terrain_name}'. "
+            f"Valid options: {list(TERRAIN_INDEX)}"
+        )
+
+    return terrain_name, finetune, terrain_index, terrain_list

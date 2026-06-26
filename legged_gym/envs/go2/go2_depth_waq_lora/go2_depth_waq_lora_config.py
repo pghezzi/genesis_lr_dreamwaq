@@ -16,8 +16,8 @@ class Go2DepthWaqLoraCfgPPO( Go2DepthWaqCfgPPO ):
         decoder_ranks = 8
         latent_mu_rank = 8
         vel_mu_rank = 8
-        latent_var_ranks = 8 #can be in int too but list for consistency
-        vel_var_ranks = 8 #can be in int too but list for consistency
+        latent_var_ranks = 8
+        vel_var_ranks = 8
         visual_encoder_ranks = 8
 
     class runner( Go2DepthWaqCfgPPO.runner ):

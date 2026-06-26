@@ -56,7 +56,7 @@ def random_uniform_terrain(terrain : SubTerrain,
     if downsampled_scale is None:
         downsampled_scale = terrain.horizontal_scale
     if terrain_type in [None, "plane"]:
-        raise ValueError("random_uniform_terrain can only be used for heightfield or trimesh terrain type")
+        raise ValueError(" can only be used for heightfield or trimesh terrain type")
 
     flat_edge = int(0.2 / terrain.horizontal_scale) # 20cm flat edge around the terrain
     # switch parameters to discrete units

@@ -60,8 +60,8 @@ class ActorCriticDreamWaQDepthLora(ActorCriticDreamWaQDepth):
         visual_encoder_ranks = 4,
         **kwargs
     ):
+        print("BASE_MODEL")
         super().__init__(*args, **kwargs)
-        print(kwargs)
 
         # Apply LoRA
         self.actor = LoRA._from_sequential(self.actor, actor_ranks)
@@ -96,7 +96,7 @@ class ActorCriticDreamWaQDepthLora(ActorCriticDreamWaQDepth):
         loaded_dict = torch.load(base_model)
         self.load_state_dict(loaded_dict["model_state_dict"])
 
-        # Debug prints
+        print("OVERRIDE WITH LORA")
         print(f"Encoder MLP (LORA): {self.vae.encoder}")
         print(f"Decoder MLP (LORA): {self.vae.decoder}")
         print(f"Actor MLP (LORA): {self.actor}")

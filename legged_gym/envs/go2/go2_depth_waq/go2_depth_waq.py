@@ -1,5 +1,6 @@
 import torch
 import random
+import numpy as np
 
 
 from legged_gym.envs.base.legged_robot_dreamwaq import LeggedRobotDreamwaq
@@ -89,7 +90,69 @@ class Go2Depth(LeggedRobotDreamwaq):
         print(f"Num of envs: {self.num_envs}")
         print(f"Num of cam envs: {self.num_camera_envs}")
 
+        # identify env ids for different terrain types
+        if self.cfg.terrain.curriculum:
+            terrain_types = self.simulator.terrain_types
+            terrain_type_bounds = torch.cumsum(torch.tensor(self.cfg.terrain.terrain_proportions), dim=0) * self.cfg.terrain.num_cols
+            self.slope_env_ids = ((terrain_types >=0) & (terrain_types < terrain_type_bounds[0])).nonzero(as_tuple=False).flatten()
+            self.stairs_env_ids = ((terrain_types >= terrain_type_bounds[1]) & (terrain_types < terrain_type_bounds[3])).nonzero(as_tuple=False).flatten()
+            self.discrete_env_ids = ((terrain_types >= terrain_type_bounds[3]) & (terrain_types < terrain_type_bounds[4])).nonzero(as_tuple=False).flatten()
+            self.stepping_stones_env_ids = ((terrain_types >= terrain_type_bounds[4]) & (terrain_types < terrain_type_bounds[5])).nonzero(as_tuple=False).flatten()
+            self.gaps_env_ids = ((terrain_types >= terrain_type_bounds[5]) & (terrain_types < terrain_type_bounds[6])).nonzero(as_tuple=False).flatten()
+            self.pits_env_ids = ((terrain_types >= terrain_type_bounds[6]) & (terrain_types < terrain_type_bounds[7])).nonzero(as_tuple=False).flatten()
+            self.high_platform_env_ids = ((terrain_types >= terrain_type_bounds[7]) & (terrain_types < terrain_type_bounds[8])).nonzero(as_tuple=False).flatten()
+            self.high_platform_gaps_env_ids = ((terrain_types >= terrain_type_bounds[8]) & (terrain_types < terrain_type_bounds[9])).nonzero(as_tuple=False).flatten()
+            # identify env ids for all heading command (others have fixed heading command specified in config)
+            self.all_heading_env_ids = torch.cat((
+                self.slope_env_ids,
+                self.stairs_env_ids,
+                self.discrete_env_ids,
+                self.gaps_env_ids,
+                self.pits_env_ids, # elementary terrains with all heading commands
+            ))
+            # identity termination base height for high_platform_gaps terrain
+            difficulty = self.simulator.terrain_levels / self.cfg.terrain.num_rows
+            self.high_platform_gaps_termination_height = eval(
+                self.cfg.terrain.terrain_curriculum_difficulty["high_platform_gaps_params"]["high_platform_height"])
+
         return return_
+
+    ###########################################################
+    def _resample_commands(self, env_ids) -> None:
+        self.commands[env_ids, 0] = torch_rand_float(
+            self.command_ranges["lin_vel_x"][0], self.command_ranges["lin_vel_x"][1], (len(env_ids),1), self.device).squeeze(1)
+        self.commands[env_ids, 1] = torch_rand_float(
+            self.command_ranges["lin_vel_y"][0], self.command_ranges["lin_vel_y"][1], (len(env_ids),1), self.device).squeeze(1)
+        if self.cfg.commands.heading_command:
+            self.commands[env_ids, 3] = torch_rand_float(self.command_ranges["heading"][0], self.command_ranges["heading"][1], (len(env_ids), 1), device=self.device).squeeze(1)
+            if self.cfg.terrain.curriculum:
+                # override heading command of some envs with all range heading command
+                env_ids_for_heading = torch.tensor([env_id for env_id in env_ids if env_id in self.all_heading_env_ids], device=self.device)
+                if len(env_ids_for_heading) > 0:
+                    self.commands[env_ids_for_heading, 3] = torch_rand_float(-3.14, 3.14, (len(env_ids_for_heading), 1), device=self.device).squeeze(1)
+        else:
+            self.commands[env_ids, 2] = torch_rand_float(self.command_ranges["ang_vel_yaw"][0], self.command_ranges["ang_vel_yaw"][1], (len(env_ids), 1), device=self.device).squeeze(1)
+
+        if np.random.rand() < self.cfg.commands.zero_cmd_prob:
+            self.commands[env_ids, :3] *= 0.0  # set command to zero with some probability, to encourage the robot to learn to stand still
+
+        # set small commands to zero
+        self.commands[env_ids, :3] *= (torch.norm(
+            self.commands[env_ids, :3], dim=1) > 0.2).unsqueeze(1)
+
+    def _update_command_curriculum(self, env_ids):
+        """ Implements a curriculum of increasing commands
+
+        Args:
+            env_ids (List[int]): ids of environments being reset
+        """
+        # If the tracking reward is above 80% of the maximum, increase the range of commands
+        if torch.mean(self.episode_sums["tracking_lin_vel"][env_ids]) / self.max_episode_length > \
+                self.cfg.commands.curriculum_threshold * self.reward_scales["tracking_lin_vel"]:
+            # only increase upper bound of forward velocity command
+            self.command_ranges["lin_vel_x"][1] = np.clip(
+                self.command_ranges["lin_vel_x"][1] + 0.5, 0., self.cfg.commands.max_curriculum)
+    ##################################################################
 
     def _pre_sim_step(self, actions):
         self.depth_sensor_obs_refreshed = False
