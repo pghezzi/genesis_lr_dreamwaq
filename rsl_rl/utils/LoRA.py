@@ -174,7 +174,7 @@ class LoRAConv2d(nn.Conv2d, LoRALayer):
 
     @torch.no_grad()
     def train(self, mode: bool = True):
-        nn.Linear.train(self, mode)
+        nn.Conv2d.train(self, mode)
         if mode:
             if self.merge_weights and self.merged:
                 self.weight.data -= self._lora_weight()
@@ -307,7 +307,6 @@ class LoRALinear(nn.Linear, LoRALayer):
         factory_kwargs = {"device": device, "dtype": dtype}
         nn.Linear.__init__(self, in_features=in_features, out_features=out_features, bias=bias, **factory_kwargs)
         # Freezing the pre-trained weight matrix and bias (following peft example)
-        self.weight.requires_grad = False
         self.weight.requires_grad = False
         if self.bias is not None:
             self.bias.requires_grad = False

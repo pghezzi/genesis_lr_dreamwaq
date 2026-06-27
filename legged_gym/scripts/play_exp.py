@@ -171,12 +171,12 @@ TERRAIN_CONFIGS = {
     },
     "gap": {
         "type": "terrain_utils.gap_terrain",
-        "gap_size": 1,
+        "gap_size": 0.8,
         "platform_size": 3.0,
     },
     "pit": {
         "type": "terrain_utils.pit_terrain",
-        "depth": 0.3,
+        "depth": 0.4,
         "platform_size": 3.0,
     },
     "multiple_high_platforms" : {
