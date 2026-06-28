@@ -419,7 +419,7 @@ class IsaacLabSimulator(Simulator):
         # Add contact sensors
         contact_sensor_cfg = ContactSensorCfg(
             prim_path="/World/envs/env_.*/" + self._cfg.asset.name + "/.*", # track all links of the robot, but only the ones specified in cfg will be used for termination and penalty
-            update_period=self._control_dt,         # update every control step
+            update_period=self._sim_params["dt"],   # update every physics step
             history_length=3,                       # keep contact history of last 3 steps
             debug_vis=not self._headless,           # visualize contact points if not headless
         )
