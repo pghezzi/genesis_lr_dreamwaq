@@ -1,21 +1,15 @@
 import torch
 import random
 import numpy as np
-
-
 from legged_gym.envs.base.legged_robot_dreamwaq import LeggedRobotDreamwaq
 from legged_gym.utils.math_utils import wrap_to_pi, quat_apply
-#, torch_rand_float
+import torch.nn.functional as F
+import torchvision.transforms as T
 
 def torch_rand_float(lower, upper, shape, device):
     # type: (float, float, Tuple[int], str) -> Tensor
     return torch.empty(*shape, device=device).uniform_(lower, upper)
     #return (upper - lower) * torch.rand() + lower
-
-import torch.nn.functional as F
-import torchvision.transforms as T
-
-
 
 def _make_gaussian_kernel(sigma: float, kernel_size: int, device) -> torch.Tensor:
     """Build a normalized 2-D Gaussian kernel for conv2d."""
@@ -28,150 +22,43 @@ def _make_gaussian_kernel(sigma: float, kernel_size: int, device) -> torch.Tenso
     return kernel.view(1, 1, kernel_size, kernel_size)  # (1, 1, k, k)
 
 def _fill_rectangles(canvas, batch_idx, tops, bottoms, lefts, rights):
-            """Fill axis-aligned rectangles into canvas without Python loops."""
-            # Use a summed-area / prefix trick: mark corners, then cumsum twice.
-            # For each rect in batch b: canvas[b, top:bottom+1, left:right+1] = 1
-            # 
-            # Corner-increment trick (O(n_) scatter, then 2x cumsum):
-            #   +1 at (b, top,      left)
-            #   -1 at (b, bottom+1, left)
-            #   -1 at (b, top,      right+1)
-            #   +1 at (b, bottom+1, right+1)
-            N, H, W = canvas.shape
-            device = canvas.device
-            n_ = batch_idx.shape[0]
+    """Fill axis-aligned rectangles into canvas without Python loops."""
+    # Use a summed-area / prefix trick: mark corners, then cumsum twice.
+    # For each rect in batch b: canvas[b, top:bottom+1, left:right+1] = 1
+    # 
+    # Corner-increment trick (O(n_) scatter, then 2x cumsum):
+    #   +1 at (b, top,      left)
+    #   -1 at (b, bottom+1, left)
+    #   -1 at (b, top,      right+1)
+    #   +1 at (b, bottom+1, right+1)
+    N, H, W = canvas.shape
+    device = canvas.device
+    n_ = batch_idx.shape[0]
 
-            r1 = bottoms + 1
-            c1 = rights + 1
+    r1 = bottoms + 1
+    c1 = rights + 1
 
-            def scatter(b, r, c, val):
-                # Clamp out-of-bound corner updates (they fall off the edge, safe to drop)
-                valid = (r < H) & (c < W)
-                idx = b[valid] * H * W + r[valid] * W + c[valid]
-                ones = torch.ones(n_, device=device)
-                canvas.view(-1).scatter_add_(0, idx, ones[valid] * val)
-                #canvas.view(-1).scatter_add_(0, idx, torch.full((valid.sum(),), val, device=device))
+    def scatter(b, r, c, val):
+        # Clamp out-of-bound corner updates (they fall off the edge, safe to drop)
+        valid = (r < H) & (c < W)
+        idx = b[valid] * H * W + r[valid] * W + c[valid]
+        ones = torch.ones(n_, device=device)
+        canvas.view(-1).scatter_add_(0, idx, ones[valid] * val)
+        #canvas.view(-1).scatter_add_(0, idx, torch.full((valid.sum(),), val, device=device))
 
-            ones  = torch.ones(n_, device=device)
-            scatter(batch_idx, tops,  lefts,  1.)
-            scatter(batch_idx, r1,    lefts, -1.)
-            scatter(batch_idx, tops,  c1,    -1.)
-            scatter(batch_idx, r1,    c1,     1.)
+    ones  = torch.ones(n_, device=device)
+    scatter(batch_idx, tops,  lefts,  1.)
+    scatter(batch_idx, r1,    lefts, -1.)
+    scatter(batch_idx, tops,  c1,    -1.)
+    scatter(batch_idx, r1,    c1,     1.)
 
-            # Two cumulative sums reconstruct the filled rectangles
-            canvas.cumsum_(dim=1).cumsum_(dim=2)
+    # Two cumulative sums reconstruct the filled rectangles
+    canvas.cumsum_(dim=1).cumsum_(dim=2)
 
-class Go2Depth(LeggedRobotDreamwaq):
-
-    def _init_buffers(self):
-        self.num_camera_envs = self.cfg.env.num_camera_envs
-        return_ = super()._init_buffers()
-        self.RAND = random.randint(0, self.num_envs)
-        if hasattr(self.cfg.sensor.depth_camera_config, "resized_resolution"): 
-            self.output_resolution = self.cfg.sensor.depth_camera_config.resized_resolution
-        else:
-            H, W = self.cfg.sensor.depth_camera_config.resolution 
-            t, b = self.cfg.sensor.depth_camera_config.crop_top_bottom
-            l, r = self.cfg.sensor.depth_camera_config.crop_left_right
-            H = H - t - b
-            W = W - l - r
-            self.output_resolution = (H, W)
-        self.depth_image_size = self.output_resolution[0] * self.output_resolution[1]
-        self.depth_sensor_output = torch.zeros(
-            (self.num_camera_envs, 1, *self.output_resolution),
-            dtype=torch.float32,
-            device=self.device,
-        )
-        self.env_cam_arange = torch.arange(self.num_camera_envs, device=self.device)
-        self.set_latency_buffer_for_sensor()
-        self.set_obs_buffers_for_component()
-        self.build_depth_image_processor_buffers()
-
-        print(f"Num of envs: {self.num_envs}")
-        print(f"Num of cam envs: {self.num_camera_envs}")
-
-        # identify env ids for different terrain types
-        if self.cfg.terrain.curriculum:
-            terrain_types = self.simulator.terrain_types
-            terrain_type_bounds = torch.cumsum(torch.tensor(self.cfg.terrain.terrain_proportions), dim=0) * self.cfg.terrain.num_cols
-            self.slope_env_ids = ((terrain_types >=0) & (terrain_types < terrain_type_bounds[0])).nonzero(as_tuple=False).flatten()
-            self.stairs_env_ids = ((terrain_types >= terrain_type_bounds[1]) & (terrain_types < terrain_type_bounds[3])).nonzero(as_tuple=False).flatten()
-            self.discrete_env_ids = ((terrain_types >= terrain_type_bounds[3]) & (terrain_types < terrain_type_bounds[4])).nonzero(as_tuple=False).flatten()
-            self.stepping_stones_env_ids = ((terrain_types >= terrain_type_bounds[4]) & (terrain_types < terrain_type_bounds[5])).nonzero(as_tuple=False).flatten()
-            self.gaps_env_ids = ((terrain_types >= terrain_type_bounds[5]) & (terrain_types < terrain_type_bounds[6])).nonzero(as_tuple=False).flatten()
-            self.pits_env_ids = ((terrain_types >= terrain_type_bounds[6]) & (terrain_types < terrain_type_bounds[7])).nonzero(as_tuple=False).flatten()
-            self.high_platform_env_ids = ((terrain_types >= terrain_type_bounds[7]) & (terrain_types < terrain_type_bounds[8])).nonzero(as_tuple=False).flatten()
-            self.high_platform_gaps_env_ids = ((terrain_types >= terrain_type_bounds[8]) & (terrain_types < terrain_type_bounds[9])).nonzero(as_tuple=False).flatten()
-            # identify env ids for all heading command (others have fixed heading command specified in config)
-            self.all_heading_env_ids = torch.cat((
-                self.slope_env_ids,
-                self.stairs_env_ids,
-                self.discrete_env_ids,
-                self.gaps_env_ids,
-                self.pits_env_ids, # elementary terrains with all heading commands
-            ))
-            # identity termination base height for high_platform_gaps terrain
-            difficulty = self.simulator.terrain_levels / self.cfg.terrain.num_rows
-            self.high_platform_gaps_termination_height = eval(
-                self.cfg.terrain.terrain_curriculum_difficulty["high_platform_gaps_params"]["high_platform_height"])
-
-        return return_
-
-    ###########################################################
-    def _resample_commands(self, env_ids) -> None:
-        self.commands[env_ids, 0] = torch_rand_float(
-            self.command_ranges["lin_vel_x"][0], self.command_ranges["lin_vel_x"][1], (len(env_ids),1), self.device).squeeze(1)
-        self.commands[env_ids, 1] = torch_rand_float(
-            self.command_ranges["lin_vel_y"][0], self.command_ranges["lin_vel_y"][1], (len(env_ids),1), self.device).squeeze(1)
-        if self.cfg.commands.heading_command:
-            self.commands[env_ids, 3] = torch_rand_float(self.command_ranges["heading"][0], self.command_ranges["heading"][1], (len(env_ids), 1), device=self.device).squeeze(1)
-            if self.cfg.terrain.curriculum:
-                # override heading command of some envs with all range heading command
-                env_ids_for_heading = torch.tensor([env_id for env_id in env_ids if env_id in self.all_heading_env_ids], device=self.device)
-                if len(env_ids_for_heading) > 0:
-                    self.commands[env_ids_for_heading, 3] = torch_rand_float(-3.14, 3.14, (len(env_ids_for_heading), 1), device=self.device).squeeze(1)
-        else:
-            self.commands[env_ids, 2] = torch_rand_float(self.command_ranges["ang_vel_yaw"][0], self.command_ranges["ang_vel_yaw"][1], (len(env_ids), 1), device=self.device).squeeze(1)
-
-        if np.random.rand() < self.cfg.commands.zero_cmd_prob:
-            self.commands[env_ids, :3] *= 0.0  # set command to zero with some probability, to encourage the robot to learn to stand still
-
-        # set small commands to zero
-        self.commands[env_ids, :3] *= (torch.norm(
-            self.commands[env_ids, :3], dim=1) > 0.2).unsqueeze(1)
-
-    def _update_command_curriculum(self, env_ids):
-        """ Implements a curriculum of increasing commands
-
-        Args:
-            env_ids (List[int]): ids of environments being reset
-        """
-        # If the tracking reward is above 80% of the maximum, increase the range of commands
-        if torch.mean(self.episode_sums["tracking_lin_vel"][env_ids]) / self.max_episode_length > \
-                self.cfg.commands.curriculum_threshold * self.reward_scales["tracking_lin_vel"]:
-            # only increase upper bound of forward velocity command
-            self.command_ranges["lin_vel_x"][1] = np.clip(
-                self.command_ranges["lin_vel_x"][1] + 0.5, 0., self.cfg.commands.max_curriculum)
-    ##################################################################
-
-    def _pre_sim_step(self, actions):
-        self.depth_sensor_obs_refreshed = False
-        return super()._pre_sim_step(actions)
-
+class Go2DepthWaq(LeggedRobotDreamwaq):
+    
     def compute_observations(self):
         self._get_forward_depth_obs()
-        # depth = None
-        # if self.sensors_updated:
-        #     resy, resx = self.output_resolution
-        #     depth = self._normalize_depth_images(self.simulator.depth_images[:, 0])[self.RAND]
-        #     with open("tensor.txt", "w") as f:
-        #         f.write(str(depth))
-        #import numpy as np
-        #import cv2 as cv
-        #import random
-        #print(self.simulator.depth_images[0, 0])
-        #cv.imshow("Depth Camera", ((self._normalize_depth_images(self.simulator.depth_images[0, 0]) - 0.5) * 255.0).cpu().numpy().astype(np.uint8))
-        #cv.waitKey(1)
         self.obs_buf = torch.cat((
             self.commands[:, :3] * self.commands_scale,                     # 3
             self.simulator.projected_gravity,                                         # 3
@@ -179,8 +66,9 @@ class Go2Depth(LeggedRobotDreamwaq):
             (self.simulator.dof_pos - self.simulator.default_dof_pos) *
             self.obs_scales.dof_pos,  # num_dofs
             self.simulator.dof_vel * self.obs_scales.dof_vel,                         # num_dofs
-            self.actions,                                                    # num_actions
+            self.actions ,                                                    # num_actions
         ), dim=-1)
+
         domain_randomization_info = torch.cat((
                     self.simulator.dr_friction_values,            # 1
                     self.simulator.dr_added_base_mass,            # 1
@@ -249,6 +137,181 @@ class Go2Depth(LeggedRobotDreamwaq):
                 torch.mean(self.simulator.height_around_feet, dim=-1) -
                 self.cfg.rewards.foot_height_offset, -1, 1.),  # 4
         ), dim=-1)
+    
+
+    def check_termination(self) -> None:
+        """Check termination conditions and update reset buffer.
+        
+        Evaluates three termination conditions:
+            1. Contact termination: Body contacts with termination bodies exceed threshold.
+            2. Orientation termination: Projected gravity exceeds maximum allowed value.
+            3. Timeout termination: Episode exceeds maximum episode length.
+        
+        Updates the following buffers:
+            - fail_buf: Tracks consecutive failures for graceful termination.
+            - time_out_buf: Indicates episodes that timed out (not actual failures).
+            - reset_buf: Indicates environments needing reset.
+        """
+        # if the dim of link_contact_forces is 4, then it has history (IsaacLab). shape [N, T, B, 3] (N: num_envs, T: history length, B: number of links with contact sensors)
+        if len(self.simulator.link_contact_forces.shape) == 4:
+            self.terminated_bodies_force_norm = torch.max(torch.norm(self.simulator.link_contact_forces[:, :, self.simulator.termination_contact_indices, :], dim=-1), dim=1)[0]
+            self.penalized_bodies_force_norm = torch.max(torch.norm(self.simulator.link_contact_forces[:, :, self.simulator.penalized_contact_indices, :], dim=-1), dim=1)[0]
+            self.feet_force_norm = torch.max(torch.norm(self.simulator.link_contact_forces[:, :, self.simulator.feet_contact_indices, :], dim=-1), dim=1)[0]
+            self.feet_max_force_z = torch.max(self.simulator.link_contact_forces[:, :, self.simulator.feet_contact_indices, 2], dim=1)[0]
+        else:
+            self.terminated_bodies_force_norm = torch.norm(self.simulator.link_contact_forces[:, self.simulator.termination_contact_indices, :], dim=-1)
+            self.penalized_bodies_force_norm = torch.norm(self.simulator.link_contact_forces[:, self.simulator.penalized_contact_indices, :], dim=-1)
+            self.feet_force_norm = torch.norm(self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, :], dim=-1)
+            self.feet_max_force_z = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2]
+        
+        self.gap_reset_buf = self._check_unrecoverable_gap()
+
+        fail_buf = torch.any(self.terminated_bodies_force_norm > 10.0, dim=1)
+        # print(f"contact termination: {fail_buf}")
+        fail_buf |= self.simulator.projected_gravity[:, 2] > self.cfg.env.max_projected_gravity
+        # print(f"gravity termination: {self.simulator.projected_gravity[:, 2] > self.cfg.env.max_projected_gravity}")
+        self.fail_buf += fail_buf
+        self.time_out_buf = self.episode_length_buf > self.max_episode_length  # no terminal reward for time-outs
+        # print(f"time out: {self.time_out_buf}")
+
+        self.reset_buf = (
+            (self.fail_buf > self.cfg.env.fail_to_terminal_time_s / self.dt)
+            | self.time_out_buf
+        ) | self.gap_reset_buf
+
+    def _check_unrecoverable_gap(self):
+        if (
+            not hasattr(self.cfg, "termination")
+            or not getattr(self.cfg.termination, "reset_unrecoverable_gaps", False)
+            or self.cfg.terrain.mesh_type not in ("heightfield", "trimesh")
+            or not self.cfg.terrain.obtain_terrain_info_around_feet
+        ):
+            self.gap_fall_counter.zero_()
+            return torch.zeros(
+                self.num_envs, dtype=torch.bool, device=self.device
+            )
+
+        support_height = self.simulator.env_origins[:, 2].unsqueeze(1)
+        terrain_under_feet = self.simulator.height_around_feet[:, :, 4]
+        deep_void = terrain_under_feet < (
+            support_height
+            - self.cfg.termination.gap_terrain_depth_threshold
+        )
+        fallen_feet = deep_void & (
+            self.simulator.feet_pos[:, :, 2]
+            < support_height - self.cfg.termination.gap_foot_drop_threshold
+        )
+        enough_fallen_feet = (
+            fallen_feet.sum(dim=1)
+            >= self.cfg.termination.gap_min_fallen_feet
+        )
+        base_fallen = deep_void.any(dim=1) & (
+            self.simulator.base_pos[:, 2]
+            < self.simulator.env_origins[:, 2]
+            - self.cfg.termination.gap_base_drop_threshold
+        )
+        falling_into_gap = enough_fallen_feet | base_fallen
+
+        self.gap_fall_counter = torch.where(
+            falling_into_gap,
+            self.gap_fall_counter + 1,
+            torch.zeros_like(self.gap_fall_counter),
+        )
+        return (
+            self.gap_fall_counter
+            >= self.cfg.termination.gap_reset_steps
+        )
+
+    def _parse_cfg(self, cfg):
+        super()._parse_cfg(cfg)
+        self.num_camera_envs = self.cfg.env.num_camera_envs
+        if hasattr(self.cfg.sensor.depth_camera_config, "resized_resolution"): 
+            self.output_resolution = self.cfg.sensor.depth_camera_config.resized_resolution
+        else:
+            H, W = self.cfg.sensor.depth_camera_config.resolution 
+            t, b = self.cfg.sensor.depth_camera_config.crop_top_bottom
+            l, r = self.cfg.sensor.depth_camera_config.crop_left_right
+            H = H - t - b
+            W = W - l - r
+            self.output_resolution = (H, W)
+        self.depth_image_size = self.output_resolution[0] * self.output_resolution[1]
+
+
+    def _init_buffers(self):
+        super()._init_buffers()
+        self.gap_fall_counter = torch.zeros(
+            self.num_envs, dtype=torch.long, device=self.device
+        )
+        self.depth_sensor_output = torch.zeros(
+            (self.num_camera_envs, 1, *self.output_resolution),
+            dtype=torch.float32,
+            device=self.device,
+        )
+        self.env_cam_arange = torch.arange(self.num_camera_envs, device=self.device)
+        self.set_latency_buffer_for_sensor()
+        self.set_obs_buffers_for_component()
+        self.build_depth_image_processor_buffers()
+
+        # identify env ids for different terrain types
+        if self.cfg.terrain.curriculum:
+            terrain_types = self.simulator.terrain_types
+            terrain_type_bounds = torch.cumsum(torch.tensor(self.cfg.terrain.terrain_proportions), dim=0) * self.cfg.terrain.num_cols
+            self.slope_env_ids = ((terrain_types >=0) & (terrain_types < terrain_type_bounds[0])).nonzero(as_tuple=False).flatten()
+            self.stairs_env_ids = ((terrain_types >= terrain_type_bounds[1]) & (terrain_types < terrain_type_bounds[3])).nonzero(as_tuple=False).flatten()
+            self.discrete_env_ids = ((terrain_types >= terrain_type_bounds[3]) & (terrain_types < terrain_type_bounds[4])).nonzero(as_tuple=False).flatten()
+            self.stepping_stones_env_ids = ((terrain_types >= terrain_type_bounds[4]) & (terrain_types < terrain_type_bounds[5])).nonzero(as_tuple=False).flatten()
+            self.gaps_env_ids = ((terrain_types >= terrain_type_bounds[5]) & (terrain_types < terrain_type_bounds[6])).nonzero(as_tuple=False).flatten()
+            self.pits_env_ids = ((terrain_types >= terrain_type_bounds[6]) & (terrain_types < terrain_type_bounds[7])).nonzero(as_tuple=False).flatten()
+            self.high_platform_env_ids = ((terrain_types >= terrain_type_bounds[7]) & (terrain_types < terrain_type_bounds[8])).nonzero(as_tuple=False).flatten()
+            self.high_platform_gaps_env_ids = ((terrain_types >= terrain_type_bounds[8]) & (terrain_types < terrain_type_bounds[9])).nonzero(as_tuple=False).flatten()
+            # identify env ids for all heading command (others have fixed heading command specified in config)
+            self.all_heading_env_ids = torch.cat((
+                self.slope_env_ids,
+                self.stairs_env_ids,
+                self.discrete_env_ids,
+                self.gaps_env_ids,
+                self.pits_env_ids, # elementary terrains with all heading commands
+            ))
+            # identity termination base height for high_platform_gaps terrain
+            difficulty = self.simulator.terrain_levels / self.cfg.terrain.num_rows
+            self.high_platform_gaps_termination_height = eval(
+                self.cfg.terrain.terrain_curriculum_difficulty["high_platform_gaps_params"]["high_platform_height"])
+    
+    #def _resample_commands(self, env_ids) -> None:
+    #    self.commands[env_ids, 0] = torch_rand_float(
+    #        self.command_ranges["lin_vel_x"][0], self.command_ranges["lin_vel_x"][1], (len(env_ids),1), self.device).squeeze(1)
+    #    self.commands[env_ids, 1] = torch_rand_float(
+    #        self.command_ranges["lin_vel_y"][0], self.command_ranges["lin_vel_y"][1], (len(env_ids),1), self.device).squeeze(1)
+    #    if self.cfg.commands.heading_command:
+    #        self.commands[env_ids, 3] = torch_rand_float(self.command_ranges["heading"][0], self.command_ranges["heading"][1], (len(env_ids), 1), device=self.device).squeeze(1)
+    #        
+    #        if self.cfg.terrain.curriculum:
+    #            # override heading command of some envs with all range heading command
+    #            env_ids_for_heading = torch.tensor([env_id for env_id in env_ids if env_id in self.all_heading_env_ids], device=self.device)
+    #            if len(env_ids_for_heading) > 0:
+    #                self.commands[env_ids_for_heading, 3] = torch_rand_float(-3.14, 3.14, (len(env_ids_for_heading), 1), device=self.device).squeeze(1)
+    #    else:
+    #        self.commands[env_ids, 2] = torch_rand_float(self.command_ranges["ang_vel_yaw"][0], self.command_ranges["ang_vel_yaw"][1], (len(env_ids), 1), device=self.device).squeeze(1)
+    #    if np.random.rand() < self.cfg.commands.zero_cmd_prob:
+    #        self.commands[env_ids, :3] *= 0.0  # set command to zero with some probability, to encourage the robot to learn to stand still
+    #    # set small commands to zero
+    #    self.commands[env_ids, :3] *= (torch.norm(self.commands[env_ids, :3], dim=1) > 0.2).unsqueeze(1)
+
+    #def _update_command_curriculum(self, env_ids):
+    #    """ Implements a curriculum of increasing commands
+    #    Args:
+    #        env_ids (List[int]): ids of environments being reset
+    #    """
+    #    # If the tracking reward is above 80% of the maximum, increase the range of commands
+    #    if torch.mean(self.episode_sums["tracking_lin_vel"][env_ids]) / self.max_episode_length > \
+    #            self.cfg.commands.curriculum_threshold * self.reward_scales["tracking_lin_vel"]:
+    #        # only increase upper bound of forward velocity command
+    #        self.command_ranges["lin_vel_x"][1] = np.clip(
+    #            self.command_ranges["lin_vel_x"][1] + 0.5, 0., self.cfg.commands.max_curriculum)
+    #
+    def _pre_sim_step(self, actions):
+        self.depth_sensor_obs_refreshed = False
+        return super()._pre_sim_step(actions)
 
     def step(self, actions):
         return *super().step(actions), self.depth_sensor_output
@@ -262,6 +325,10 @@ class Go2Depth(LeggedRobotDreamwaq):
         obs, privileged_obs, obs_history, explicit_labels, next_state, _, _, _, depth_sensor_output = self.step(torch.zeros(
             self.num_envs, self.num_actions, device=self.device, requires_grad=False))
         return obs, privileged_obs, obs_history, explicit_labels, next_state, depth_sensor_output
+
+    def reset_idx(self, env_ids):
+        super().reset_idx(env_ids)
+        self.gap_fall_counter[env_ids] = 0
 
     def _post_physics_step_callback(self):
         super()._post_physics_step_callback()
@@ -460,6 +527,8 @@ class Go2Depth(LeggedRobotDreamwaq):
         self.depth_sensor_obs_buffer[:, env_ids] = 0
         self.depth_sensor_obs_refreshed = False
         self.depth_sensor_delayed_frames[env_ids] = 0
+
+    ######################## IMAGE PROSS ############################################
 
     def _add_depth_contour(self, depth_images):
         mask =  F.max_pool2d(

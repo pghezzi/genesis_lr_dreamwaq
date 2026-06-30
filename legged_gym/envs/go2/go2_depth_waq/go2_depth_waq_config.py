@@ -8,13 +8,14 @@ terrain_name, finetune, terrain_index, terrain_list = get_env_vars()
 
 class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
 
-    class termination():
-        reset_unrecoverable_gaps = True
-        gap_terrain_depth_threshold = 1.0
-        gap_foot_drop_threshold = 0.25
-        gap_base_drop_threshold = 0.30
-        gap_min_fallen_feet = 1
-        gap_reset_steps = 4
+    if terrain_name != "baseline":
+        class termination():
+            reset_unrecoverable_gaps = True
+            gap_terrain_depth_threshold = 1.0
+            gap_foot_drop_threshold = 0.25
+            gap_base_drop_threshold = 0.30
+            gap_min_fallen_feet = 1
+            gap_reset_steps = 4
 
     class env( LeggedRobotDreamwaqCfg.env ):
         num_envs = 3000
@@ -94,7 +95,10 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
     class asset( Go2RoughCommonCfg.asset ):
         pass
     class rewards( Go2RoughCommonCfg.rewards ):
-        if terrain_name != "baseline":
+        if terrain_name == "baseline":
+            class scales(Go2RoughCommonCfg.rewards.scales):
+                feet_near_edge = 0
+        else:
             soft_dof_pos_limit = 0.9
             base_height_target = 0.4
             foot_clearance_target = 0.08 # desired foot clearance above ground [m]
@@ -127,7 +131,8 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                 feet_stumble = -1.0
                 feet_contact_stand_still = 0.1
                 feet_near_edge = -1.0
-                feet_air_time = 0.6    # this is actually used in ts_depth via inhereitence from the base class. 
+                feet_air_time = 0.6    # this is actually used in ts_depth via inhereitence from the base class.
+
 
     class commands( LeggedRobotDreamwaqCfg.commands ):
         curriculum = True

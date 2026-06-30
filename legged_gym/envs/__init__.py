@@ -126,9 +126,9 @@ task_registry.register( "tron1sf", TRON1SF, TRON1SFCfg(), TRON1SFCfgPPO())
 # task_registry.register( "bipedal_walker", BipedalWalker, BipedalWalkerCfg(), BipedalWalkerCfgPPO())
 
 #custom
-from legged_gym.envs.go2.go2_depth_waq.go2_depth_waq import Go2Depth as Go2DepthWaq
+from legged_gym.envs.go2.go2_depth_waq.go2_depth_waq import Go2DepthWaq
 from legged_gym.envs.go2.go2_depth_waq.go2_depth_waq_config import Go2DepthWaqCfg, Go2DepthWaqCfgPPO
-from legged_gym.envs.go2.go2_depth_waq_lora.go2_depth_waq_lora import Go2Depth as Go2DepthWaqLora
+from legged_gym.envs.go2.go2_depth_waq_lora.go2_depth_waq_lora import Go2DepthWaqLora
 from legged_gym.envs.go2.go2_depth_waq_lora.go2_depth_waq_lora_config import Go2DepthWaqLoraCfg, Go2DepthWaqLoraCfgPPO
 
 task_registry.register( "go2_depth_waq", Go2DepthWaq, Go2DepthWaqCfg(), Go2DepthWaqCfgPPO())

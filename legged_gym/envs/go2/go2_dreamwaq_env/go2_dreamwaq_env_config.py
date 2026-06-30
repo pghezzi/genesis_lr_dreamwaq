@@ -5,31 +5,9 @@ from legged_gym.envs.base.common_cfgs import Go2RoughCommonCfg
 
 import os
 
-TERRAIN_KEYS = [
-    "rough",
-    "slope",
-    "stairs",
-    "discrete",
-    "wave",
-    "stepping_stones",
-]
+from legged_gym.utils.terrain_vars import get_env_vars
 
-TERRAIN_MAP = {
-    name: [1 if i == idx else 0 for i in range(len(TERRAIN_KEYS))]
-    for idx, name in enumerate(TERRAIN_KEYS)
-}
-
-terrain_name = os.environ.get("TERRAIN", "rough").lower()
-finetune = os.environ.get("FINETUNE", "")
-
-
-if terrain_name not in TERRAIN_MAP:
-    raise ValueError(f"Unknown TERRAIN '{terrain_name}'. Valid options: {TERRAIN_KEYS}")
-
-terrain_index = TERRAIN_KEYS.index(terrain_name)
-terrain_list = TERRAIN_MAP[terrain_name]
-
-experiment_extra = f"exp{terrain_index+1}"
+terrain_name, finetune, terrain_index, terrain_list = get_env_vars()
 
 
 class Go2DreamwaqCfg( LeggedRobotDreamwaqCfg ):
@@ -114,6 +92,6 @@ class Go2DreamwaqCfgPPO( LeggedRobotDreamwaqCfgPPO ):
             run_name += "_isaacgym"
         elif SIMULATOR == "isaaclab":
             run_name += "_isaaclab"
-        experiment_name = f'go2_{experiment_extra}'
+        experiment_name = f'go2_dreamwaq_{terrain_name}'
         save_interval = 500
         max_iterations = 3000

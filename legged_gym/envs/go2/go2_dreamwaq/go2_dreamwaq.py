@@ -4,6 +4,7 @@ from legged_gym.envs.base.legged_robot_dreamwaq import LeggedRobotDreamwaq
 from legged_gym.utils.math_utils import torch_rand_float
 
 class Go2Dreamwaq(LeggedRobotDreamwaq):
+    
     def compute_observations(self):
         self.obs_buf = torch.cat((
             self.commands[:, :3] * self.commands_scale,                     # 3

@@ -12,7 +12,7 @@ def get_class_dict(cls):
         if base is object:
             continue
         for k, v in base.__dict__.items():
-            if k.startswith("__"):
+            if k.startswith("__") or k == "init_member_classes":
                 continue
             result[k] = v
     return result

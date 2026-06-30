@@ -146,7 +146,7 @@ TERRAIN_CONFIGS = {
     "stairs": {
         "type": "terrain_utils.pyramid_stairs_terrain",
         "step_width": 0.31,
-        "step_height": 0.3,
+        "step_height": -0.3,
         "platform_size": 3.0,
     },
     "discrete": {
@@ -188,7 +188,7 @@ TERRAIN_CONFIGS = {
     }
 }
 
-test_terrain_name = os.environ.get("TEST_TERRAIN", "rough").lower()
+test_terrain_name = os.environ.get("TEST_TERRAIN", "random_uniform").lower()
 
 def override_configs(env_cfg, args):
     """Override some environment configuration parameters for testing

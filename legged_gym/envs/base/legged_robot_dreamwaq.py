@@ -17,7 +17,7 @@ class LeggedRobotDreamwaq(LeggedRobot):
         # Estimator labels
         self.estimator_labels_buf = torch.cat((
             self.simulator.base_lin_vel * self.obs_scales.lin_vel,         # 3
-            self.simulator.link_contact_states, # contact states of hips, thighs, calfs, feet and base (4+4+4+4+1)=17
+            self.simulator.link_contact_states, # contact states of hips, thighs, calves, feet and base (4+4+4+4+1)=17
             torch.clip(self.simulator.feet_pos[:, :, 2] -
             torch.mean(self.simulator.height_around_feet, dim=-1) -
             self.cfg.rewards.foot_height_offset, -1, 1.),  # 4
@@ -82,89 +82,6 @@ class LeggedRobotDreamwaq(LeggedRobot):
                 self.privileged_obs_buf, -clip_obs, clip_obs)
         return self.obs_buf, self.privileged_obs_buf, self.obs_history, self.explicit_labels_buf, \
             self.next_state_buf, self.rew_buf, self.reset_buf, self.extras
-
-    def check_termination(self) -> None:
-        """Check termination conditions and update reset buffer.
-        
-        Evaluates three termination conditions:
-            1. Contact termination: Body contacts with termination bodies exceed threshold.
-            2. Orientation termination: Projected gravity exceeds maximum allowed value.
-            3. Timeout termination: Episode exceeds maximum episode length.
-        
-        Updates the following buffers:
-            - fail_buf: Tracks consecutive failures for graceful termination.
-            - time_out_buf: Indicates episodes that timed out (not actual failures).
-            - reset_buf: Indicates environments needing reset.
-        """
-        # if the dim of link_contact_forces is 4, then it has history (IsaacLab). shape [N, T, B, 3] (N: num_envs, T: history length, B: number of links with contact sensors)
-        if len(self.simulator.link_contact_forces.shape) == 4:
-            self.terminated_bodies_force_norm = torch.max(torch.norm(self.simulator.link_contact_forces[:, :, self.simulator.termination_contact_indices, :], dim=-1), dim=1)[0]
-            self.penalized_bodies_force_norm = torch.max(torch.norm(self.simulator.link_contact_forces[:, :, self.simulator.penalized_contact_indices, :], dim=-1), dim=1)[0]
-            self.feet_force_norm = torch.max(torch.norm(self.simulator.link_contact_forces[:, :, self.simulator.feet_contact_indices, :], dim=-1), dim=1)[0]
-            self.feet_max_force_z = torch.max(self.simulator.link_contact_forces[:, :, self.simulator.feet_contact_indices, 2], dim=1)[0]
-        else:
-            self.terminated_bodies_force_norm = torch.norm(self.simulator.link_contact_forces[:, self.simulator.termination_contact_indices, :], dim=-1)
-            self.penalized_bodies_force_norm = torch.norm(self.simulator.link_contact_forces[:, self.simulator.penalized_contact_indices, :], dim=-1)
-            self.feet_force_norm = torch.norm(self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, :], dim=-1)
-            self.feet_max_force_z = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2]
-        
-        self.gap_reset_buf = self._check_unrecoverable_gap()
-
-        fail_buf = torch.any(self.terminated_bodies_force_norm > 10.0, dim=1)
-        # print(f"contact termination: {fail_buf}")
-        fail_buf |= self.simulator.projected_gravity[:, 2] > self.cfg.env.max_projected_gravity
-        # print(f"gravity termination: {self.simulator.projected_gravity[:, 2] > self.cfg.env.max_projected_gravity}")
-        self.fail_buf += fail_buf
-        self.time_out_buf = self.episode_length_buf > self.max_episode_length  # no terminal reward for time-outs
-        # print(f"time out: {self.time_out_buf}")
-
-        self.reset_buf = (
-            (self.fail_buf > self.cfg.env.fail_to_terminal_time_s / self.dt)
-            | self.time_out_buf
-        ) | self.gap_reset_buf
-
-    def _check_unrecoverable_gap(self):
-        if (
-            not hasattr(self.cfg, "termination")
-            or not getattr(self.cfg.termination, "reset_unrecoverable_gaps", False)
-            or self.cfg.terrain.mesh_type not in ("heightfield", "trimesh")
-            or not self.cfg.terrain.obtain_terrain_info_around_feet
-        ):
-            self.gap_fall_counter.zero_()
-            return torch.zeros(
-                self.num_envs, dtype=torch.bool, device=self.device
-            )
-
-        support_height = self.simulator.env_origins[:, 2].unsqueeze(1)
-        terrain_under_feet = self.simulator.height_around_feet[:, :, 4]
-        deep_void = terrain_under_feet < (
-            support_height
-            - self.cfg.termination.gap_terrain_depth_threshold
-        )
-        fallen_feet = deep_void & (
-            self.simulator.feet_pos[:, :, 2]
-            < support_height - self.cfg.termination.gap_foot_drop_threshold
-        )
-        enough_fallen_feet = (
-            fallen_feet.sum(dim=1)
-            >= self.cfg.termination.gap_min_fallen_feet
-        )
-        base_fallen = deep_void.any(dim=1) & (
-            self.simulator.base_pos[:, 2]
-            < self.simulator.env_origins[:, 2]
-            - self.cfg.termination.gap_base_drop_threshold
-        )
-        falling_into_gap = enough_fallen_feet | base_fallen
-
-        self.gap_fall_counter = torch.where(
-            falling_into_gap,
-            self.gap_fall_counter + 1,
-            torch.zeros_like(self.gap_fall_counter),
-        )
-        return (
-            self.gap_fall_counter
-            >= self.cfg.termination.gap_reset_steps
-        )
     
     def reset(self):
         """ Reset all robots"""
@@ -186,9 +103,6 @@ class LeggedRobotDreamwaq(LeggedRobot):
     def _init_buffers(self):
         super()._init_buffers()
         # obs_history
-        self.gap_fall_counter = torch.zeros(
-            self.num_envs, dtype=torch.long, device=self.device
-        )
         self.obs_history_deque = deque(maxlen=self.cfg.env.frame_stack)
         for _ in range(self.cfg.env.frame_stack):
             self.obs_history_deque.append(
@@ -228,7 +142,6 @@ class LeggedRobotDreamwaq(LeggedRobot):
     def reset_idx(self, env_ids):
         super().reset_idx(env_ids)
         # clear obs history for the envs that are reset
-        self.gap_fall_counter[env_ids] = 0
         for i in range(self.obs_history_deque.maxlen):
             self.obs_history_deque[i][env_ids] *= 0
         for i in range(self.critic_obs_deque.maxlen):
