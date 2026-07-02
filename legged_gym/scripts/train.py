@@ -6,6 +6,8 @@ from legged_gym.envs import *
 from legged_gym.utils import get_args, task_registry
 import shutil
 
+from legged_gym.scripts.expand_config import reconstruct_config_file
+
 def train(args):
     if SIMULATOR == "genesis":
         gs.init(
@@ -27,6 +29,9 @@ def train(args):
         robot_config_path = os.path.join(LEGGED_GYM_ROOT_DIR, "legged_gym", "envs", env_cfg.asset.name, args.task, args.task+"_config.py")
     shutil.copy(robot_file_path, log_dir)
     shutil.copy(robot_config_path, log_dir)
+    output_path = os.path.join(log_dir, f"{args.task}_expanded_config.py")
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(reconstruct_config_file(env_cfg.__class__, train_cfg.__class__))
     
     # Start training session
     ppo_runner.learn(num_learning_iterations=train_cfg.runner.max_iterations, init_at_random_ep_len=True)

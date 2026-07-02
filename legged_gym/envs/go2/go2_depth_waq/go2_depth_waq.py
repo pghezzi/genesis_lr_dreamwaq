@@ -181,8 +181,7 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
 
     def _check_unrecoverable_gap(self):
         if (
-            not hasattr(self.cfg, "termination")
-            or not getattr(self.cfg.termination, "reset_unrecoverable_gaps", False)
+            not self._reset_unrecoverable_gaps
             or self.cfg.terrain.mesh_type not in ("heightfield", "trimesh")
             or not self.cfg.terrain.obtain_terrain_info_around_feet
         ):
@@ -227,6 +226,7 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
         self.num_camera_envs = self.cfg.env.num_camera_envs
         if hasattr(self.cfg.sensor.depth_camera_config, "resized_resolution"): 
             self.output_resolution = self.cfg.sensor.depth_camera_config.resized_resolution
+            self._has_resized_resolution = True
         else:
             H, W = self.cfg.sensor.depth_camera_config.resolution 
             t, b = self.cfg.sensor.depth_camera_config.crop_top_bottom
@@ -234,7 +234,14 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
             H = H - t - b
             W = W - l - r
             self.output_resolution = (H, W)
+            self._has_resized_resolution = False
         self.depth_image_size = self.output_resolution[0] * self.output_resolution[1]
+        self._reset_unrecoverable_gaps = getattr(self.cfg.termination, "reset_unrecoverable_gaps", False) if hasattr(self.cfg, "termination") else False
+        depth_camera_config = self.cfg.sensor.depth_camera_config
+        self._depth_contour_thresh  = getattr(depth_camera_config, "countour_threshold", 0.)
+        self._depth_artifacts_prob  = getattr(depth_camera_config, "artifacts_prob", 0.)
+        self._depth_stereo_min      = getattr(depth_camera_config, "stereo_min_distance", 0.)
+        self._depth_sky_prob        = getattr(depth_camera_config, "sky_artifacts_prob", 0.)
 
 
     def _init_buffers(self):
@@ -256,8 +263,8 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
         if self.cfg.terrain.curriculum:
             terrain_types = self.simulator.terrain_types
             terrain_type_bounds = torch.cumsum(torch.tensor(self.cfg.terrain.terrain_proportions), dim=0) * self.cfg.terrain.num_cols
-            self.slope_env_ids = ((terrain_types >=0) & (terrain_types < terrain_type_bounds[0])).nonzero(as_tuple=False).flatten()
-            self.stairs_env_ids = ((terrain_types >= terrain_type_bounds[1]) & (terrain_types < terrain_type_bounds[3])).nonzero(as_tuple=False).flatten()
+            #self.slope_env_ids = ((terrain_types >=0) & (terrain_types < terrain_type_bounds[0])).nonzero(as_tuple=False).flatten()
+            self.stairs_env_ids = ((terrain_types >= terrain_type_bounds[2]) & (terrain_types < terrain_type_bounds[3])).nonzero(as_tuple=False).flatten()
             self.discrete_env_ids = ((terrain_types >= terrain_type_bounds[3]) & (terrain_types < terrain_type_bounds[4])).nonzero(as_tuple=False).flatten()
             self.stepping_stones_env_ids = ((terrain_types >= terrain_type_bounds[4]) & (terrain_types < terrain_type_bounds[5])).nonzero(as_tuple=False).flatten()
             self.gaps_env_ids = ((terrain_types >= terrain_type_bounds[5]) & (terrain_types < terrain_type_bounds[6])).nonzero(as_tuple=False).flatten()
@@ -266,7 +273,7 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
             self.high_platform_gaps_env_ids = ((terrain_types >= terrain_type_bounds[8]) & (terrain_types < terrain_type_bounds[9])).nonzero(as_tuple=False).flatten()
             # identify env ids for all heading command (others have fixed heading command specified in config)
             self.all_heading_env_ids = torch.cat((
-                self.slope_env_ids,
+                #self.slope_env_ids,
                 self.stairs_env_ids,
                 self.discrete_env_ids,
                 self.gaps_env_ids,
@@ -277,38 +284,44 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
             self.high_platform_gaps_termination_height = eval(
                 self.cfg.terrain.terrain_curriculum_difficulty["high_platform_gaps_params"]["high_platform_height"])
     
-    #def _resample_commands(self, env_ids) -> None:
-    #    self.commands[env_ids, 0] = torch_rand_float(
-    #        self.command_ranges["lin_vel_x"][0], self.command_ranges["lin_vel_x"][1], (len(env_ids),1), self.device).squeeze(1)
-    #    self.commands[env_ids, 1] = torch_rand_float(
-    #        self.command_ranges["lin_vel_y"][0], self.command_ranges["lin_vel_y"][1], (len(env_ids),1), self.device).squeeze(1)
-    #    if self.cfg.commands.heading_command:
-    #        self.commands[env_ids, 3] = torch_rand_float(self.command_ranges["heading"][0], self.command_ranges["heading"][1], (len(env_ids), 1), device=self.device).squeeze(1)
-    #        
-    #        if self.cfg.terrain.curriculum:
-    #            # override heading command of some envs with all range heading command
-    #            env_ids_for_heading = torch.tensor([env_id for env_id in env_ids if env_id in self.all_heading_env_ids], device=self.device)
-    #            if len(env_ids_for_heading) > 0:
-    #                self.commands[env_ids_for_heading, 3] = torch_rand_float(-3.14, 3.14, (len(env_ids_for_heading), 1), device=self.device).squeeze(1)
-    #    else:
-    #        self.commands[env_ids, 2] = torch_rand_float(self.command_ranges["ang_vel_yaw"][0], self.command_ranges["ang_vel_yaw"][1], (len(env_ids), 1), device=self.device).squeeze(1)
-    #    if np.random.rand() < self.cfg.commands.zero_cmd_prob:
-    #        self.commands[env_ids, :3] *= 0.0  # set command to zero with some probability, to encourage the robot to learn to stand still
-    #    # set small commands to zero
-    #    self.commands[env_ids, :3] *= (torch.norm(self.commands[env_ids, :3], dim=1) > 0.2).unsqueeze(1)
+    def _resample_commands(self, env_ids) -> None:
+        if not self._reset_unrecoverable_gaps:
+            super()._resample_commands(env_ids)
+            return
+        self.commands[env_ids, 0] = torch_rand_float(
+            self.command_ranges["lin_vel_x"][0], self.command_ranges["lin_vel_x"][1], (len(env_ids),1), self.device).squeeze(1)
+        self.commands[env_ids, 1] = torch_rand_float(
+            self.command_ranges["lin_vel_y"][0], self.command_ranges["lin_vel_y"][1], (len(env_ids),1), self.device).squeeze(1)
+        if self.cfg.commands.heading_command:
+            self.commands[env_ids, 3] = torch_rand_float(self.command_ranges["heading"][0], self.command_ranges["heading"][1], (len(env_ids), 1), device=self.device).squeeze(1)
+            
+            if self.cfg.terrain.curriculum:
+                # override heading command of some envs with all range heading command
+                env_ids_for_heading = torch.tensor([env_id for env_id in env_ids if env_id in self.all_heading_env_ids], device=self.device)
+                if len(env_ids_for_heading) > 0:
+                    self.commands[env_ids_for_heading, 3] = torch_rand_float(-3.14, 3.14, (len(env_ids_for_heading), 1), device=self.device).squeeze(1)
+        else:
+            self.commands[env_ids, 2] = torch_rand_float(self.command_ranges["ang_vel_yaw"][0], self.command_ranges["ang_vel_yaw"][1], (len(env_ids), 1), device=self.device).squeeze(1)
+        if np.random.rand() < self.cfg.commands.zero_cmd_prob:
+            self.commands[env_ids, :3] *= 0.0  # set command to zero with some probability, to encourage the robot to learn to stand still
+        # set small commands to zero
+        self.commands[env_ids, :3] *= (torch.norm(self.commands[env_ids, :3], dim=1) > 0.2).unsqueeze(1)
 
-    #def _update_command_curriculum(self, env_ids):
-    #    """ Implements a curriculum of increasing commands
-    #    Args:
-    #        env_ids (List[int]): ids of environments being reset
-    #    """
-    #    # If the tracking reward is above 80% of the maximum, increase the range of commands
-    #    if torch.mean(self.episode_sums["tracking_lin_vel"][env_ids]) / self.max_episode_length > \
-    #            self.cfg.commands.curriculum_threshold * self.reward_scales["tracking_lin_vel"]:
-    #        # only increase upper bound of forward velocity command
-    #        self.command_ranges["lin_vel_x"][1] = np.clip(
-    #            self.command_ranges["lin_vel_x"][1] + 0.5, 0., self.cfg.commands.max_curriculum)
-    #
+    def _update_command_curriculum(self, env_ids):
+        """ Implements a curriculum of increasing commands
+        Args:
+            env_ids (List[int]): ids of environments being reset
+        """
+        if not self._reset_unrecoverable_gaps:
+            super()._update_command_curriculum(env_ids)
+            return
+        # If the tracking reward is above 80% of the maximum, increase the range of commands
+        if torch.mean(self.episode_sums["tracking_lin_vel"][env_ids]) / self.max_episode_length > \
+                self.cfg.commands.curriculum_threshold * self.reward_scales["tracking_lin_vel"]:
+            # only increase upper bound of forward velocity command
+            self.command_ranges["lin_vel_x"][1] = np.clip(
+                self.command_ranges["lin_vel_x"][1] + 0.5, 0., self.cfg.commands.max_curriculum)
+    
     def _pre_sim_step(self, actions):
         self.depth_sensor_obs_refreshed = False
         return super()._pre_sim_step(actions)
@@ -503,15 +516,28 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
     def _resample_sensor_latency_if_needed(self):
         resampling_time = getattr(self.cfg.sensor.depth_camera_config, "latency_resampling_time", self.dt)
         resample_mask = ((self.episode_length_buf % int(resampling_time / self.dt)) == 0)[:self.num_camera_envs]
-        if not resample_mask.any(): 
+
+        num_resample = resample_mask.sum()
+        if num_resample == 0:
             return
         new_latencies = torch_rand_float(
             self.cfg.sensor.depth_camera_config.latency_range[0],
             self.cfg.sensor.depth_camera_config.latency_range[1],
-            (self.num_camera_envs,),
+            (num_resample.item(),),
             device=self.device,
-        )
-        self.depth_sensor_latency_buffer[resample_mask] = new_latencies[resample_mask]
+        ).squeeze(-1)  # depending on torch_rand_float's output shape
+
+        self.depth_sensor_latency_buffer[:self.num_camera_envs][resample_mask] = new_latencies
+
+        #if not resample_mask.any(): 
+        #    return
+        #new_latencies = torch_rand_float(
+        #    self.cfg.sensor.depth_camera_config.latency_range[0],
+        #    self.cfg.sensor.depth_camera_config.latency_range[1],
+        #    (self.num_camera_envs,),
+        #    device=self.device,
+        #)
+        #self.depth_sensor_latency_buffer[resample_mask] = new_latencies[resample_mask]
 
         #resample_env_ids = (self.episode_length_buf %  == 0).nonzero(as_tuple= False).flatten()
         #if len(resample_env_ids) > 0:
@@ -915,21 +941,21 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
         # reverse the negative depth (according to the document)
         # depth_images_ = torch.stack(depth_images).unsqueeze(1).contiguous().detach().clone() * -1
         depth_images_ = depth_images.clone().squeeze(1)
-        if getattr(self.cfg.sensor.depth_camera_config, "countour_threshold", 0.) > 0.:
+        if self._depth_artifacts_prob > 0.:
             depth_images_ = self._add_depth_contour(depth_images_)
-        if getattr(self.cfg.sensor.depth_camera_config, "artifacts_prob", 0.) > 0.:
+        if self._depth_artifacts_prob > 0.:
             depth_images_ = self._add_depth_artifacts(depth_images_,
                 self.cfg.sensor.depth_camera_config.artifacts_prob,
                 self.cfg.sensor.depth_camera_config.artifacts_height_mean_std,
                 self.cfg.sensor.depth_camera_config.artifacts_width_mean_std,
             )
-        if getattr(self.cfg.sensor.depth_camera_config, "stereo_min_distance", 0.) > 0.:
+        if self._depth_stereo_min > 0.:
             depth_images_ = self._add_depth_stereo(depth_images_)
-        if getattr(self.cfg.sensor.depth_camera_config, "sky_artifacts_prob", 0.) > 0.:
+        if self._depth_sky_prob > 0.:
             depth_images_ = self._add_sky_artifacts(depth_images_)
         depth_images_ = self._normalize_depth_images(depth_images_)
         depth_images_ = self._crop_depth_images(depth_images_)
-        if hasattr(self, "depth_resize_transform"):
+        if self._has_resized_resolution:
             depth_images_ = self.depth_resize_transform(depth_images_)
         depth_images_ = depth_images_.clamp(0, 1)
         return depth_images_

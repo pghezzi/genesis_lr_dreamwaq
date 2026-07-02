@@ -5,6 +5,9 @@ from legged_gym.utils.terrain_vars import get_env_vars
 
 terrain_name, finetune, terrain_index, terrain_list = get_env_vars()
 
+import os
+extra = os.environ.get("EXTRA", "")
+
 
 class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
 
@@ -16,6 +19,9 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
             gap_base_drop_threshold = 0.30
             gap_min_fallen_feet = 1
             gap_reset_steps = 4
+    #else:
+    #    class termination():
+    #        reset_unrecoverable_gaps = False
 
     class env( LeggedRobotDreamwaqCfg.env ):
         num_envs = 3000
@@ -276,7 +282,7 @@ class Go2DepthWaqCfgPPO( LeggedRobotDreamwaqCfgPPO ):
             run_name += "_isaacgym"
         elif SIMULATOR == "isaaclab":
             run_name += "_isaaclab"
-        experiment_name = f"go2_depth_waq{'_fft' if finetune else ''}{'_' + terrain_name}"
+        experiment_name = f"go2_depth_waq{'_fft' if finetune else ''}{'_' + terrain_name}{'_' + extra if extra else ''}"
         pre_trained = finetune if finetune else None
         save_interval = 500
         if terrain_name == "baseline":
