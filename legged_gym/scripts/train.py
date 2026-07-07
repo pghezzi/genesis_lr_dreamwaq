@@ -29,6 +29,13 @@ def train(args):
         robot_config_path = os.path.join(LEGGED_GYM_ROOT_DIR, "legged_gym", "envs", env_cfg.asset.name, args.task, args.task+"_config.py")
     shutil.copy(robot_file_path, log_dir)
     shutil.copy(robot_config_path, log_dir)
+    #pablo paranoia
+    simulator_path = os.path.join(LEGGED_GYM_ROOT_DIR, "legged_gym", "simulator", f"{SIMULATOR}_simulator.py")
+    shutil.copy(simulator_path, log_dir)
+    if "lora" in log_dir:
+        shutil.copy(robot_file_path.replace("_lora", ""), log_dir)
+        lora_handler_path = os.path.join(LEGGED_GYM_ROOT_DIR, "rsl_rl", "utils", "LoRA.py")
+        shutil.copy(lora_handler_path, log_dir)
     output_path = os.path.join(log_dir, f"{args.task}_expanded_config.py")
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(reconstruct_config_file(env_cfg.__class__, train_cfg.__class__))
