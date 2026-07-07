@@ -988,9 +988,9 @@ class IsaacLabSimulator(Simulator):
         # store values for denoised depth images
         self._depth_images[:, 0] = pixels[:,0,:,:] # pixels: [num_envs, num_sensors, H, W]
         # clip values
-        self._depth_images[:, 0] = torch.clip(self._depth_images[:, 0], near_clip, far_clip)
+        # self._depth_images[:, 0] = torch.clip(self._depth_images[:, 0], near_clip, far_clip)
         # normalize the depth images to be within [-0.5, 0.5]
-        self._depth_images[:, 0] = (self._depth_images[:, 0] - near_clip) / (far_clip - near_clip) - 0.5
+        # self._depth_images[:, 0] = (self._depth_images[:, 0] - near_clip) / (far_clip - near_clip) - 0.5
     
     def _create_warp_envs(self):
       # extract terrain mesh

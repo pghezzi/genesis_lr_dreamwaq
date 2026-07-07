@@ -377,9 +377,15 @@ def interaction_loop(train_cfg, env, policy, args, new=""):
     # interaction loop
     for i in range(int(4.00*env.max_episode_length)):
 
-        env.commands[:, 0] = 1
-        env.commands[:, 1] = 0
-        env.commands[:, 2] = 0
+        if test_terrain_name != "baseline":
+            env.commands[:, 0] = 1
+            env.commands[:, 1] = 0
+            env.commands[:, 2] = 0
+        elif i % env.max_episode_length == 0:
+            env.commands[:, 0] = torch.empty(env.num_envs, device=env.device).uniform_(-1.0, 1.0)
+            env.commands[:, 1] = torch.empty(env.num_envs, device=env.device).uniform_(-1.0, 1.0)
+            env.commands[:, 2] = torch.empty(env.num_envs, device=env.device).uniform_(-1.0, 1.0)
+            env.commands[:, 3] = torch.empty(env.num_envs, device=env.device).uniform_(-3.14, 3.14)
         
         # update commands from joystick
         if args.use_joystick:

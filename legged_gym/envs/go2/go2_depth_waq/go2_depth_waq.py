@@ -931,9 +931,9 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
         ]
 
     def _normalize_depth_images(self, depth_images):
-        # normalize depth image to (0.5, 1.5)
+        # normalize depth image to (0.0, 1.0)
         near, far = self.cfg.sensor.depth_camera_config.near_clip, self.cfg.sensor.depth_camera_config.far_clip
-        return ( depth_images.clamp(near, far) - near ) / ( far - near ) + 0.5
+        return ( depth_images.clamp(near, far) - near ) / ( far - near )
     
     @torch.no_grad()
     def _process_depth_image(self, depth_images):

@@ -238,21 +238,21 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
             crop_left_right = [int(28/4), int(36/4)]
             resized_resolution = [48, 64]
 
-            stereo_min_distance = 0.175 # when using (480, 640) resolution
-            stereo_far_distance = 1.2
-            stereo_far_noise_std = 0.08 
-            stereo_near_noise_std = 0.02
-            stereo_full_block_artifacts_prob = 0.008
-            stereo_full_block_values = [0.0, 0.25, 0.5, 1., 3.]
-            stereo_full_block_height_mean_std = [62, 1.5]
-            stereo_full_block_width_mean_std = [3, 0.01]
-            stereo_half_block_spark_prob = 0.02
-            stereo_half_block_value = 3000
-            sky_artifacts_prob = 0.001
-            sky_artifacts_far_distance = 2.
-            sky_artifacts_values = [0.6, 1., 1.2, 1.5, 1.8]
-            sky_artifacts_height_mean_std = [2, 3.2]
-            sky_artifacts_width_mean_std = [2, 3.2]
+            #stereo_min_distance = 0.175 # when using (480, 640) resolution
+            #stereo_far_distance = 1.2
+            #stereo_far_noise_std = 0.08 
+            #stereo_near_noise_std = 0.02
+            #stereo_full_block_artifacts_prob = 0.008
+            #stereo_full_block_values = [0.0, 0.25, 0.5, 1., 3.]
+            #stereo_full_block_height_mean_std = [62, 1.5]
+            #stereo_full_block_width_mean_std = [3, 0.01]
+            #stereo_half_block_spark_prob = 0.02
+            #stereo_half_block_value = 3000
+            #sky_artifacts_prob = 0.001
+            #sky_artifacts_far_distance = 2.
+            #sky_artifacts_values = [0.6, 1., 1.2, 1.5, 1.8]
+            #sky_artifacts_height_mean_std = [2, 3.2]
+            #sky_artifacts_width_mean_std = [2, 3.2]
 
 
 class Go2DepthWaqCfgPPO( LeggedRobotDreamwaqCfgPPO ):
