@@ -33,6 +33,10 @@ class LoRALayer():
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         ...
 
+    @abstractmethod
+    def merge(self, merge: bool = True):
+        ...
+
 
 #maybe replace nn.Linear with FrozenLinear for consistent implementations?
 class FrozenLinear(nn.Linear):
@@ -345,24 +349,28 @@ class LoRALinear(nn.Linear, LoRALayer):
             if self.merge_weights and not self.merged:
                 self.weight.data += self.lora_B @ self.lora_A * self.scaling
                 self.merged = True
+
+    def _lora_weight(self):
+        return self.lora_B @ self.lora_A * self.scaling
     
     @torch.jit.export
     def merge(self, merge: bool = True):
         with torch.no_grad():
             if merge and not self.merged:
-                self.weight.add_(self.lora_B @ self.lora_A * self.scaling)
+                self.weight.add_(self._lora_weight())
                 self.merged = True
             if not merge and self.merged:
-                self.weight.sub_(self.lora_B @ self.lora_A * self.scaling)
+                self.weight.sub_(self._lora_weight())
                 self.merged = False     
 
     def forward(self, x: torch.Tensor):
-        if not self.merged:
-            result = F.linear(x, self.weight, bias=self.bias)            
-            result += (self.lora_dropout_func(x) @ self.lora_A.transpose(0, 1) @ self.lora_B.transpose(0, 1)) * self.scaling
+        result = F.linear(x, self.weight, bias=self.bias)
+        if self.merged:
             return result
-        else:
-            return F.linear(x, self.weight, bias=self.bias)
+        lora_x = self.lora_dropout_func(x)
+        lora_h = F.linear(lora_x, self.lora_A) * self.scaling          
+        result += F.linear(lora_h, self.lora_B)
+        return result
 
     def extra_repr(self) -> str:
         """
@@ -419,6 +427,55 @@ class LoRALinear(nn.Linear, LoRALayer):
                 "_from_linear method supports only objects "
                 f"of torch.nn.Linear class, but {str(type(module))} is given."
             )
+
+class LoRASequential(nn.Sequential):
+    @classmethod
+    def _from_sequential(cls, model: nn.Sequential, ranks=None, targets=None, share_mem=False):
+        if not isinstance(model, nn.Sequential):
+            raise ValueError(
+                "from_sequential method supports only objects "
+                f"of torch.nn.Linear class, but {str(type(module))} is given."
+            )
+        modules = []
+        check = targets is None
+        if ranks is None:
+            ranks = iter([])
+        elif isinstance(ranks, int):
+            ranks = repeat(ranks)
+        else:
+            ranks = iter(ranks)
+
+        for i, layer in enumerate(model):
+            if (check or i in targets) and isinstance(layer, nn.Linear):
+                rank = next(ranks, 1)
+                modules.append(LoRALinear._from_linear(layer, rank, share_mem=share_mem))
+            elif (check or i in targets) and isinstance(layer, nn.Conv2d):
+                rank = next(ranks, 1)
+                modules.append(LoRAConv2d._from_conv2d(layer, rank, share_mem=share_mem))
+            elif isinstance(layer, nn.Linear):
+                modules.append(FrozenLinear._from_linear(layer))
+            elif isinstance(layer, nn.Conv2d):
+                modules.append(FrozenConv2d._from_conv2d(layer))
+            else:
+                modules.append(layer)
+        return cls(*modules)
+    
+    @torch.jit.export
+    def merge(self):
+        for m in self.children():
+            if isinstance(m, LoRALayer):
+                m.merge()
+        return self
+
+    @torch.jit.export
+    def unmerge(self):
+        for m in self.children():
+            if isinstance(m, LoRALayer):
+                m.unmerge()
+        return self
+    
+
+
     
 def _from_sequential(model: nn.Sequential, ranks = None, targets = None):
     modules = []
@@ -440,6 +497,10 @@ def _from_sequential(model: nn.Sequential, ranks = None, targets = None):
             layer.weight.requires_grad = False
             layer.bias.requires_grad = False
             modules.append(FrozenLinear._from_linear(layer))
+        elif isinstance(layer, nn.Conv2d):
+            layer.weight.requires_grad = False
+            layer.bias.requires_grad = False
+            modules.append(FrozenConv2d._from_conv2d(layer))
         else:
             modules.append(layer)
     lora_model = nn.Sequential(*modules)
@@ -453,6 +514,8 @@ def _merge_seq(model, merge: bool = True):
         for layer in model:
             if isinstance(layer, LoRALinear):
                 layer.merge(merge)
+
+
 
 
 
