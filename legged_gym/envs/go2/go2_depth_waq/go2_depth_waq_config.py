@@ -128,9 +128,15 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                     base_up_pit = 0.5
                 
                 # smooth
-                lin_vel_z = -1.0
+                if terrain_name in ("pit"):
+                    lin_vel_z = -0.1
+                else:
+                    lin_vel_z = -1.0
                 ang_vel_xy = -0.05
-                orientation = -1.0
+                if terrain_name in ("pit"):
+                    orientation = -0.1
+                else:
+                    orientation = -1.0
                 dof_power = -2.e-5
                 dof_acc = -2.e-7
                 action_rate = -0.01
