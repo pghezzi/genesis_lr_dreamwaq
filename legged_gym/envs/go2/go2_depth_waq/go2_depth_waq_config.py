@@ -125,6 +125,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                 tracking_lin_vel = 1.5
                 tracking_ang_vel = 1.0
                 if terrain_name == "pit":
+                    base_height = -0.0
                     base_up_pit = 0.5
                 
                 # smooth
