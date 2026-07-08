@@ -7,6 +7,7 @@ terrain_name, finetune, terrain_index, terrain_list = get_env_vars()
 
 import os
 extra = os.environ.get("EXTRA", "")
+num_iters = os.environ.get("ITERS", "")
 
 
 class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
@@ -99,7 +100,8 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
         dt = 0.02  # control frequency 50Hz
         decimation = 4 # decimation: Number of control action updates @ sim DT per policy DT
     class asset( Go2RoughCommonCfg.asset ):
-        pass
+        terminate_after_contacts_on = ["Head", "base"]
+        #pass
     class rewards( Go2RoughCommonCfg.rewards ):
         if terrain_name == "baseline":
             class scales(Go2RoughCommonCfg.rewards.scales):
@@ -122,7 +124,8 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                 # command tracking
                 tracking_lin_vel = 1.5
                 tracking_ang_vel = 1.0
-                base_up_pit = 0.5
+                if terrain_name == "pit":
+                    base_up_pit = 0.5
                 
                 # smooth
                 lin_vel_z = -1.0
@@ -135,10 +138,10 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                 
                 # gait
                 hip_pos = -0.15
-                #if terrain_name in ("pit"):
-                #    foot_clearance_terrain_aware = 0.7
-                #else:
-                foot_clearance = 0.6   # I've found making this larger tends to help with "stepping" behavior
+                if terrain_name in ("pit", "stairs"):
+                    foot_clearance_terrain_aware = 0.7
+                else:
+                    foot_clearance = 0.6   # I've found making this larger tends to help with "stepping" behavior
                 feet_stumble = -1.0
                 feet_contact_stand_still = 0.1
                 feet_near_edge = -1.0
@@ -290,7 +293,10 @@ class Go2DepthWaqCfgPPO( LeggedRobotDreamwaqCfgPPO ):
         experiment_name = f"go2_depth_waq{'_fft' if finetune else ''}{'_' + terrain_name}{'_' + extra if extra else ''}"
         pre_trained = finetune if finetune else None
         save_interval = 500
-        if terrain_name == "baseline":
-            max_iterations = 3000
+        if num_iters:
+            max_iterations = int(num_iters)
         else:
-            max_iterations = 10000
+            if terrain_name == "baseline":
+                max_iterations = 3000
+            else:
+                max_iterations = 10000

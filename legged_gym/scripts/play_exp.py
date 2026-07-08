@@ -176,7 +176,7 @@ TERRAIN_CONFIGS = {
     },
     "pit": {
         "type": "terrain_utils.pit_terrain",
-        "depth": 0.6,
+        "depth": 0.3,
         "platform_size": 3.0,
     },
     "multiple_high_platforms" : {
@@ -381,7 +381,7 @@ def interaction_loop(train_cfg, env, policy, args, new=""):
     for i in range(int(4.00*env.max_episode_length)):
 
         if test_terrain_name != "baseline":
-            env.commands[:, 0] = 0
+            env.commands[:, 0] = 1
             env.commands[:, 1] = 0
             env.commands[:, 2] = 0
         elif i % env.max_episode_length == 0:

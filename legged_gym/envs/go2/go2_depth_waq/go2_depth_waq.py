@@ -290,6 +290,7 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
         else:
             if "depth" in self.cfg.terrain.terrain_kwargs:
                 self.pit_depth = self.cfg.terrain.terrain_kwargs["depth"]
+        self.depth_sensor_write_ptr = 0
     
     def _resample_commands(self, env_ids) -> None:
         if not self._reset_unrecoverable_gaps:
@@ -514,10 +515,16 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
         # print(f"feet near edge: {torch.sum(feet_near_edge)}")
         return torch.sum(feet_near_edge * feet_contact, dim=-1)
 
+    #def _reward_base_up_pit(self):
+    #    base_height = torch.clamp(self.simulator.base_pos[:, 2] - self.simulator.env_origins[:, 2], min=0.0)
+    #    error = torch.square(base_height - self.cfg.rewards.base_height_target - self.pit_depth)
+    #    return torch.exp(-error / self.cfg.rewards.base_up_pit_sigma)
     def _reward_base_up_pit(self):
-        base_height = torch.clamp(self.simulator.base_pos[:, 2] - self.simulator.env_origins[:, 2], min=0.0)
-        error = torch.square(base_height - self.cfg.rewards.base_height_target - self.pit_depth)
-        return torch.exp(-error / self.cfg.rewards.base_up_pit_sigma)
+        error = torch.square(
+            torch.clamp(self.simulator.base_pos[:, 2] - self.simulator.env_origins[:, 2] - self.pit_depth, min=0.0)
+        )
+        sigma = self.pit_depth*self.cfg.rewards.base_up_pit_sigma
+        return torch.exp(-error / sigma)
 
     def get_failure_idx(self):
         return self.reset_buf * ~self.time_out_buf
@@ -1035,13 +1042,13 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
             )
             #self.depth_sensor_obs_buffer[:-1] = self.depth_sensor_obs_buffer[1:].clone()
             #self.depth_sensor_obs_buffer[-1] = self._process_depth_image(self.simulator.depth_images)
-
+            
             #to be optimized
             #self.depth_sensor_obs_buffer = torch.cat([
             #    self.depth_sensor_obs_buffer[1:],
             #    self._process_depth_image(self.simulator.depth_images).unsqueeze(0),
             #], dim= 0)
-
+            
             delay_refresh_mask = (self.episode_length_buf[:self.num_camera_envs] % int(self.cfg.sensor.depth_camera_config.refresh_duration / self.dt)) == 0
             # NOTE: if the delayed frames is greater than the last frame, the last image should be used.
             frame_select = (self.depth_sensor_latency_buffer / self.dt).long()
@@ -1055,7 +1062,7 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
                 ),
                 next_frame,
             ).clamp_(0, self.depth_sensor_obs_buffer.shape[0])
-
+            
             self.depth_sensor_output.copy_(
                 self.depth_sensor_obs_buffer[
                     -self.depth_sensor_delayed_frames,
@@ -1063,6 +1070,33 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
                 ].unsqueeze(1)
             )
             self.depth_sensor_obs_refreshed = True
+
+            #buf_len = self.depth_sensor_obs_buffer.shape[0]
+            ## Write newest frame at the pointer, advance pointer circularly (O(1), no copy).
+            #self.depth_sensor_obs_buffer[self.depth_sensor_write_ptr] = self._process_depth_image(
+            #    self.simulator.depth_images
+            #)
+            #self.depth_sensor_write_ptr = (self.depth_sensor_write_ptr + 1) % buf_len
+            ## Decide which buffered frame each env should see, given latency + refresh cadence.
+            #refresh_steps = int(self.cfg.sensor.depth_camera_config.refresh_duration / self.dt)
+            #delay_refresh_mask = (self.episode_length_buf[:self.num_camera_envs] % refresh_steps) == 0
+            #frame_select = (self.depth_sensor_latency_buffer / self.dt).long()
+            #next_frame = self.depth_sensor_delayed_frames + 1
+            #
+            ## NOTE: if the requested delayed frame exceeds what's buffered, fall back to the last available frame.
+            #self.depth_sensor_delayed_frames = torch.where(
+            #    delay_refresh_mask,
+            #    torch.minimum(frame_select, next_frame),
+            #    next_frame,
+            #).clamp_(0, buf_len - 1)  # note: now clamped to buf_len - 1, see below
+            #
+            ## Read index = write_ptr - 1 (most recent frame) - delayed_frames, wrapped circularly.
+            #read_idx = (self.depth_sensor_write_ptr - 1 - self.depth_sensor_delayed_frames) % buf_len
+            #
+            #self.depth_sensor_output.copy_(
+            #    self.depth_sensor_obs_buffer[read_idx, self.env_cam_arange].unsqueeze(1)
+            #)
+            #self.depth_sensor_obs_refreshed = True
         #return self.depth_sensor_output
     #if not hasattr(self.cfg.sensor, "forward_camera") or privileged:
     #    return super()._get_forward_depth_obs(privileged).reshape(self.num_envs, -1)
