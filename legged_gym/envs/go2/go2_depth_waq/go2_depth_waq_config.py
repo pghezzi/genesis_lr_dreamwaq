@@ -11,7 +11,7 @@ extra = os.environ.get("EXTRA", "")
 
 class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
 
-    if terrain_name != "baseline":
+    if "gap" in terrain_name:
         class termination():
             reset_unrecoverable_gaps = True
             gap_terrain_depth_threshold = 1.0
@@ -64,7 +64,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
         terrain_curriculum_difficulty_custom = {
             "step_height": f"0.05 + {0.3 - 0.05} * difficulty",
             "gap_size": f"0.1 + {1 - 0.1} * difficulty",
-            "pit_depth": f"0.1 + {0.6 - 0.1} * difficulty",
+            "pit_depth": f"0.05 + {0.6 - 0.05} * difficulty",
             "high_platform_params": {
                 "high_platform_height": f"0.1 + {0.6 - 0.1} * difficulty",
                 "high_platform_length": "np.random.uniform(0.6, 1.6)",
@@ -110,6 +110,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
             foot_clearance_target = 0.08 # desired foot clearance above ground [m]
             foot_height_offset = 0.022   # height of the foot coordinate origin above ground [m]
             foot_clearance_tracking_sigma = 0.01
+            base_up_pit_sigma = 0.01
             tracking_sigma = 0.2
             only_positive_rewards = True
             feet_edge_threshold = 0.05 # distance threshold below which foot is considered to be near the edge of a terrain
@@ -121,6 +122,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                 # command tracking
                 tracking_lin_vel = 1.5
                 tracking_ang_vel = 1.0
+                base_up_pit = 0.5
                 
                 # smooth
                 lin_vel_z = -1.0
@@ -133,6 +135,9 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                 
                 # gait
                 hip_pos = -0.15
+                #if terrain_name in ("pit"):
+                #    foot_clearance_terrain_aware = 0.7
+                #else:
                 foot_clearance = 0.6   # I've found making this larger tends to help with "stepping" behavior
                 feet_stumble = -1.0
                 feet_contact_stand_still = 0.1
@@ -288,4 +293,4 @@ class Go2DepthWaqCfgPPO( LeggedRobotDreamwaqCfgPPO ):
         if terrain_name == "baseline":
             max_iterations = 3000
         else:
-            max_iterations = 5000
+            max_iterations = 10000

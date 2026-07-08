@@ -158,12 +158,11 @@ class IsaacGymSimulator(Simulator):
     def update_terrain_curriculum(self, env_ids, move_up, move_down):
         self._terrain_levels[env_ids] += 1 * move_up - 1 * move_down
         # Robots that solve the last level are sent to a random one
-        self._terrain_levels[env_ids] = torch.where(self._terrain_levels[env_ids] >=self._max_terrain_level,
+        self._terrain_levels[env_ids] = torch.where(self._terrain_levels[env_ids] >= self._max_terrain_level,
                                                    torch.randint_like(
                                                        self._terrain_levels[env_ids], self._max_terrain_level),
                                                    torch.clip(self._terrain_levels[env_ids], 0))  # (the minumum level is zero)
-        self._env_origins[env_ids] = self._terrain_origins[self._terrain_levels[env_ids],
-            self._terrain_types[env_ids]]
+        self._env_origins[env_ids] = self._terrain_origins[self._terrain_levels[env_ids], self._terrain_types[env_ids]]
     
     def push_robots(self):
         max_vel = self._cfg.domain_rand.max_push_vel_xy

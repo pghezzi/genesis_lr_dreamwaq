@@ -171,12 +171,12 @@ TERRAIN_CONFIGS = {
     },
     "gap": {
         "type": "terrain_utils.gap_terrain",
-        "gap_size": 0.8,
+        "gap_size": 0.7,
         "platform_size": 3.0,
     },
     "pit": {
         "type": "terrain_utils.pit_terrain",
-        "depth": 0.4,
+        "depth": 0.6,
         "platform_size": 3.0,
     },
     "multiple_high_platforms" : {
@@ -200,6 +200,7 @@ def override_configs(env_cfg, args):
     task_name = args.task
     # override some parameters for testing
     # number of environments
+    #env_cfg.init_state.pos = [0, 3, 2]
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, 100)
     if hasattr(env_cfg.env, "num_camera_envs"):
         env_cfg.env.num_camera_envs = min(env_cfg.env.num_camera_envs, 100)
@@ -207,6 +208,8 @@ def override_configs(env_cfg, args):
         env_cfg.env.num_teacher = 1
     env_cfg.viewer.rendered_envs_idx = [0]#list(range(env_cfg.env.num_envs))
     # adjust parameters according to terrain type
+
+    #env_cfg.terrain.vertical_scale = 0.1
     if env_cfg.terrain.mesh_type in ["heightfield", "trimesh"]:
         env_cfg.terrain.num_rows = 4
         env_cfg.terrain.num_cols = 1
@@ -378,7 +381,7 @@ def interaction_loop(train_cfg, env, policy, args, new=""):
     for i in range(int(4.00*env.max_episode_length)):
 
         if test_terrain_name != "baseline":
-            env.commands[:, 0] = 1
+            env.commands[:, 0] = 0
             env.commands[:, 1] = 0
             env.commands[:, 2] = 0
         elif i % env.max_episode_length == 0:

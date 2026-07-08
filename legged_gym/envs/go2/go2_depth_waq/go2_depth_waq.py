@@ -283,6 +283,13 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
             difficulty = self.simulator.terrain_levels / self.cfg.terrain.num_rows
             self.high_platform_gaps_termination_height = eval(
                 self.cfg.terrain.terrain_curriculum_difficulty["high_platform_gaps_params"]["high_platform_height"])
+            
+            difficulty = self.simulator.terrain_levels / self.cfg.terrain.num_rows
+            self.platform_size = self.cfg.terrain.platform_size
+            self.pit_depth = eval(self.cfg.terrain.terrain_curriculum_difficulty["pit_depth"])
+        else:
+            if "depth" in self.cfg.terrain.terrain_kwargs:
+                self.pit_depth = self.cfg.terrain.terrain_kwargs["depth"]
     
     def _resample_commands(self, env_ids) -> None:
         if not self._reset_unrecoverable_gaps:
@@ -342,6 +349,8 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
     def reset_idx(self, env_ids):
         super().reset_idx(env_ids)
         self.gap_fall_counter[env_ids] = 0
+        difficulty = self.simulator.terrain_levels / self.cfg.terrain.num_rows
+        self.pit_depth = eval(self.cfg.terrain.terrain_curriculum_difficulty["pit_depth"])
 
     def _post_physics_step_callback(self):
         super()._post_physics_step_callback()
@@ -435,6 +444,59 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
         )
         return torch.exp(-clearance_error / self.cfg.rewards.foot_clearance_tracking_sigma)
     
+    def _reward_foot_clearance_terrain_aware(self):
+        """
+        Encourage swing feet to reach a terrain-aware desired height,
+        while softly discouraging excessive swing height.
+
+        Assumes:
+            self.simulator.feet_pos           : (N, 4, 3)
+            self.simulator.feet_vel           : (N, 4, 3)
+            self.simulator._height_around_feet: (N, 4, 3, 3) or (N, 4, 9)
+
+        Uses:
+            - terrain-aware target height
+            - horizontal foot velocity weighting (same style as original reward)
+            - excess-height penalty to prevent over-swinging
+        """
+
+        feet_z = self.simulator.feet_pos[:, :, 2]                       # (N,4)
+        foot_vel_xy_norm = torch.norm(self.simulator.feet_vel[:, :, :2], dim=-1)  # (N,4)
+
+        # Flatten 3x3 terrain patch if needed, then take local max height near each foot
+        h_patch = self.simulator._height_around_feet
+        if h_patch.ndim == 4:   # (N,4,3,3)
+            h_patch = h_patch.view(h_patch.shape[0], h_patch.shape[1], -1)  # (N,4,9)
+
+        local_terrain_h = torch.max(h_patch, dim=-1)[0]                # (N,4)
+
+        # Terrain-aware desired foot height
+        z_des = (
+            self.cfg.rewards.foot_clearance_target
+            + self.cfg.rewards.foot_height_offset
+            + local_terrain_h
+        )                                                               # (N,4)
+
+        # Main tracking error: encourage feet to reach desired terrain-aware height
+        track_err = torch.square(feet_z - z_des)                        # (N,4)
+
+        # Soft over-swing penalty: only penalize when foot goes too far above desired height
+        # Margin gives some freedom to overshoot a little during learning
+        excess_margin = 0.04  # [m], tune: 0.03 - 0.06
+        excess = torch.relu(feet_z - (z_des + excess_margin))           # (N,4)
+        # excess = F.softplus(feet_z - (z_des + excess_margin))           # (N,4)
+        excess_err = torch.square(excess)
+
+        # Weight excess penalty less than main tracking term
+        excess_weight = 0.25  # tune: 0.1 - 0.5
+
+        total_err = torch.sum(
+            foot_vel_xy_norm * (track_err + excess_weight * excess_err),
+            dim=-1
+        )                                                               # (N,)
+
+        return torch.exp(-total_err / self.cfg.rewards.foot_clearance_tracking_sigma)
+    
     def _reward_hip_pos(self):
         """ Reward for the hip joint position close to default position
         """
@@ -451,6 +513,11 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
         feet_contact = self.feet_max_force_z > 10.0
         # print(f"feet near edge: {torch.sum(feet_near_edge)}")
         return torch.sum(feet_near_edge * feet_contact, dim=-1)
+
+    def _reward_base_up_pit(self):
+        base_height = torch.clamp(self.simulator.base_pos[:, 2] - self.simulator.env_origins[:, 2], min=0.0)
+        error = torch.square(base_height - self.cfg.rewards.base_height_target - self.pit_depth)
+        return torch.exp(-error / self.cfg.rewards.base_up_pit_sigma)
 
     def get_failure_idx(self):
         return self.reset_buf * ~self.time_out_buf
