@@ -176,7 +176,7 @@ TERRAIN_CONFIGS = {
     },
     "pit": {
         "type": "terrain_utils.pit_terrain",
-        "depth": 0.3,
+        "depth": 0.4,
         "platform_size": 3.0,
     },
     "multiple_high_platforms" : {
@@ -202,6 +202,7 @@ def override_configs(env_cfg, args):
     # number of environments
     #env_cfg.init_state.pos = [0, 3, 2]
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, 100)
+    env_cfg.asset.terminate_after_contacts_on = []
     if hasattr(env_cfg.env, "num_camera_envs"):
         env_cfg.env.num_camera_envs = min(env_cfg.env.num_camera_envs, 100)
     if "cts" in task_name:  # cts specific

@@ -129,12 +129,12 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                     base_up_pit = 0.5
                 
                 # smooth
-                if terrain_name in ("pit"):
+                if terrain_name in ("pit", "stairs"):
                     lin_vel_z = -0.1
                 else:
                     lin_vel_z = -1.0
                 ang_vel_xy = -0.05
-                if terrain_name in ("pit"):
+                if terrain_name in ("pit", "stairs"):
                     orientation = -0.1
                 else:
                     orientation = -1.0
