@@ -247,7 +247,7 @@ class GenesisSimulator(Simulator):
             raise NameError(
                 "Can't calculate feet near edge with terrain mesh type 'none'")
         
-        feet_pos_xy = self._feet_pos[:, :2] # (num_envs, num_feet, 2)
+        feet_pos_xy = self._feet_pos[:, :,:2] # (num_envs, num_feet, 2)
         feet_points_float = feet_pos_xy + self._cfg.terrain.border_size # add border size to align the origin with heightfield raw
         points = (feet_points_float/self._cfg.terrain.horizontal_scale).long()
         px = points[:,:, 0]
