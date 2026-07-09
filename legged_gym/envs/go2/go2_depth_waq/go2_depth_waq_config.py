@@ -131,13 +131,13 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                 # smooth
                 if terrain_name in ("pit", "stairs"):
                     lin_vel_z = -0.1
+                    orientation = -0.1
+                    foot_clearance_terrain_aware = 0.7
                 else:
                     lin_vel_z = -1.0
-                ang_vel_xy = -0.05
-                if terrain_name in ("pit", "stairs"):
-                    orientation = -0.1
-                else:
                     orientation = -1.0
+                    foot_clearance = 0.6
+                ang_vel_xy = -0.05
                 dof_power = -2.e-5
                 dof_acc = -2.e-7
                 action_rate = -0.01
@@ -145,10 +145,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                 
                 # gait
                 hip_pos = -0.15
-                if terrain_name in ("pit", "stairs"):
-                    foot_clearance_terrain_aware = 0.7
-                else:
-                    foot_clearance = 0.6   # I've found making this larger tends to help with "stepping" behavior
+                
                 feet_stumble = -1.0
                 feet_contact_stand_still = 0.1
                 feet_near_edge = -1.0
