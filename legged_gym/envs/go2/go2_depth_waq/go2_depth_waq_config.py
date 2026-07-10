@@ -65,7 +65,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
         terrain_curriculum_difficulty_custom = {
             "step_height": f"0.05 + {0.3 - 0.05} * difficulty",
             "gap_size": f"0.1 + {1 - 0.1} * difficulty",
-            "pit_depth": f"0.05 + {0.6 - 0.05} * difficulty",
+            "pit_depth": f"0.1 + {0.6 - 0.1} * difficulty",
             "high_platform_params": {
                 "high_platform_height": f"0.1 + {0.6 - 0.1} * difficulty",
                 "high_platform_length": "np.random.uniform(0.6, 1.6)",
@@ -124,12 +124,12 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                 # command tracking
                 tracking_lin_vel = 1.5
                 tracking_ang_vel = 1.0
-                if terrain_name == "pit":
-                    base_height = -0.0
-                    base_up_pit = 0.5
+                #if terrain_name == "pit":
+                #    base_height = -0.0
+                #    base_up_pit = 0.5
                 
                 # smooth
-                if terrain_name in ("pit", "stairs"):
+                if terrain_name in ("pit"):
                     lin_vel_z = -0.1
                     orientation = -0.1
                     foot_clearance_terrain_aware = 0.7
