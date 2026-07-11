@@ -242,6 +242,7 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
         self._depth_artifacts_prob  = getattr(depth_camera_config, "artifacts_prob", 0.)
         self._depth_stereo_min      = getattr(depth_camera_config, "stereo_min_distance", 0.)
         self._depth_sky_prob        = getattr(depth_camera_config, "sky_artifacts_prob", 0.)
+        self.custom_command_curriculum = self.cfg.commands.custom_command_curriculum
 
 
     def _init_buffers(self):
@@ -293,7 +294,7 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
         self.depth_sensor_write_ptr = 0
     
     def _resample_commands(self, env_ids) -> None:
-        if not self._reset_unrecoverable_gaps:
+        if not self._reset_unrecoverable_gaps and not self.custom_command_curriculum:
             super()._resample_commands(env_ids)
             return
         self.commands[env_ids, 0] = torch_rand_float(
@@ -320,14 +321,18 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
         Args:
             env_ids (List[int]): ids of environments being reset
         """
-        if not self._reset_unrecoverable_gaps:
+        if not self._reset_unrecoverable_gaps and not self.custom_command_curriculum:
             super()._update_command_curriculum(env_ids)
             return
         # If the tracking reward is above 80% of the maximum, increase the range of commands
-        if torch.mean(self.episode_sums["tracking_lin_vel"][env_ids]) / self.max_episode_length > \
+        if "tracking_lin_vel" in self.episode_sums and torch.mean(self.episode_sums["tracking_lin_vel"][env_ids]) / self.max_episode_length > \
                 self.cfg.commands.curriculum_threshold * self.reward_scales["tracking_lin_vel"]:
             # only increase upper bound of forward velocity command
             self.command_ranges["lin_vel_x"][1] = np.clip(
+                self.command_ranges["lin_vel_x"][1] + 0.5, 0., self.cfg.commands.max_curriculum)
+        elif "world_vel_l2norm" in self.episode_sums and torch.mean(self.episode_sums["world_vel_l2norm"][env_ids]) / self.max_episode_length > \
+                self.cfg.commands.curriculum_threshold * self.reward_scales["world_vel_l2norm"]:
+                self.command_ranges["lin_vel_x"][1] = np.clip(
                 self.command_ranges["lin_vel_x"][1] + 0.5, 0., self.cfg.commands.max_curriculum)
     
     def _pre_sim_step(self, actions):
@@ -525,6 +530,12 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
         )
         sigma = self.pit_depth*self.cfg.rewards.base_up_pit_sigma
         return torch.exp(-error / sigma)
+    
+    def _reward_world_vel_l2norm(self):
+        return torch.norm((self.commands[:, :2] - self.simulator.base_lin_vel[:, :2]), dim= 1)
+
+    def _reward_alive(self):
+        return 1
 
     def get_failure_idx(self):
         return self.reset_buf * ~self.time_out_buf

@@ -122,11 +122,17 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                 collision = -10.0
                 
                 # command tracking
-                tracking_lin_vel = 1.5
-                tracking_ang_vel = 1.0
-                #if terrain_name == "pit":
-                #    base_height = -0.0
-                #    base_up_pit = 0.5
+                
+                
+                if terrain_name in ("pit"):
+                    base_height = -0.0
+                    base_up_pit = 0.5
+                    world_vel_l2norm = -1.0
+                    alive = 1
+                    tracking_ang_vel = 0.5
+                else:
+                    tracking_lin_vel = 1.5
+                    tracking_ang_vel = 1.0
                 
                 # smooth
                 if terrain_name in ("pit"):
@@ -138,13 +144,21 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                     orientation = -1.0
                     foot_clearance = 0.6
                 ang_vel_xy = -0.05
-                dof_power = -2.e-5
-                dof_acc = -2.e-7
-                action_rate = -0.01
-                action_smoothness = -0.01
+                if terrain_name in ("pit"):
+                    dof_power = -2.e-6
+                    dof_acc = -2.e-8
+                    action_rate = -0.001
+                    # gait
+                    hip_pos = -0.015
+                    action_smoothness = -0.001
+                else:
+                    dof_power = -2.e-5
+                    dof_acc = -2.e-7
+                    action_rate = -0.01
+                    # gait
+                    hip_pos = -0.15
+                    action_smoothness = -0.01
                 
-                # gait
-                hip_pos = -0.15
                 
                 feet_stumble = -1.0
                 feet_contact_stand_still = 0.1
@@ -162,9 +176,16 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
         num_commands = 4 # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         resampling_time = 10.  # time before command are changed[s]
         heading_command = True # if true: compute ang vel command from heading error
+
+        if terrain_name in ("pit"):
+            custom_command_curriculum =  True
+        else:
+            custom_command_curriculum =  False
         
         if terrain_name == "baseline":
             zero_cmd_prob = 0.1
+        elif terrain_name in ("pit"):
+            zero_cmd_prob = 0.0
         class ranges( LeggedRobotDreamwaqCfg.commands.ranges ):
             if terrain_name == "baseline":
                 lin_vel_x = [-0.5, 0.5] # min max [m/s]
@@ -172,7 +193,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                 ang_vel_yaw = [-1, 1]    # min max [rad/s]
                 heading = [-3.14, 3.14]
             else:
-                lin_vel_x = [0.0, 0.5]   # min max [m/s]
+                lin_vel_x = [0.5, 1.0]   # min max [m/s]
                 lin_vel_y = [0.0, 0.0]   # min max [m/s]
                 ang_vel_yaw = [-1, 1]    # min max [rad/s]
                 heading = [0.0, 0.0]
