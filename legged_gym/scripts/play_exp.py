@@ -176,7 +176,7 @@ TERRAIN_CONFIGS = {
     },
     "pit": {
         "type": "terrain_utils.pit_terrain",
-        "depth": 0.4,
+        "depth": 0.5,
         "platform_size": 3.0,
     },
     "multiple_high_platforms" : {
@@ -197,26 +197,27 @@ def override_configs(env_cfg, args):
         env_cfg: environment configuration
         args: command line arguments
     """
+    envs = 100
     task_name = args.task
     # override some parameters for testing
     # number of environments
     #env_cfg.init_state.pos = [0, 3, 2]
-    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 100)
-    env_cfg.asset.terminate_after_contacts_on = []
+    env_cfg.env.num_envs = min(env_cfg.env.num_envs, envs)
+    #env_cfg.asset.terminate_after_contacts_on = []
     if hasattr(env_cfg.env, "num_camera_envs"):
-        env_cfg.env.num_camera_envs = min(env_cfg.env.num_camera_envs, 100)
+        env_cfg.env.num_camera_envs = min(env_cfg.env.num_camera_envs, envs)
     if "cts" in task_name:  # cts specific
         env_cfg.env.num_teacher = 1
-    env_cfg.viewer.rendered_envs_idx = [0]#list(range(env_cfg.env.num_envs))
+    env_cfg.viewer.rendered_envs_idx = list(range(min(env_cfg.env.num_envs, envs)))
     # adjust parameters according to terrain type
 
     #env_cfg.terrain.vertical_scale = 0.1
     if env_cfg.terrain.mesh_type in ["heightfield", "trimesh"]:
-        env_cfg.terrain.num_rows = 4
+        env_cfg.terrain.num_rows = 5
         env_cfg.terrain.num_cols = 1
         env_cfg.terrain.border_size = 5.0
-        env_cfg.terrain.curriculum = False
-        env_cfg.terrain.selected   = True
+        #env_cfg.terrain.curriculum = False
+        #env_cfg.terrain.selected   = True
         
         if test_terrain_name == "baseline":
             env_cfg.terrain.terrain_kwargs = TERRAIN_CONFIGS["random_uniform"]
@@ -380,6 +381,7 @@ def interaction_loop(train_cfg, env, policy, args, new=""):
 
     # interaction loop
     for i in range(int(4.00*env.max_episode_length)):
+        print(env.pit_depth[:])
 
         if test_terrain_name != "baseline":
             env.commands[:, 0] = 1
@@ -534,18 +536,18 @@ def play(args):
     policy = ppo_runner.get_inference_policy(device=env.device)
     
     # export policy as a jit module (used to run it from C++ or python)
-    if train_cfg.runner.load_run == -1:
-        log_root = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name)
-        try:
-            runs = os.listdir(log_root)
-            #TODO sort by date to handle change of month
-            runs.sort()
-            if 'exported' in runs: runs.remove('exported')
-            train_cfg.runner.load_run = runs[-1]
-        except:
-            raise ValueError("No runs in this directory: " + root)
-    path = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 
-                            train_cfg.runner.load_run, 'exported')
+    #if train_cfg.runner.load_run == -1:
+    #    log_root = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name)
+    #    try:
+    #        runs = os.listdir(log_root)
+    #        #TODO sort by date to handle change of month
+    #        runs.sort()
+    #        if 'exported' in runs: runs.remove('exported')
+    #        train_cfg.runner.load_run = runs[-1]
+    #    except:
+    #        raise ValueError("No runs in this directory: " + root)
+    #path = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 
+    #                        train_cfg.runner.load_run, 'exported')
     # export_policy(ppo_runner, path, args, env_cfg, train_cfg)
     
     interaction_loop(train_cfg, env, policy, args, test_terrain_name)

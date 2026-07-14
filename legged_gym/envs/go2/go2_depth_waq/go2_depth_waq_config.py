@@ -101,11 +101,12 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
         decimation = 4 # decimation: Number of control action updates @ sim DT per policy DT
     class asset( Go2RoughCommonCfg.asset ):
         terminate_after_contacts_on = ["Head", "base"]
+        termination_count = 100
         #pass
     class rewards( Go2RoughCommonCfg.rewards ):
-        if terrain_name == "baseline":
+        if terrain_name in ("baseline"):
             class scales(Go2RoughCommonCfg.rewards.scales):
-                feet_near_edge = 0
+                feet_near_edge = 0.
         else:
             soft_dof_pos_limit = 0.9
             base_height_target = 0.4
@@ -114,6 +115,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
             foot_clearance_tracking_sigma = 0.01
             base_up_pit_sigma = 0.01
             tracking_sigma = 0.2
+            corner_proximity_sigma = 0.01
             only_positive_rewards = True
             feet_edge_threshold = 0.05 # distance threshold below which foot is considered to be near the edge of a terrain
             class scales:
@@ -122,20 +124,21 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                 collision = -10.0
                 
                 # command tracking
-                
-                
                 if terrain_name in ("pit"):
-                    base_height = -0.0
                     base_up_pit = 0.5
-                    world_vel_l2norm = -1.0
+                    #corner_proximity = -0.2
+                elif terrain_name in ("pit", "multiple_high_platforms"):
+                    base_height = -0.0
+                    #world_vel_l2norm = -1.0
                     alive = 1
                     tracking_ang_vel = 0.5
+                    tracking_lin_vel = 1.0
                 else:
                     tracking_lin_vel = 1.5
                     tracking_ang_vel = 1.0
                 
                 # smooth
-                if terrain_name in ("pit"):
+                if terrain_name in ("pit", "multiple_high_platforms"):
                     lin_vel_z = -0.1
                     orientation = -0.1
                     foot_clearance_terrain_aware = 0.7
@@ -143,8 +146,10 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                     lin_vel_z = -1.0
                     orientation = -1.0
                     foot_clearance = 0.6
+                
                 ang_vel_xy = -0.05
-                if terrain_name in ("pit"):
+
+                if terrain_name in ("pit", "multiple_high_platforms"):
                     dof_power = -2.e-6
                     dof_acc = -2.e-8
                     action_rate = -0.001
@@ -168,7 +173,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
 
     class commands( LeggedRobotDreamwaqCfg.commands ):
         curriculum = True
-        if terrain_name == "baseline":
+        if terrain_name in ("baseline"):
             max_curriculum = 1.0
         else:
             max_curriculum = 1.5
@@ -177,17 +182,17 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
         resampling_time = 10.  # time before command are changed[s]
         heading_command = True # if true: compute ang vel command from heading error
 
-        if terrain_name in ("pit"):
-            custom_command_curriculum =  True
+        if terrain_name in ("baseline"):
+            custom_command_curriculum = False
         else:
-            custom_command_curriculum =  False
+            custom_command_curriculum =  True
         
-        if terrain_name == "baseline":
+        if terrain_name in ("baseline"):
             zero_cmd_prob = 0.1
-        elif terrain_name in ("pit"):
+        else:
             zero_cmd_prob = 0.0
         class ranges( LeggedRobotDreamwaqCfg.commands.ranges ):
-            if terrain_name == "baseline":
+            if terrain_name in ("baseline"):
                 lin_vel_x = [-0.5, 0.5] # min max [m/s]
                 lin_vel_y = [-1.0, 1.0]   # min max [m/s]
                 ang_vel_yaw = [-1, 1]    # min max [rad/s]
@@ -199,7 +204,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                 heading = [0.0, 0.0]
             
     class domain_rand(LeggedRobotDreamwaqCfg.domain_rand):
-        if terrain_name == "baseline":
+        if terrain_name in ("baseline"):
             randomize_friction = True
             friction_range = [0.2, 1.7]
             randomize_base_mass = True
@@ -321,7 +326,7 @@ class Go2DepthWaqCfgPPO( LeggedRobotDreamwaqCfgPPO ):
         if num_iters:
             max_iterations = int(num_iters)
         else:
-            if terrain_name == "baseline":
+            if terrain_name in ("baseline"):
                 max_iterations = 3000
             else:
                 max_iterations = 10000

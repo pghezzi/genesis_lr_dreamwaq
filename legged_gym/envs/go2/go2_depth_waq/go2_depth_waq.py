@@ -165,7 +165,6 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
             self.feet_max_force_z = self.simulator.link_contact_forces[:, self.simulator.feet_contact_indices, 2]
         
         self.gap_reset_buf = self._check_unrecoverable_gap()
-
         fail_buf = torch.any(self.terminated_bodies_force_norm > 10.0, dim=1)
         # print(f"contact termination: {fail_buf}")
         fail_buf |= self.simulator.projected_gravity[:, 2] > self.cfg.env.max_projected_gravity
@@ -173,11 +172,11 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
         self.fail_buf += fail_buf
         self.time_out_buf = self.episode_length_buf > self.max_episode_length  # no terminal reward for time-outs
         # print(f"time out: {self.time_out_buf}")
-
         self.reset_buf = (
             (self.fail_buf > self.cfg.env.fail_to_terminal_time_s / self.dt)
             | self.time_out_buf
-        ) | self.gap_reset_buf
+            | self.gap_reset_buf
+        ) 
 
     def _check_unrecoverable_gap(self):
         if (
@@ -247,6 +246,8 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
 
     def _init_buffers(self):
         super()._init_buffers()
+        self.force_fail_buf = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        self.termination_counter_threshold = getattr(self.cfg.asset, "termination_count", 1)
         self.gap_fall_counter = torch.zeros(
             self.num_envs, dtype=torch.long, device=self.device
         )
@@ -524,15 +525,34 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
     #    base_height = torch.clamp(self.simulator.base_pos[:, 2] - self.simulator.env_origins[:, 2], min=0.0)
     #    error = torch.square(base_height - self.cfg.rewards.base_height_target - self.pit_depth)
     #    return torch.exp(-error / self.cfg.rewards.base_up_pit_sigma)
+
+    #def _reward_base_up_pit(self):
+    #    error = torch.square(
+    #        torch.clamp(self.simulator.base_pos[:, 2] - self.pit_depth, min=0.0)
+    #    )
+    #    sigma = self.pit_depth*self.cfg.rewards.base_up_pit_sigma
+    #    return torch.exp(-error / sigma)
+    
     def _reward_base_up_pit(self):
-        error = torch.square(
-            torch.clamp(self.simulator.base_pos[:, 2] - self.simulator.env_origins[:, 2] - self.pit_depth, min=0.0)
-        )
-        sigma = self.pit_depth*self.cfg.rewards.base_up_pit_sigma
+        calc = torch.mean((self.pit_depth + self.simulator.env_origins[:, 2]).unsqueeze(1) - self.simulator.measured_heights, dim=1)
+        error = torch.square(calc)
+        sigma = self.pit_depth * self.cfg.rewards.base_up_pit_sigma
         return torch.exp(-error / sigma)
     
     def _reward_world_vel_l2norm(self):
-        return torch.norm((self.commands[:, :2] - self.simulator.base_lin_vel[:, :2]), dim= 1)
+        return torch.norm((self.commands[:, :2] - self.simulator.base_lin_vel[:, :2]), dim= 1) + torch.abs(self.commands[:, 2] - self.heading)
+
+    def _reward_corner_proximity(self):
+        # position relative to the platform center, in the horizontal plane
+        pos_rel = self.simulator.base_pos[:, :2] - self.simulator.env_origins[:, :2]
+        half_size = self.cfg.terrain.platform_size / 2.0
+        # coordinates of the nearest corner (sign of pos determines quadrant)
+        nearest_corner = torch.sign(pos_rel) * half_size
+        # true Euclidean distance from the agent to that corner
+        dist_to_corner = torch.clamp(torch.norm(pos_rel - nearest_corner, dim=-1), max=half_size)
+        # smooth penalty that grows as distance shrinks (tune sigma to taste)
+        sigma = half_size * self.cfg.rewards.corner_proximity_sigma
+        return torch.exp(-dist_to_corner / sigma)
 
     def _reward_alive(self):
         return 1

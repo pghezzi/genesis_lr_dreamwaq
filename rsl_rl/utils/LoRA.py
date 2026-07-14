@@ -428,51 +428,92 @@ class LoRALinear(nn.Linear, LoRALayer):
                 f"of torch.nn.Linear class, but {str(type(module))} is given."
             )
 
-class LoRASequential(nn.Sequential):
-    @classmethod
-    def _from_sequential(cls, model: nn.Sequential, ranks=None, targets=None, share_mem=False):
-        if not isinstance(model, nn.Sequential):
-            raise ValueError(
-                "from_sequential method supports only objects "
-                f"of torch.nn.Linear class, but {str(type(module))} is given."
-            )
-        modules = []
-        check = targets is None
-        if ranks is None:
-            ranks = iter([])
-        elif isinstance(ranks, int):
-            ranks = repeat(ranks)
-        else:
-            ranks = iter(ranks)
+#class LoRASequential(nn.Sequential):
+#    @classmethod
+#    def _from_sequential(cls, model: nn.Sequential, ranks=None, targets=None, share_mem=False):
+#        if not isinstance(model, nn.Sequential):
+#            raise ValueError(
+#                "from_sequential method supports only objects "
+#                f"of torch.nn.Linear class, but {str(type(module))} is given."
+#            )
+#        modules = []
+#        check = targets is None
+#        if ranks is None:
+#            ranks = iter([])
+#        elif isinstance(ranks, int):
+#            ranks = repeat(ranks)
+#        else:
+#            ranks = iter(ranks)
+#
+#        for i, layer in enumerate(model):
+#            if (check or i in targets) and isinstance(layer, nn.Linear):
+#                rank = next(ranks, 1)
+#                modules.append(LoRALinear._from_linear(layer, rank, share_mem=share_mem))
+#            elif (check or i in targets) and isinstance(layer, nn.Conv2d):
+#                rank = next(ranks, 1)
+#                modules.append(LoRAConv2d._from_conv2d(layer, rank, share_mem=share_mem))
+#            elif isinstance(layer, nn.Linear):
+#                modules.append(FrozenLinear._from_linear(layer))
+#            elif isinstance(layer, nn.Conv2d):
+#                modules.append(FrozenConv2d._from_conv2d(layer))
+#            else:
+#                modules.append(layer)
+#        return cls(*modules)
+#    
+#    @torch.jit.export
+#    def merge(self, merge: bool = True):
+#        for m in self.children():
+#            if isinstance(m, LoRALayer):
+#                m.merge(merge)
+#        return self
 
-        for i, layer in enumerate(model):
-            if (check or i in targets) and isinstance(layer, nn.Linear):
-                rank = next(ranks, 1)
-                modules.append(LoRALinear._from_linear(layer, rank, share_mem=share_mem))
-            elif (check or i in targets) and isinstance(layer, nn.Conv2d):
-                rank = next(ranks, 1)
-                modules.append(LoRAConv2d._from_conv2d(layer, rank, share_mem=share_mem))
-            elif isinstance(layer, nn.Linear):
-                modules.append(FrozenLinear._from_linear(layer))
-            elif isinstance(layer, nn.Conv2d):
-                modules.append(FrozenConv2d._from_conv2d(layer))
-            else:
-                modules.append(layer)
-        return cls(*modules)
+class MultiLora(nn.Module):
+    def __init__(self, base_module):
+        assert isinstance(base_module, (nn.Linear, nn.Conv2d)), f"Only created for these 2 types for now not {type(base_module)}"
+        self.base_module = base_module
+        self.loras = []
+        self.current_index = -1
+    
+    def append(self, lora: LoRALayer):
+        self.loras.append((lora.lora_A, lora.lora_B, lora.scaling))
+    
+    def _lora_weight(self, triple):
+        lora_A, lora_B, scaling = triple
+        return (lora_B @ lora_A).view_as(self.base_module.weight) * scaling    
+
+    @torch.jit.export
+    def swap(self, index):
+        weight = None
+        if index == self.current_index:
+            pass
+        for i, lora in enumerate(self.loras):
+            if i == self.current_index:
+                self.base_module.weight -= self._lora_weight(lora)
+                self.current_index = -1
+            if i == index:
+                weight = self._lora_weight(lora)
+        if weight:
+            self.base_module.weight += weight
+            self.current_index = index
+    
+    def forward(self, input_tensor):
+        return self.base_module.forward(input_tensor)
+
+class SequentialMultiLora(nn.Sequential):
+    def __init__(self, *args):
+        super().__init__(*[MultiLora(arg) for arg in args if isinstance(base_module, (nn.Linear, nn.Conv2d))])
+    
+    def append(self, lora_sequence: nn.Sequential):
+        for base, lora in zip(self, lora_sequence):
+            if isinstance(base, MultiLora)
+                base.append(lora)
     
     @torch.jit.export
-    def merge(self):
-        for m in self.children():
-            if isinstance(m, LoRALayer):
-                m.merge()
-        return self
+    def swap(self, index)
+        for base in self:
+            if isinstance(base, MultiLora)
+                base.swap(index)
 
-    @torch.jit.export
-    def unmerge(self):
-        for m in self.children():
-            if isinstance(m, LoRALayer):
-                m.unmerge()
-        return self
     
 
 

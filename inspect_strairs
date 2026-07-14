@@ -1,0 +1,883 @@
+
+Loaded: /home/pablo/Legged_Gym_EX/logs/go2_depth_waq_lora_8_stairs/Jul09_01-33-34_dreamwaq_genesis/model_10000.pt
+Type: <class 'dict'>
+
+model_state_dict.std:
+  shape: (12,)
+  dtype: torch.float32
+  min: 0.5412
+  max: 0.8548
+  mean: 0.6902
+
+model_state_dict.vae.encoder.0.lora_A:
+  shape: (8, 900)
+  dtype: torch.float32
+  min: -21.3392
+  max: 20.9593
+  mean: 0.4190
+
+model_state_dict.vae.encoder.0.lora_B:
+  shape: (256, 8)
+  dtype: torch.float32
+  min: -1.7713
+  max: 2.3629
+  mean: 0.0007
+
+model_state_dict.vae.encoder.2.lora_A:
+  shape: (8, 256)
+  dtype: torch.float32
+  min: -3.3734
+  max: 4.0224
+  mean: 0.4669
+
+model_state_dict.vae.encoder.2.lora_B:
+  shape: (128, 8)
+  dtype: torch.float32
+  min: -2.4945
+  max: 1.5141
+  mean: -0.0106
+
+model_state_dict.vae.encoder.4.lora_A:
+  shape: (8, 128)
+  dtype: torch.float32
+  min: -1.3798
+  max: 3.1245
+  mean: 0.4951
+
+model_state_dict.vae.encoder.4.lora_B:
+  shape: (80, 8)
+  dtype: torch.float32
+  min: -0.6570
+  max: 0.7565
+  mean: 0.0020
+
+model_state_dict.vae.latent_mu.lora_A:
+  shape: (8, 80)
+  dtype: torch.float32
+  min: -1.0236
+  max: 2.0668
+  mean: 0.5008
+
+model_state_dict.vae.latent_mu.lora_B:
+  shape: (16, 8)
+  dtype: torch.float32
+  min: -0.1758
+  max: 0.2223
+  mean: -0.0003
+
+model_state_dict.vae.latent_var.0.lora_A:
+  shape: (8, 80)
+  dtype: torch.float32
+  min: -1.2040
+  max: 2.5283
+  mean: 0.4871
+
+model_state_dict.vae.latent_var.0.lora_B:
+  shape: (16, 8)
+  dtype: torch.float32
+  min: -0.2715
+  max: 0.2522
+  mean: -0.0013
+
+model_state_dict.vae.vel_mu.lora_A:
+  shape: (8, 80)
+  dtype: torch.float32
+  min: -1.6155
+  max: 4.8040
+  mean: 0.5343
+
+model_state_dict.vae.vel_mu.lora_B:
+  shape: (24, 8)
+  dtype: torch.float32
+  min: -0.6964
+  max: 0.5578
+  mean: -0.0056
+
+model_state_dict.vae.vel_var.0.lora_A:
+  shape: (8, 80)
+  dtype: torch.float32
+  min: -0.1636
+  max: 1.3149
+  mean: 0.5651
+
+model_state_dict.vae.vel_var.0.lora_B:
+  shape: (24, 8)
+  dtype: torch.float32
+  min: 0.0164
+  max: 0.2765
+  mean: 0.1582
+
+model_state_dict.vae.decoder.0.lora_A:
+  shape: (8, 40)
+  dtype: torch.float32
+  min: -9.3495
+  max: 6.9898
+  mean: 0.3451
+
+model_state_dict.vae.decoder.0.lora_B:
+  shape: (256, 8)
+  dtype: torch.float32
+  min: -2.3617
+  max: 1.6831
+  mean: 0.0040
+
+model_state_dict.vae.decoder.2.lora_A:
+  shape: (8, 256)
+  dtype: torch.float32
+  min: -2.8467
+  max: 3.9704
+  mean: 0.4192
+
+model_state_dict.vae.decoder.2.lora_B:
+  shape: (128, 8)
+  dtype: torch.float32
+  min: -0.9543
+  max: 1.1274
+  mean: -0.0063
+
+model_state_dict.vae.decoder.4.lora_A:
+  shape: (8, 128)
+  dtype: torch.float32
+  min: -1.5233
+  max: 2.5481
+  mean: 0.4603
+
+model_state_dict.vae.decoder.4.lora_B:
+  shape: (45, 8)
+  dtype: torch.float32
+  min: -0.8135
+  max: 0.7379
+  mean: 0.0004
+
+model_state_dict.visual_encoder.cnn.0.lora_A:
+  shape: (8, 25)
+  dtype: torch.float32
+  min: -0.8976
+  max: 0.8509
+  mean: -0.0005
+
+model_state_dict.visual_encoder.cnn.0.lora_B:
+  shape: (8, 8)
+  dtype: torch.float32
+  min: -0.6011
+  max: 0.6631
+  mean: 0.0035
+
+model_state_dict.visual_encoder.cnn.3.lora_A:
+  shape: (8, 72)
+  dtype: torch.float32
+  min: -1.7174
+  max: 1.5840
+  mean: 0.0244
+
+model_state_dict.visual_encoder.cnn.3.lora_B:
+  shape: (8, 8)
+  dtype: torch.float32
+  min: -0.3682
+  max: 0.5246
+  mean: -0.0017
+
+model_state_dict.visual_encoder.cnn.6.lora_A:
+  shape: (8, 4480)
+  dtype: torch.float32
+  min: -8.4659
+  max: 7.4084
+  mean: 0.1722
+
+model_state_dict.visual_encoder.cnn.6.lora_B:
+  shape: (128, 8)
+  dtype: torch.float32
+  min: -2.0225
+  max: 3.5156
+  mean: 0.0263
+
+model_state_dict.visual_encoder.cnn.8.lora_A:
+  shape: (8, 128)
+  dtype: torch.float32
+  min: -1.2310
+  max: 2.1863
+  mean: 0.0602
+
+model_state_dict.visual_encoder.cnn.8.lora_B:
+  shape: (64, 8)
+  dtype: torch.float32
+  min: -2.9634
+  max: 1.3101
+  mean: -0.0224
+
+model_state_dict.actor.0.lora_A:
+  shape: (8, 149)
+  dtype: torch.float32
+  min: -13.1942
+  max: 10.4648
+  mean: 0.2182
+
+model_state_dict.actor.0.lora_B:
+  shape: (512, 8)
+  dtype: torch.float32
+  min: -2.3583
+  max: 2.5565
+  mean: 0.0050
+
+model_state_dict.actor.2.lora_A:
+  shape: (8, 512)
+  dtype: torch.float32
+  min: -2.4755
+  max: 2.6888
+  mean: 0.1838
+
+model_state_dict.actor.2.lora_B:
+  shape: (256, 8)
+  dtype: torch.float32
+  min: -2.3223
+  max: 2.0171
+  mean: -0.0299
+
+model_state_dict.actor.4.lora_A:
+  shape: (8, 256)
+  dtype: torch.float32
+  min: -2.0695
+  max: 1.8064
+  mean: 0.0379
+
+model_state_dict.actor.4.lora_B:
+  shape: (128, 8)
+  dtype: torch.float32
+  min: -1.4239
+  max: 1.4586
+  mean: -0.0448
+
+model_state_dict.actor.6.lora_A:
+  shape: (8, 128)
+  dtype: torch.float32
+  min: -1.8613
+  max: 1.8120
+  mean: 0.0464
+
+model_state_dict.actor.6.lora_B:
+  shape: (12, 8)
+  dtype: torch.float32
+  min: -0.3873
+  max: 0.3496
+  mean: 0.0058
+
+model_state_dict.critic.0.weight:
+  shape: (1024, 885)
+  dtype: torch.float32
+  min: -29.1114
+  max: 31.5064
+  mean: 0.1357
+
+model_state_dict.critic.0.bias:
+  shape: (1024,)
+  dtype: torch.float32
+  min: -5.4448
+  max: 7.2863
+  mean: -1.5093
+
+model_state_dict.critic.2.weight:
+  shape: (256, 1024)
+  dtype: torch.float32
+  min: -11.7325
+  max: 7.0678
+  mean: 0.0052
+
+model_state_dict.critic.2.bias:
+  shape: (256,)
+  dtype: torch.float32
+  min: -2.3719
+  max: 0.2219
+  mean: -0.6010
+
+model_state_dict.critic.4.weight:
+  shape: (128, 256)
+  dtype: torch.float32
+  min: -2.4272
+  max: 2.6499
+  mean: 0.6168
+
+model_state_dict.critic.4.bias:
+  shape: (128,)
+  dtype: torch.float32
+  min: -2.6687
+  max: 0.2284
+  mean: -1.0002
+
+model_state_dict.critic.6.weight:
+  shape: (1, 128)
+  dtype: torch.float32
+  min: -0.1404
+  max: 0.0467
+  mean: -0.0189
+
+model_state_dict.critic.6.bias:
+  shape: (1,)
+  dtype: torch.float32
+  min: 0.1129
+  max: 0.1129
+  mean: 0.1129
+
+optimizer_state_dict.state.0.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.0.exp_avg:
+  shape: (8, 149)
+  dtype: torch.float32
+  min: -0.0021
+  max: 0.0023
+  mean: 0.0000
+
+optimizer_state_dict.state.0.exp_avg_sq:
+  shape: (8, 149)
+  dtype: torch.float32
+  min: 0.0000
+  max: 0.0001
+  mean: 0.0000
+
+optimizer_state_dict.state.1.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.1.exp_avg:
+  shape: (512, 8)
+  dtype: torch.float32
+  min: -0.0005
+  max: 0.0003
+  mean: -0.0000
+
+optimizer_state_dict.state.1.exp_avg_sq:
+  shape: (512, 8)
+  dtype: torch.float32
+  min: 0.0000
+  max: 0.0000
+  mean: 0.0000
+
+optimizer_state_dict.state.2.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.2.exp_avg:
+  shape: (8, 512)
+  dtype: torch.float32
+  min: -0.0003
+  max: 0.0003
+  mean: -0.0000
+
+optimizer_state_dict.state.2.exp_avg_sq:
+  shape: (8, 512)
+  dtype: torch.float32
+  min: 0.0000
+  max: 0.0000
+  mean: 0.0000
+
+optimizer_state_dict.state.3.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.3.exp_avg:
+  shape: (256, 8)
+  dtype: torch.float32
+  min: -0.0010
+  max: 0.0009
+  mean: 0.0000
+
+optimizer_state_dict.state.3.exp_avg_sq:
+  shape: (256, 8)
+  dtype: torch.float32
+  min: 0.0000
+  max: 0.0000
+  mean: 0.0000
+
+optimizer_state_dict.state.4.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.4.exp_avg:
+  shape: (8, 256)
+  dtype: torch.float32
+  min: -0.0008
+  max: 0.0008
+  mean: -0.0000
+
+optimizer_state_dict.state.4.exp_avg_sq:
+  shape: (8, 256)
+  dtype: torch.float32
+  min: 0.0000
+  max: 0.0000
+  mean: 0.0000
+
+optimizer_state_dict.state.5.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.5.exp_avg:
+  shape: (128, 8)
+  dtype: torch.float32
+  min: -0.0012
+  max: 0.0016
+  mean: -0.0000
+
+optimizer_state_dict.state.5.exp_avg_sq:
+  shape: (128, 8)
+  dtype: torch.float32
+  min: 0.0000
+  max: 0.0000
+  mean: 0.0000
+
+optimizer_state_dict.state.6.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.6.exp_avg:
+  shape: (8, 128)
+  dtype: torch.float32
+  min: -0.0007
+  max: 0.0010
+  mean: 0.0000
+
+optimizer_state_dict.state.6.exp_avg_sq:
+  shape: (8, 128)
+  dtype: torch.float32
+  min: 0.0000
+  max: 0.0000
+  mean: 0.0000
+
+optimizer_state_dict.state.7.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.7.exp_avg:
+  shape: (12, 8)
+  dtype: torch.float32
+  min: -0.0045
+  max: 0.0037
+  mean: -0.0002
+
+optimizer_state_dict.state.7.exp_avg_sq:
+  shape: (12, 8)
+  dtype: torch.float32
+  min: 0.0000
+  max: 0.0003
+  mean: 0.0001
+
+optimizer_state_dict.state.8.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.8.exp_avg:
+  shape: (1024, 885)
+  dtype: torch.float32
+  min: -0.0001
+  max: 0.0001
+  mean: 0.0000
+
+optimizer_state_dict.state.8.exp_avg_sq:
+  shape: (1024, 885)
+  dtype: torch.float32
+  min: 0.0000
+  max: 0.0000
+  mean: 0.0000
+
+optimizer_state_dict.state.9.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.9.exp_avg:
+  shape: (1024,)
+  dtype: torch.float32
+  min: -0.0000
+  max: 0.0000
+  mean: -0.0000
+
+optimizer_state_dict.state.9.exp_avg_sq:
+  shape: (1024,)
+  dtype: torch.float32
+  min: 0.0000
+  max: 0.0000
+  mean: 0.0000
+
+optimizer_state_dict.state.10.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.10.exp_avg:
+  shape: (256, 1024)
+  dtype: torch.float32
+  min: -0.0001
+  max: 0.0001
+  mean: -0.0000
+
+optimizer_state_dict.state.10.exp_avg_sq:
+  shape: (256, 1024)
+  dtype: torch.float32
+  min: 0.0000
+  max: 0.0000
+  mean: 0.0000
+
+optimizer_state_dict.state.11.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.11.exp_avg:
+  shape: (256,)
+  dtype: torch.float32
+  min: -0.0000
+  max: 0.0000
+  mean: -0.0000
+
+optimizer_state_dict.state.11.exp_avg_sq:
+  shape: (256,)
+  dtype: torch.float32
+  min: 0.0000
+  max: 0.0000
+  mean: 0.0000
+
+optimizer_state_dict.state.12.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.12.exp_avg:
+  shape: (128, 256)
+  dtype: torch.float32
+  min: -0.0015
+  max: 0.0020
+  mean: 0.0000
+
+optimizer_state_dict.state.12.exp_avg_sq:
+  shape: (128, 256)
+  dtype: torch.float32
+  min: 0.0000
+  max: 0.0017
+  mean: 0.0000
+
+optimizer_state_dict.state.13.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.13.exp_avg:
+  shape: (128,)
+  dtype: torch.float32
+  min: -0.0000
+  max: 0.0000
+  mean: -0.0000
+
+optimizer_state_dict.state.13.exp_avg_sq:
+  shape: (128,)
+  dtype: torch.float32
+  min: 0.0000
+  max: 0.0000
+  mean: 0.0000
+
+optimizer_state_dict.state.14.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.14.exp_avg:
+  shape: (1, 128)
+  dtype: torch.float32
+  min: -0.0080
+  max: 0.0115
+  mean: -0.0001
+
+optimizer_state_dict.state.14.exp_avg_sq:
+  shape: (1, 128)
+  dtype: torch.float32
+  min: 0.0003
+  max: 0.2535
+  mean: 0.0046
+
+optimizer_state_dict.state.15.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.15.exp_avg:
+  shape: (1,)
+  dtype: torch.float32
+  min: 0.0001
+  max: 0.0001
+  mean: 0.0001
+
+optimizer_state_dict.state.15.exp_avg_sq:
+  shape: (1,)
+  dtype: torch.float32
+  min: 0.0003
+  max: 0.0003
+  mean: 0.0003
+
+optimizer_state_dict.state.16.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.16.exp_avg:
+  shape: (12,)
+  dtype: torch.float32
+  min: -0.0043
+  max: 0.0027
+  mean: -0.0006
+
+optimizer_state_dict.state.16.exp_avg_sq:
+  shape: (12,)
+  dtype: torch.float32
+  min: 0.0001
+  max: 0.0002
+  mean: 0.0001
+
+optimizer_state_dict.state.17.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.17.exp_avg:
+  shape: (8, 25)
+  dtype: torch.float32
+  min: -0.0002
+  max: 0.0001
+  mean: 0.0000
+
+optimizer_state_dict.state.17.exp_avg_sq:
+  shape: (8, 25)
+  dtype: torch.float32
+  min: 0.0000
+  max: 0.0000
+  mean: 0.0000
+
+optimizer_state_dict.state.18.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.18.exp_avg:
+  shape: (8, 8)
+  dtype: torch.float32
+  min: -0.0006
+  max: 0.0004
+  mean: -0.0000
+
+optimizer_state_dict.state.18.exp_avg_sq:
+  shape: (8, 8)
+  dtype: torch.float32
+  min: 0.0000
+  max: 0.0001
+  mean: 0.0000
+
+optimizer_state_dict.state.19.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.19.exp_avg:
+  shape: (8, 72)
+  dtype: torch.float32
+  min: -0.0004
+  max: 0.0005
+  mean: 0.0000
+
+optimizer_state_dict.state.19.exp_avg_sq:
+  shape: (8, 72)
+  dtype: torch.float32
+  min: 0.0000
+  max: 0.0000
+  mean: 0.0000
+
+optimizer_state_dict.state.20.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.20.exp_avg:
+  shape: (8, 8)
+  dtype: torch.float32
+  min: -0.0009
+  max: 0.0008
+  mean: 0.0000
+
+optimizer_state_dict.state.20.exp_avg_sq:
+  shape: (8, 8)
+  dtype: torch.float32
+  min: 0.0000
+  max: 0.0000
+  mean: 0.0000
+
+optimizer_state_dict.state.21.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.21.exp_avg:
+  shape: (8, 4480)
+  dtype: torch.float32
+  min: -0.0000
+  max: 0.0000
+  mean: 0.0000
+
+optimizer_state_dict.state.21.exp_avg_sq:
+  shape: (8, 4480)
+  dtype: torch.float32
+  min: 0.0000
+  max: 0.0000
+  mean: 0.0000
+
+optimizer_state_dict.state.22.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.22.exp_avg:
+  shape: (128, 8)
+  dtype: torch.float32
+  min: -0.0001
+  max: 0.0002
+  mean: 0.0000
+
+optimizer_state_dict.state.22.exp_avg_sq:
+  shape: (128, 8)
+  dtype: torch.float32
+  min: 0.0000
+  max: 0.0000
+  mean: 0.0000
+
+optimizer_state_dict.state.23.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.23.exp_avg:
+  shape: (8, 128)
+  dtype: torch.float32
+  min: -0.0002
+  max: 0.0002
+  mean: 0.0000
+
+optimizer_state_dict.state.23.exp_avg_sq:
+  shape: (8, 128)
+  dtype: torch.float32
+  min: 0.0000
+  max: 0.0000
+  mean: 0.0000
+
+optimizer_state_dict.state.24.step:
+  shape: ()
+  dtype: torch.float32
+  min: 200000.0000
+  max: 200000.0000
+  mean: 200000.0000
+
+optimizer_state_dict.state.24.exp_avg:
+  shape: (64, 8)
+  dtype: torch.float32
+  min: -0.0003
+  max: 0.0003
+  mean: -0.0000
+
+optimizer_state_dict.state.24.exp_avg_sq:
+  shape: (64, 8)
+  dtype: torch.float32
+  min: 0.0000
+  max: 0.0000
+  mean: 0.0000
+
+optimizer_state_dict.param_groups[0].lr: <class 'float'>
+optimizer_state_dict.param_groups[0].betas[0]: <class 'float'>
+optimizer_state_dict.param_groups[0].betas[1]: <class 'float'>
+optimizer_state_dict.param_groups[0].eps: <class 'float'>
+optimizer_state_dict.param_groups[0].weight_decay: <class 'int'>
+optimizer_state_dict.param_groups[0].amsgrad: <class 'bool'>
+optimizer_state_dict.param_groups[0].maximize: <class 'bool'>
+optimizer_state_dict.param_groups[0].foreach: <class 'NoneType'>
+optimizer_state_dict.param_groups[0].capturable: <class 'bool'>
+optimizer_state_dict.param_groups[0].differentiable: <class 'bool'>
+optimizer_state_dict.param_groups[0].fused: <class 'NoneType'>
+optimizer_state_dict.param_groups[0].decoupled_weight_decay: <class 'bool'>
+optimizer_state_dict.param_groups[0].params[0]: <class 'int'>
+optimizer_state_dict.param_groups[0].params[1]: <class 'int'>
+optimizer_state_dict.param_groups[0].params[2]: <class 'int'>
+optimizer_state_dict.param_groups[0].params[3]: <class 'int'>
+optimizer_state_dict.param_groups[0].params[4]: <class 'int'>
+optimizer_state_dict.param_groups[0].params[5]: <class 'int'>
+optimizer_state_dict.param_groups[0].params[6]: <class 'int'>
+optimizer_state_dict.param_groups[0].params[7]: <class 'int'>
+optimizer_state_dict.param_groups[0].params[8]: <class 'int'>
+optimizer_state_dict.param_groups[0].params[9]: <class 'int'>
+optimizer_state_dict.param_groups[0].params[10]: <class 'int'>
+optimizer_state_dict.param_groups[0].params[11]: <class 'int'>
+optimizer_state_dict.param_groups[0].params[12]: <class 'int'>
+optimizer_state_dict.param_groups[0].params[13]: <class 'int'>
+optimizer_state_dict.param_groups[0].params[14]: <class 'int'>
+optimizer_state_dict.param_groups[0].params[15]: <class 'int'>
+optimizer_state_dict.param_groups[0].params[16]: <class 'int'>
+optimizer_state_dict.param_groups[0].params[17]: <class 'int'>
+optimizer_state_dict.param_groups[0].params[18]: <class 'int'>
+optimizer_state_dict.param_groups[0].params[19]: <class 'int'>
+optimizer_state_dict.param_groups[0].params[20]: <class 'int'>
+optimizer_state_dict.param_groups[0].params[21]: <class 'int'>
+optimizer_state_dict.param_groups[0].params[22]: <class 'int'>
+optimizer_state_dict.param_groups[0].params[23]: <class 'int'>
+optimizer_state_dict.param_groups[0].params[24]: <class 'int'>
+iter: <class 'int'>
+infos: <class 'NoneType'>
