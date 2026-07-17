@@ -128,7 +128,7 @@ class DreamWaQDepthLoraRunner(OnPolicyRunner):
             if self.log_dir is not None:
                 self.log(locals())
             if it % self.save_interval == 0:
-                self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)))
+                self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)), cur_iter=it)
             ep_infos.clear()
         
         self.current_learning_iteration += num_learning_iterations

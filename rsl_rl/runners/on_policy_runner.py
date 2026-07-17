@@ -301,6 +301,7 @@ class OnPolicyRunner:
         self,
         path: str,
         infos: Optional[Dict[str, Any]] = None,
+        cur_iter: Optional[int] = None
     ) -> None:
         """Save the model checkpoint to disk.
 
@@ -311,7 +312,7 @@ class OnPolicyRunner:
         torch.save({
             'model_state_dict': self.alg.actor_critic.state_dict(),
             'optimizer_state_dict': self.alg.optimizer.state_dict(),
-            'iter': self.current_learning_iteration,
+            'iter': self.current_learning_iteration if cur_iter is None else cur_iter,
             'infos': infos,
         }, path)
 

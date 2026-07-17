@@ -100,13 +100,16 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
         dt = 0.02  # control frequency 50Hz
         decimation = 4 # decimation: Number of control action updates @ sim DT per policy DT
     class asset( Go2RoughCommonCfg.asset ):
-        terminate_after_contacts_on = ["Head", "base"]
-        termination_count = 100
+        if terrain_name == "baseline":
+            terminate_after_contacts_on = ["Head", "base"]
+        else:
+            terminate_after_contacts_on = ["Head"]
+        #termination_count = 100
         #pass
     class rewards( Go2RoughCommonCfg.rewards ):
         if terrain_name in ("baseline"):
             class scales(Go2RoughCommonCfg.rewards.scales):
-                feet_near_edge = 0.
+                pass
         else:
             soft_dof_pos_limit = 0.9
             base_height_target = 0.4
@@ -119,58 +122,67 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
             only_positive_rewards = True
             feet_edge_threshold = 0.05 # distance threshold below which foot is considered to be near the edge of a terrain
             class scales:
-                # limitation
-                dof_pos_limits = -2.0
-                collision = -10.0
-                
-                # command tracking
-                if terrain_name in ("pit"):
-                    base_up_pit = 0.5
-                    #corner_proximity = -0.2
-                elif terrain_name in ("pit", "multiple_high_platforms"):
-                    base_height = -0.0
-                    #world_vel_l2norm = -1.0
-                    alive = 1
-                    tracking_ang_vel = 0.5
-                    tracking_lin_vel = 1.0
-                else:
+                if terrain_name in ("gap", "stairs"):
+                    dof_pos_limits = -2.0
+                    collision = -10.0
                     tracking_lin_vel = 1.5
                     tracking_ang_vel = 1.0
-                
-                # smooth
-                if terrain_name in ("pit", "multiple_high_platforms"):
-                    lin_vel_z = -0.1
-                    orientation = -0.1
-                    foot_clearance_terrain_aware = 0.7
-                else:
                     lin_vel_z = -1.0
+                    ang_vel_xy = -0.05
                     orientation = -1.0
-                    foot_clearance = 0.6
-                
-                ang_vel_xy = -0.05
-
-                if terrain_name in ("pit", "multiple_high_platforms"):
-                    dof_power = -2.e-6
-                    dof_acc = -2.e-8
-                    action_rate = -0.001
-                    # gait
-                    hip_pos = -0.015
-                    action_smoothness = -0.001
-                else:
-                    dof_power = -2.e-5
-                    dof_acc = -2.e-7
+                    dof_power = -2e-05
+                    dof_acc = -2e-07
                     action_rate = -0.01
-                    # gait
-                    hip_pos = -0.15
                     action_smoothness = -0.01
-                
-                
-                feet_stumble = -1.0
-                feet_contact_stand_still = 0.1
-                feet_near_edge = -1.0
-                feet_air_time = 0.6    # this is actually used in ts_depth via inhereitence from the base class.
+                    hip_pos = -0.15
+                    foot_clearance_terrain_aware = 0.7
+                    feet_stumble = -1.0
+                    feet_contact_stand_still = 0.1
+                    feet_near_edge = -1.0
+                    feet_air_time = 0.6
+                elif terrain_name in ("pit"):
+                    dof_pos_limits = -2.0
+                    collision = -10.0
+                    tracking_lin_vel = 0.0
+                    tracking_ang_vel = 0.0
+                    lin_vel_z = -0.1
+                    ang_vel_xy = -0.05
+                    orientation = -0.1
+                    dof_power = -2e-06
+                    dof_acc = -2e-08
+                    action_rate = -0.001
+                    action_smoothness = -0.001
+                    hip_pos = -0.015
+                    foot_clearance_terrain_aware = 0.7
+                    feet_stumble = -1.0
+                    feet_contact_stand_still = 0.1
+                    feet_near_edge = -1.0
+                    feet_air_time = 0.6
 
-
+                    base_up_pit = 0.5
+                    corner_proximity = -0.2
+                    base_height = -0.0
+                    alive = 1
+                elif terrain_name in ("multiple_high_platforms"):
+                    dof_pos_limits = -2.0
+                    collision = -10.0
+                    tracking_ang_vel = 0.5
+                    tracking_lin_vel = 1.0
+                    lin_vel_z = -0.1
+                    ang_vel_xy = -0.05
+                    orientation = -0.1
+                    dof_power = -2e-06
+                    dof_acc = -2e-08
+                    action_rate = -0.001
+                    action_smoothness = -0.001
+                    hip_pos = -0.015
+                    foot_clearance_terrain_aware = 0.7
+                    feet_stumble = -1.0
+                    feet_contact_stand_still = 0.1
+                    feet_near_edge = -1.0
+                    feet_air_time = 0.6
+                    base_height = -0.0
+                    alive = 1
     class commands( LeggedRobotDreamwaqCfg.commands ):
         curriculum = True
         if terrain_name in ("baseline"):

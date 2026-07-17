@@ -3,6 +3,7 @@ import os
 
 from legged_gym.envs import *
 from legged_gym.utils import *
+#from legged_gym.helpers import get_load_path
 
 import numpy as np
 import torch
@@ -11,6 +12,8 @@ from legged_gym.utils.exp_data_logger import ExpLogger
 import argparse
 
 import cv2
+
+SWAP = 1
 
 def _normalize_gpu_arg(gpu):
     gpu = str(gpu).strip().lower()
@@ -171,7 +174,7 @@ TERRAIN_CONFIGS = {
     },
     "gap": {
         "type": "terrain_utils.gap_terrain",
-        "gap_size": 0.7,
+        "gap_size": 0.8,
         "platform_size": 3.0,
     },
     "pit": {
@@ -189,6 +192,7 @@ TERRAIN_CONFIGS = {
 }
 
 test_terrain_name = os.environ.get("TEST_TERRAIN", "random_uniform").lower()
+jit_mode = os.environ.get("JIT", "")
 
 def override_configs(env_cfg, args):
     """Override some environment configuration parameters for testing
@@ -203,7 +207,7 @@ def override_configs(env_cfg, args):
     # number of environments
     #env_cfg.init_state.pos = [0, 3, 2]
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, envs)
-    #env_cfg.asset.terminate_after_contacts_on = []
+    env_cfg.asset.terminate_after_contacts_on = []
     if hasattr(env_cfg.env, "num_camera_envs"):
         env_cfg.env.num_camera_envs = min(env_cfg.env.num_camera_envs, envs)
     if "cts" in task_name:  # cts specific
@@ -216,8 +220,8 @@ def override_configs(env_cfg, args):
         env_cfg.terrain.num_rows = 5
         env_cfg.terrain.num_cols = 1
         env_cfg.terrain.border_size = 5.0
-        #env_cfg.terrain.curriculum = False
-        #env_cfg.terrain.selected   = True
+        env_cfg.terrain.curriculum = False
+        env_cfg.terrain.selected   = True
         
         if test_terrain_name == "baseline":
             env_cfg.terrain.terrain_kwargs = TERRAIN_CONFIGS["random_uniform"]
@@ -325,7 +329,7 @@ def print_debug_info(env, robot_index):
     # print(f"ankle pitch: {env.simulator.dof_pos[robot_index, [3,7]].cpu().numpy()}")
     pass
 
-def interaction_loop(train_cfg, env, policy, args, new=""):
+def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
     """Run interaction loop between environment and policy
 
     Args:
@@ -378,15 +382,20 @@ def interaction_loop(train_cfg, env, policy, args, new=""):
     
     #if args.record_frames:
     #    env.simulator._floating_camera.start_recording()
-
     # interaction loop
     for i in range(int(4.00*env.max_episode_length)):
-        print(env.pit_depth[:])
+        #print(env.pit_depth[:])
 
         if test_terrain_name != "baseline":
             env.commands[:, 0] = 1
             env.commands[:, 1] = 0
             env.commands[:, 2] = 0
+            if jit_mode and i == env.max_episode_length:
+                print("swap")
+                policy.swap(-1)
+            if jit_mode and i == 2*env.max_episode_length:
+                print("swap")
+                policy.swap(SWAP)
         elif i % env.max_episode_length == 0:
             env.commands[:, 0] = torch.empty(env.num_envs, device=env.device).uniform_(-1.0, 1.0)
             env.commands[:, 1] = torch.empty(env.num_envs, device=env.device).uniform_(-1.0, 1.0)
@@ -418,8 +427,12 @@ def interaction_loop(train_cfg, env, policy, args, new=""):
             actions = policy(estimator_features.detach())
             estimator_features, estimator_labels, _, rews, dones, infos = env.step(actions.detach())
         elif "depth_waq" in task_name:
+            
             actions = policy(obs_buf, obs_history, depth)
+            if policy1 is not None:
+                print(f"{torch.sum(torch.abs(actions - policy1(obs_buf, obs_history, depth)))}")
             obs_buf, privileged_obs_buf, obs_history, explicit_labels, next_states, rews, dones, infos, depth = env.step(actions.detach())
+            #depth[:] = 1
         elif "waq" in task_name:
             actions = policy(obs_buf, obs_history)
             obs_buf, privileged_obs_buf, obs_history, explicit_labels, next_states, rews, dones, infos = env.step(actions.detach())
@@ -533,7 +546,31 @@ def play(args):
     train_cfg.runner.resume = True
 
     ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
-    policy = ppo_runner.get_inference_policy(device=env.device)
+    if jit_mode:
+        policy = torch.jit.load(jit_mode, map_location='cuda:0')
+        policy.swap(SWAP)
+        policy1 = ppo_runner.get_inference_policy(device=env.device)
+    else:
+        policy = ppo_runner.get_inference_policy(device=env.device)
+
+    if not jit_mode:
+        log_root = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name)
+        path = get_load_path(log_root, load_run=train_cfg.runner.load_run, checkpoint=train_cfg.runner.checkpoint)
+        path = os.path.join(os.path.dirname(path), 'current_actor_args.pt')
+        temp = class_to_dict(train_cfg.policy)
+        temp.update({
+            "num_actor_obs": env.num_obs,
+            "num_actions": env.num_actions,
+            "num_privileged_obs": env.num_privileged_obs,
+            "num_history_input": env.num_history_obs,
+            "num_latent_dims": env.num_latent_dims,
+            "num_explicit_dims": env.num_explicit_dims,
+            "num_decoder_output": env.num_decoder_output,
+        })
+        torch.save({
+            "args": temp
+        },
+        path)
     
     # export policy as a jit module (used to run it from C++ or python)
     #if train_cfg.runner.load_run == -1:
@@ -550,7 +587,7 @@ def play(args):
     #                        train_cfg.runner.load_run, 'exported')
     # export_policy(ppo_runner, path, args, env_cfg, train_cfg)
     
-    interaction_loop(train_cfg, env, policy, args, test_terrain_name)
+    interaction_loop(train_cfg, env, policy, args, test_terrain_name, policy1)
 
     if args.record_frames:
         try:

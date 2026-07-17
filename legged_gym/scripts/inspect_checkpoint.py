@@ -41,9 +41,8 @@ def inspect(obj, prefix="", file=None, ignore_keys=None):
                 continue
 
             inspect(v, full_key, file, ignore_keys)
-
     else:
-        log(f"{prefix}: {type(obj)}", file)
+        log(f"{prefix}: {type(obj)} {obj}", file)
 
 def main():
     parser = argparse.ArgumentParser(description="Inspect a PyTorch .pt checkpoint")

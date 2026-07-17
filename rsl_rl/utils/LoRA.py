@@ -469,49 +469,147 @@ class LoRALinear(nn.Linear, LoRALayer):
 
 class MultiLora(nn.Module):
     def __init__(self, base_module):
-        assert isinstance(base_module, (nn.Linear, nn.Conv2d)), f"Only created for these 2 types for now not {type(base_module)}"
+        super().__init__()
+        assert isinstance(base_module, (nn.Linear, nn.Conv2d)), \
+            f"Only created for these 2 types for now, not {type(base_module)}"
         self.base_module = base_module
-        self.loras = []
-        self.current_index = -1
-    
-    def append(self, lora: LoRALayer):
+        self.loras: List[Tuple[torch.Tensor, torch.Tensor, float]] = []
+        self.current_index: int = -1
+
+    @torch.jit.unused
+    def _apply(self, fn):
+        super()._apply(fn)
+        self.loras = [
+            (fn(lora_A), fn(lora_B), scaling)
+            for (lora_A, lora_B, scaling) in self.loras
+        ]
+        return self
+
+    @torch.jit.unused
+    def append(self, lora: "LoRALayer"):
         self.loras.append((lora.lora_A, lora.lora_B, lora.scaling))
-    
-    def _lora_weight(self, triple):
+
+    def _lora_weight(self, triple: tuple[torch.Tensor, torch.Tensor, float]):
         lora_A, lora_B, scaling = triple
-        return (lora_B @ lora_A).view_as(self.base_module.weight) * scaling    
+        return (lora_B @ lora_A).view_as(self.base_module.weight) * scaling
 
     @torch.jit.export
-    def swap(self, index):
-        weight = None
+    def swap(self, index: int):
+        assert -1 <= index < len(self.loras), f"index {index} out of range"
         if index == self.current_index:
-            pass
-        for i, lora in enumerate(self.loras):
-            if i == self.current_index:
-                self.base_module.weight -= self._lora_weight(lora)
-                self.current_index = -1
-            if i == index:
-                weight = self._lora_weight(lora)
-        if weight:
-            self.base_module.weight += weight
-            self.current_index = index
-    
+            return
+        with torch.no_grad():
+            weight: Optional[torch.Tensor] = None
+            for i, lora in enumerate(self.loras):
+                if i == self.current_index:
+                    self.base_module.weight -= self._lora_weight(lora)
+                if i == index:
+                    weight = self._lora_weight(lora)
+            if weight is not None:
+                self.base_module.weight += weight
+        self.current_index = index
+
     def forward(self, input_tensor):
         return self.base_module.forward(input_tensor)
+    
+
+#class MultiLora:
+#    """Mixin providing multi-LoRA swap capability. Combine with nn.Linear or
+#    nn.Conv2d (see MultiLoraLinear / MultiLoraConv2d) — not instantiated directly."""
+#
+#    loras: List[tuple[torch.Tensor, torch.Tensor, float]]
+#    current_index: int
+#
+#    def _lora_init(self):
+#        self.loras = []
+#        self.current_index = -1
+#
+#    @torch.jit.unused
+#    def _apply(self, fn):
+#        super()._apply(fn)
+#        self.loras = [
+#            (fn(lora_A), fn(lora_B), scaling)
+#            for (lora_A, lora_B, scaling) in self.loras
+#        ]
+#        return self
+#
+#    @torch.jit.unused
+#    def append(self, lora: "LoRALayer"):
+#        torch.allclose(lora.weight, self.weight)
+#        self.loras.append((lora.lora_A, lora.lora_B, lora.scaling))
+#
+#    def _lora_weight(self, triple: tuple[torch.Tensor, torch.Tensor, float]) -> torch.Tensor:
+#        lora_A, lora_B, scaling = triple
+#        return (lora_B @ lora_A).view_as(self.weight) * scaling
+#
+#    @torch.jit.export
+#    def swap(self, index: int):
+#        if index == self.current_index:
+#            return
+#        with torch.no_grad():
+#            weight: Optional[torch.Tensor] = None
+#            for i, lora in enumerate(self.loras):
+#                if i == self.current_index:
+#                    self.weight -= self._lora_weight(lora)
+#                if i == index:
+#                    weight = self._lora_weight(lora)
+#            if weight is not None:
+#                self.weight += weight
+#        self.current_index = index
+#
+#
+#class MultiLoraLinear(MultiLora, nn.Linear):
+#    def __init__(self, *args, **kwargs):
+#        nn.Linear.__init__(self, *args, **kwargs)
+#        self._lora_init()
+#
+#    @classmethod
+#    def _from_linear(cls, linear: nn.Linear) -> "MultiLoraLinear":
+#        new = cls(linear.in_features, linear.out_features, bias=linear.bias is not None)
+#        new.load_state_dict(linear.state_dict())
+#        return new
+#
+#
+#class MultiLoraConv2d(MultiLora, nn.Conv2d):
+#    def __init__(self, *args, **kwargs):
+#        nn.Conv2d.__init__(self, *args, **kwargs)
+#        self._lora_init()
+#
+#    @classmethod
+#    def _from_conv2d(cls, conv: nn.Conv2d) -> "MultiLoraConv2d":
+#        new = cls(
+#            conv.in_channels, conv.out_channels, conv.kernel_size,
+#            stride=conv.stride, padding=conv.padding, dilation=conv.dilation,
+#            groups=conv.groups, bias=conv.bias is not None,
+#        )
+#        new.load_state_dict(conv.state_dict())
+#        return new
+#
+#
+#def _to_multilora(module: nn.Module) -> nn.Module:
+#    if isinstance(module, nn.Linear):
+#        return MultiLoraLinear._from_linear(module)
+#    if isinstance(module, nn.Conv2d):
+#        return MultiLoraConv2d._from_conv2d(module)
+#    return module
+
 
 class SequentialMultiLora(nn.Sequential):
-    def __init__(self, *args):
-        super().__init__(*[MultiLora(arg) for arg in args if isinstance(base_module, (nn.Linear, nn.Conv2d))])
-    
-    def append(self, lora_sequence: nn.Sequential):
-        for base, lora in zip(self, lora_sequence):
-            if isinstance(base, MultiLora)
+    def __init__(self, sequence):
+        super().__init__(*[MultiLora(module) if isinstance(module, (nn.Linear, nn.Conv2d)) else module for module in sequence])
+        
+    @torch.jit.unused
+    def append(self, lora_sequence):
+        multilora_layers = [m for m in self]
+        lora_list = list(lora_sequence)
+        for base, lora in zip(multilora_layers, lora_list):
+            if isinstance(base, MultiLora):
                 base.append(lora)
-    
+
     @torch.jit.export
-    def swap(self, index)
+    def swap(self, index: int):
         for base in self:
-            if isinstance(base, MultiLora)
+            if hasattr(base, "loras"):
                 base.swap(index)
 
     
@@ -553,7 +651,7 @@ def _merge_seq(model, merge: bool = True):
         return
     if isinstance(model, nn.Sequential):
         for layer in model:
-            if isinstance(layer, LoRALinear):
+            if hasattr(layer, LoRALinear):
                 layer.merge(merge)
 
 

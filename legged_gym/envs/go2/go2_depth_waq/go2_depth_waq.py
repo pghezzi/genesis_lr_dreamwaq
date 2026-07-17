@@ -246,8 +246,8 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
 
     def _init_buffers(self):
         super()._init_buffers()
-        self.force_fail_buf = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
-        self.termination_counter_threshold = getattr(self.cfg.asset, "termination_count", 1)
+        #self.force_fail_buf = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        #self.termination_counter_threshold = getattr(self.cfg.asset, "termination_count", 1)
         self.gap_fall_counter = torch.zeros(
             self.num_envs, dtype=torch.long, device=self.device
         )
@@ -540,7 +540,12 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
         return torch.exp(-error / sigma)
     
     def _reward_world_vel_l2norm(self):
-        return torch.norm((self.commands[:, :2] - self.simulator.base_lin_vel[:, :2]), dim= 1) + torch.abs(self.commands[:, 2] - self.heading)
+        return torch.norm((self.commands[:, :2] - self.simulator.base_lin_vel[:, :2]), dim= 1)
+
+    def _reward_world_heading_l2norm(self):
+        def wrap_to_pi(angle):
+            return torch.remainder(angle + torch.pi, 2 * torch.pi) - torch.pi
+        return torch.abs(wrap_to_pi(self.commands[:, 2] - self.heading))
 
     def _reward_corner_proximity(self):
         # position relative to the platform center, in the horizontal plane

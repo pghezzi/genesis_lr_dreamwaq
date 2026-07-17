@@ -48,7 +48,7 @@ class ExpLogger:
             self.save_log()
 
     def save_log(self):
-        print("Saving log contents to ", self.output_path)
+        #print("Saving log contents to ", self.output_path)
 
 
         # Create DF and save it to CSV
