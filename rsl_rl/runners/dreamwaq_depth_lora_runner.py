@@ -95,6 +95,7 @@ class DreamWaQDepthLoraRunner(OnPolicyRunner):
             # Rollout
             with torch.inference_mode():
                 for i in range(self.num_steps_per_env):
+                    print(torch.min(self.env.simulator._terrain_levels) ,torch.max(self.env.simulator._terrain_levels))
                     actions = self.alg.act(obs, privileged_obs, obs_history, explicit_info_labels, depth_image)
                     obs, privileged_obs, obs_history, explicit_info_labels, next_state, rewards, dones, infos, depth_image = self.env.step(actions)
                     obs, privileged_obs, obs_history, explicit_info_labels, next_state, rewards, dones, depth_image = obs.to(self.device), \

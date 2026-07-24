@@ -3,6 +3,8 @@ from legged_gym.envs.base.legged_robot_dreamwaq_config import LeggedRobotDreamwa
 from legged_gym.envs.base.common_cfgs import Go2RoughCommonCfg
 from legged_gym.utils.terrain_vars import get_env_vars
 
+import random
+
 terrain_name, finetune, terrain_index, terrain_list = get_env_vars()
 
 import os
@@ -10,9 +12,27 @@ extra = os.environ.get("EXTRA", "")
 num_iters = os.environ.get("ITERS", "")
 
 
+def solve_x_for_difficulty(num_rows, base=0.1, target=0.6):
+    """Solve for x in: base + x * difficulty == target,
+    where difficulty = (num_rows - 1) / num_rows.
+
+    Args:
+        num_rows: number of terrain rows (must be > 1)
+        base: the additive constant (default 0.1)
+        target: the desired result (default 0.6)
+
+    Returns:
+        x such that base + x * difficulty == target
+    """
+    if num_rows <= 1:
+        raise ValueError("num_rows must be > 1 (difficulty would be 0, undefined x)")
+    difficulty = (num_rows - 1) / num_rows
+    return (target - base) / difficulty
+
+
 class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
 
-    if "gap" in terrain_name:
+    if terrain_name in ("gap", "pit"):
         class termination():
             reset_unrecoverable_gaps = True
             gap_terrain_depth_threshold = 1.0
@@ -39,6 +59,8 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
         debug_draw_height_points_around_base = True
     
     class terrain( Go2RoughCommonCfg.terrain ):
+        #mesh_type = "trimesh"
+        #mesh_type = "plane"
         # only Stairs, Gap, Pits, High-Platform are used for fft and lora
         # § Tall Stairs [5cm – 30 cm]
         # § Gap [0.1m - 1.0 m]
@@ -64,10 +86,10 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
         }
         terrain_curriculum_difficulty_custom = {
             "step_height": f"0.05 + {0.3 - 0.05} * difficulty",
-            "gap_size": f"0.1 + {1 - 0.1} * difficulty",
-            "pit_depth": f"0.1 + {0.6 - 0.1} * difficulty",
+            "gap_size": f"0.1 + {0.6 - 0.1} * difficulty",
+            "pit_depth": f"0.1 + {solve_x_for_difficulty(Go2RoughCommonCfg.terrain.num_rows, 0.1, 0.6)} * difficulty",
             "high_platform_params": {
-                "high_platform_height": f"0.1 + {0.6 - 0.1} * difficulty",
+                "high_platform_height": f"0.1 + {solve_x_for_difficulty(Go2RoughCommonCfg.terrain.num_rows, 0.1, 0.6)} * difficulty",
                 "high_platform_length": "np.random.uniform(0.6, 1.6)",
                 "high_platform_width": "np.random.uniform(1.0, 2.0)",
                 "high_platform_interval": "np.random.uniform(1.0, 2.0)",
@@ -82,9 +104,12 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
         }
         terrain_curriculum_difficulty.update(terrain_curriculum_difficulty_custom)
         terrain_proportions = terrain_list
+        #terrain_proportions = [0] * 11
+        #terrain_proportions[10] = 1
+        
 
     class viewer(Go2RoughCommonCfg.viewer):
-        rendered_envs_idx = [0] 
+        rendered_envs_idx = [random.randint(0, 3000) for i in range(10)]
 
     class init_state( Go2RoughCommonCfg.init_state ):
         roll_random_scale: float = 0.1  # small random roll to make the policy learn to balance in roll direction
@@ -100,10 +125,14 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
         dt = 0.02  # control frequency 50Hz
         decimation = 4 # decimation: Number of control action updates @ sim DT per policy DT
     class asset( Go2RoughCommonCfg.asset ):
-        if terrain_name == "baseline":
+        if terrain_name in ("pit"):
             terminate_after_contacts_on = ["Head", "base"]
         else:
-            terminate_after_contacts_on = ["Head"]
+            terminate_after_contacts_on = ["Head", "base"]
+        #if terrain_name == "baseline":
+        #    
+        #else:
+        #    terminate_after_contacts_on = ["Head"]
         #termination_count = 100
         #pass
     class rewards( Go2RoughCommonCfg.rewards ):
@@ -137,14 +166,14 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                     hip_pos = -0.15
                     foot_clearance_terrain_aware = 0.7
                     feet_stumble = -1.0
-                    feet_contact_stand_still = 0.1
+                    #feet_contact_stand_still = 0.1
                     feet_near_edge = -1.0
                     feet_air_time = 0.6
                 elif terrain_name in ("pit"):
                     dof_pos_limits = -2.0
                     collision = -10.0
-                    tracking_lin_vel = 0.0
-                    tracking_ang_vel = 0.0
+                    tracking_lin_vel = 1.2
+                    tracking_ang_vel =  0.7
                     lin_vel_z = -0.1
                     ang_vel_xy = -0.05
                     orientation = -0.1
@@ -155,14 +184,14 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                     hip_pos = -0.015
                     foot_clearance_terrain_aware = 0.7
                     feet_stumble = -1.0
-                    feet_contact_stand_still = 0.1
+                    #feet_contact_stand_still = 0.1
                     feet_near_edge = -1.0
                     feet_air_time = 0.6
 
-                    base_up_pit = 0.5
-                    corner_proximity = -0.2
-                    base_height = -0.0
-                    alive = 1
+                    #base_up_pit = 0.5
+                    #corner_proximity = -0.2
+                    #base_height = -0.0
+                    #alive = 1
                 elif terrain_name in ("multiple_high_platforms"):
                     dof_pos_limits = -2.0
                     collision = -10.0
@@ -178,7 +207,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                     hip_pos = -0.015
                     foot_clearance_terrain_aware = 0.7
                     feet_stumble = -1.0
-                    feet_contact_stand_still = 0.1
+                    #feet_contact_stand_still = 0.1
                     feet_near_edge = -1.0
                     feet_air_time = 0.6
                     base_height = -0.0
@@ -194,7 +223,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
         resampling_time = 10.  # time before command are changed[s]
         heading_command = True # if true: compute ang vel command from heading error
 
-        if terrain_name in ("baseline"):
+        if terrain_name in ("baseline", "pit"):
             custom_command_curriculum = False
         else:
             custom_command_curriculum =  True
@@ -340,5 +369,9 @@ class Go2DepthWaqCfgPPO( LeggedRobotDreamwaqCfgPPO ):
         else:
             if terrain_name in ("baseline"):
                 max_iterations = 3000
+            elif terrain_name in ("pit"):
+                max_iterations = 30000
+            elif terrain_name in ("stairs", "gap"):
+                max_iterations = 20000
             else:
                 max_iterations = 10000

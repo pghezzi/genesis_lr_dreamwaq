@@ -689,6 +689,8 @@ class GenesisSimulator(Simulator):
         self._measured_heights = heights.view(self._num_envs, -1) * self._cfg.terrain.vertical_scale
     
     def _calc_terrain_info_around_feet(self):
+        if self._cfg.terrain.mesh_type == "plane":
+            return
         """ Finds neighboring points around each foot for terrain height measurement."""
         # Foot positions
         foot_points = self._feet_pos + self._cfg.terrain.border_size
@@ -871,6 +873,7 @@ class GenesisSimulator(Simulator):
     def _create_warp_envs(self):
       # extract terrain mesh
       terrain_mesh = self._gs_terrain.geoms[0].get_trimesh()
+      print("adding_trimesh to warp_env", type(terrain_mesh))
       
       #save terrain mesh
       transform = np.zeros((3,))

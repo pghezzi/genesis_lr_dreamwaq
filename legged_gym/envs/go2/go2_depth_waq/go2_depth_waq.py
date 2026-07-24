@@ -176,7 +176,8 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
             (self.fail_buf > self.cfg.env.fail_to_terminal_time_s / self.dt)
             | self.time_out_buf
             | self.gap_reset_buf
-        ) 
+        )
+
 
     def _check_unrecoverable_gap(self):
         if (
@@ -288,11 +289,13 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
             
             difficulty = self.simulator.terrain_levels / self.cfg.terrain.num_rows
             self.platform_size = self.cfg.terrain.platform_size
-            self.pit_depth = eval(self.cfg.terrain.terrain_curriculum_difficulty["pit_depth"])
+            self.pit_depth_eval = self.cfg.terrain.terrain_curriculum_difficulty["pit_depth"]
+            self.pit_depth = eval(self.pit_depth_eval)
         else:
-            if "depth" in self.cfg.terrain.terrain_kwargs:
+            self.pit_depth_eval = None
+            if self.cfg.terrain.terrain_kwargs and "depth" in self.cfg.terrain.terrain_kwargs:
                 self.pit_depth = self.cfg.terrain.terrain_kwargs["depth"]
-        self.depth_sensor_write_ptr = 0
+
     
     def _resample_commands(self, env_ids) -> None:
         if not self._reset_unrecoverable_gaps and not self.custom_command_curriculum:
@@ -356,8 +359,10 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
     def reset_idx(self, env_ids):
         super().reset_idx(env_ids)
         self.gap_fall_counter[env_ids] = 0
-        difficulty = self.simulator.terrain_levels / self.cfg.terrain.num_rows
-        self.pit_depth = eval(self.cfg.terrain.terrain_curriculum_difficulty["pit_depth"])
+        
+        if self.pit_depth_eval:
+            difficulty = self.simulator.terrain_levels / self.cfg.terrain.num_rows
+            self.pit_depth = eval(self.pit_depth_eval)
 
     def _post_physics_step_callback(self):
         super()._post_physics_step_callback()
