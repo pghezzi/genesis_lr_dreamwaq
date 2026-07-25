@@ -136,7 +136,8 @@ def get_args():
     parser.add_argument('--jit',            type=str, default='', help="path to a jit-scripted policy to load and swap with the trained policy (replaces JIT env var)")
     parser.add_argument('--curriculum', action='store_true', default=False, help="Load default curriculum")
     parser.add_argument('--test_terrain', type=str, default='random_uniform', help="current test_terrain")
-    parser.add_argument('--no_depth_cam', type=str, default='random_uniform', help="disable test cam if available")
+    parser.add_argument('--no_depth_cam', action='store_true', default=False, help="disable test cam if available")
+    parser.add_argument('--terrain_detector', type=str, default='', help="test a terrain detector")
 
     
     return configure_runtime_device(parser.parse_args())
@@ -359,6 +360,11 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
 
     # logger = ExpLogger(train_cfg.runner.exp_data_path)
 
+    if args.terrain_detector:
+        from legged_gym.utils.depth_terrain_classifier.depth_terrain_classifier import DepthTerrainClassifier
+        terrain_detector = DepthTerrainClassifier(pca_dim=4, num_prototypes=3)
+        terrain_detector.load(args.terrain_detector)
+
     if "lora" in train_cfg.runner.experiment_name.lower():
         folder = "go2_lora_seq_terrain_tests"
     else:
@@ -465,6 +471,12 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
                 depth_images_log.append(env.depth_sensor_output.detach().cpu().clone())
                 base_rpy_log.append(env.simulator._base_euler.detach().cpu().clone())
                 base_ang_vel_log.append(env.simulator.base_ang_vel.detach().cpu().clone())
+            if args.terrain_detector:
+                _depth = env.depth_sensor_output[0].squeeze().detach().cpu()
+                _euler = env.simulator._base_euler[0].detach().cpu().clone()
+                _angve = env.simulator.base_ang_vel[0].detach().cpu().clone()
+                predicted = terrain_detector.predict_depth(_depth, _euler, _angve)
+                print(predicted.label)
         elif "waq" in task_name:
             actions = policy(obs_buf, obs_history)
             obs_buf, privileged_obs_buf, obs_history, explicit_labels, next_states, rews, dones, infos = env.step(actions.detach())            
@@ -540,7 +552,7 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
         cv2.destroyAllWindows()
 
     if args.save_depth_classifier_data:
-        depth_images_tensor = torch.stack(depth_images_log, dim=0)   # [T, num_envs, H, W] (or however depth is shaped)
+        depth_images_tensor = torch.stack(depth_images_log, dim=0).squeeze(2)   # [T, num_envs, H, W] (or however depth is shaped)
         base_rpy_tensor = torch.stack(base_rpy_log, dim=0)       # [T, num_envs, 4]
         base_ang_vel_tensor = torch.stack(base_ang_vel_log, dim=0)
         save_dir = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name)
@@ -644,7 +656,7 @@ def play(args):
             "args": temp
         },
         path)
-    
+
     # export policy as a jit module (used to run it from C++ or python)
     #if train_cfg.runner.load_run == -1:
     #    log_root = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name)
