@@ -1,13 +1,14 @@
 from legged_gym.utils.depth_terrain_classifier.depth_terrain_classifier import DepthTerrainClassifier
+from legged_gym import LEGGED_GYM_ROOT_DIR
 import torch
 import gc
 from contextlib import contextmanager
 import time
 
-calibration_file = "/home/pablo/Legged_Gym_EX/depth_waq_selector/processed_data/calibration.pt"
-validation_file = "/home/pablo/Legged_Gym_EX/depth_waq_selector/processed_data/val.pt"
-train_file = "/home/pablo/Legged_Gym_EX/depth_waq_selector/processed_data/train.pt"
-test_file = "/home/pablo/Legged_Gym_EX/depth_waq_selector/processed_data/test.pt"
+calibration_file = f"{LEGGED_GYM_ROOT_DIR}/depth_waq_selector/processed_data/calibration.pt"
+validation_file = f"{LEGGED_GYM_ROOT_DIR}/depth_waq_selector/processed_data/val.pt"
+train_file = f"{LEGGED_GYM_ROOT_DIR}/depth_waq_selector/processed_data/train.pt"
+test_file = f"{LEGGED_GYM_ROOT_DIR}/depth_waq_selector/processed_data/test.pt"
 
 @contextmanager
 def timed(name):
@@ -128,20 +129,18 @@ def main():
 
     del labels
 
-    
-
     from datetime import datetime
     import os
 
-    out_dir = "/home/pablo/Legged_Gym_EX/depth_waq_selector/models"
+    out_dir = f"{LEGGED_GYM_ROOT_DIR}/depth_waq_selector/models"
     os.makedirs(out_dir, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    model_path = os.path.join(out_dir, f"selector_model_{int(temporal_accuracy)}_{int(instantaneous_accuracy)}_{timestamp}.pt")
-
+    model_path = os.path.join(out_dir, f"selector_model_acc_{int(temporal_accuracy)}_intacc_{int(instantaneous_accuracy)}_{timestamp}.pt")
+    
     model.save(model_path)
     print(f"Model saved to: {model_path}")
     print(f"Total time {time.perf_counter() - total_start}")
 
 if __name__ == "__main__":
-    model = main()
+    main()

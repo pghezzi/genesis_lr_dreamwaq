@@ -1,6 +1,8 @@
 import torch
 import os
 
+from legged_gym import LEGGED_GYM_ROOT_DIR
+
 
 SEED = 42
 FRAC = 0.1
@@ -107,11 +109,10 @@ def merge_sets(*datasets):
             merged[key] = torch.cat([d[key] for d in datasets], dim=0)
     return merged
 
-path_plane = "/home/pablo/Legged_Gym_EX/logs/go2_depth_waq_baseline_start_fresh/Jul07_06-24-55_dreamwaq_isaacgym/go2_depth_waq_baseline_start_fresh_plane_capture.pt"
-    
-path_baseline = "/home/pablo/Legged_Gym_EX/logs/go2_depth_waq_baseline_start_fresh/Jul07_06-24-55_dreamwaq_isaacgym/go2_depth_waq_baseline_start_fresh_baseline_capture.pt"
-path_stairs = "/home/pablo/Legged_Gym_EX/logs/go2_depth_waq_lora_8_stairs/Jul09_01-33-34_dreamwaq_genesis/go2_depth_waq_lora_8_stairs_stairs_capture.pt"
-path_gap = "/home/pablo/Legged_Gym_EX/logs/go2_depth_waq_lora_8_gap_experiment1_first_test/Jul16_19-41-34_dreamwaq_genesis/go2_depth_waq_lora_8_gap_experiment1_first_test_gap_capture.pt"
+path_plane = f"{LEGGED_GYM_ROOT_DIR}/logs/go2_depth_waq_baseline_start_fresh/Jul07_06-24-55_dreamwaq_isaacgym/go2_depth_waq_baseline_start_fresh_plane_capture.pt"
+path_baseline = f"{LEGGED_GYM_ROOT_DIR}/logs/go2_depth_waq_baseline_start_fresh/Jul07_06-24-55_dreamwaq_isaacgym/go2_depth_waq_baseline_start_fresh_baseline_capture.pt"
+path_stairs = f"{LEGGED_GYM_ROOT_DIR}/logs/go2_depth_waq_lora_8_stairs/Jul09_01-33-34_dreamwaq_genesis/go2_depth_waq_lora_8_stairs_stairs_capture.pt"
+path_gap = f"{LEGGED_GYM_ROOT_DIR}/logs/go2_depth_waq_lora_8_gap_experiment1_first_test/Jul16_19-41-34_dreamwaq_genesis/go2_depth_waq_lora_8_gap_experiment1_first_test_gap_capture.pt"
 
 
 
@@ -122,7 +123,7 @@ if __name__ == "__main__":
     val         = merge_sets(*[data[1] for data in all_data])
     test        = merge_sets(*[data[2] for data in all_data])
 
-    out_dir = "/home/pablo/Legged_Gym_EX/depth_waq_selector/processed_data"
+    out_dir = f"{LEGGED_GYM_ROOT_DIR}/depth_waq_selector/processed_data"
     os.makedirs(out_dir, exist_ok=True)
 
     torch.save(train, os.path.join(out_dir, "train.pt"))

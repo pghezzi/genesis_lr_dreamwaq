@@ -138,7 +138,7 @@ def get_args():
     parser.add_argument('--test_terrain', type=str, default='random_uniform', help="current test_terrain")
     parser.add_argument('--no_depth_cam', action='store_true', default=False, help="disable test cam if available")
     parser.add_argument('--terrain_detector', type=str, default='', help="test a terrain detector")
-
+    parser.add_argument('--command_test_suite', action='store_true', default=False, help="run a simple commnad test suite")
     
     return configure_runtime_device(parser.parse_args())
 
@@ -165,7 +165,7 @@ def override_configs(env_cfg, args):
         "stairs": {
             "type": "terrain_utils.pyramid_stairs_terrain",
             "step_width": 0.4,
-            "step_height": -0.3,
+            "step_height": -0.2,
             "platform_size": 3.0,
         },
         "discrete": {
@@ -195,7 +195,7 @@ def override_configs(env_cfg, args):
         },
         "pit": {
             "type": "terrain_utils.pit_terrain",
-            "depth": 0.6,
+            "depth": 0.5,
             "platform_size": 3.0,
         },
         "multiple_high_platforms" : {
@@ -216,6 +216,7 @@ def override_configs(env_cfg, args):
     #env_cfg.init_state.pos = [0, 3, 2]
     env_cfg.env.num_envs = envs
     env_cfg.asset.terminate_after_contacts_on = []
+    env_cfg.init_state.yaw_random_scale = 0
     if hasattr(env_cfg.env, "num_camera_envs"):
         env_cfg.env.num_camera_envs = env_cfg.env.num_envs
     if "cts" in task_name:  # cts specific
@@ -412,14 +413,35 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
 
     for i in range(int(4.00*env.max_episode_length)):
 
-        if args.use_joystick:
+        #print(env.pit_depth)
+
+        if args.command_test_suite:
+            current = i // env.max_episode_length
+            if current == 0:
+                env.commands[:, 0] = 1
+                env.commands[:, 1] = 0
+                env.commands[:, 3] = 0
+            if current == 1:
+                env.commands[:, 0] = 1
+                env.commands[:, 1] = 0
+                env.commands[:, 3] = 3.14/2
+            if current == 2:
+                env.commands[:, 0] = 1
+                env.commands[:, 1] = 1
+                env.commands[:, 3] = 0
+            if current == 3:
+                env.commands[:, 0] = 1
+                env.commands[:, 1] = 0
+                env.commands[:, 3] = 3.14
+            if i % env.max_episode_length == 0:
+                print(f"Current commands [{env.commands[0, 0]}, {env.commands[0, 1]}, x, {env.commands[0, 3]}]")
+        elif args.use_joystick:
             joystick.update()
             env.commands[:, 0] = -joystick.ly
             env.commands[:, 1] = -joystick.lx
             env.commands[:, 2] = -joystick.rx
         elif i % env.max_episode_length == 0:
             env._resample_commands(torch.arange(env.num_envs))
-            #env.commands[:, 0] = 1
 
         if args.save_depth_classifier_data:
             pass
@@ -624,8 +646,8 @@ def play(args):
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
     #randomly divides robots
-    #env.simulator._terrain_levels[:] = env.simulator._max_terrain_level + 1
-    #env.reset_idx(torch.arange(env.num_envs))
+    env.simulator._terrain_levels[:] = env.simulator._max_terrain_level + 1
+    env.reset_idx(torch.arange(env.num_envs))
     # load policy
     train_cfg.runner.resume = True
 

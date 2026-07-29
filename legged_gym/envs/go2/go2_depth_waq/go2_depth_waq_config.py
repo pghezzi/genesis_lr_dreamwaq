@@ -32,7 +32,7 @@ def solve_x_for_difficulty(num_rows, base=0.1, target=0.6):
 
 class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
 
-    if terrain_name in ("gap", "pit"):
+    if terrain_name in ("gap"):
         class termination():
             reset_unrecoverable_gaps = True
             gap_terrain_depth_threshold = 1.0
@@ -86,10 +86,10 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
         }
         terrain_curriculum_difficulty_custom = {
             "step_height": f"0.05 + {0.3 - 0.05} * difficulty",
-            "gap_size": f"0.1 + {0.6 - 0.1} * difficulty",
-            "pit_depth": f"0.1 + {solve_x_for_difficulty(Go2RoughCommonCfg.terrain.num_rows, 0.1, 0.6)} * difficulty",
+            "gap_size": f"0.1 + 1.0 * difficulty",
+            "pit_depth": f"0.1 + 0.6 * difficulty",
             "high_platform_params": {
-                "high_platform_height": f"0.1 + {solve_x_for_difficulty(Go2RoughCommonCfg.terrain.num_rows, 0.1, 0.6)} * difficulty",
+                "high_platform_height": f"0.1 + 0.6 * difficulty",
                 "high_platform_length": "np.random.uniform(0.6, 1.6)",
                 "high_platform_width": "np.random.uniform(1.0, 2.0)",
                 "high_platform_interval": "np.random.uniform(1.0, 2.0)",
@@ -187,7 +187,6 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                     #feet_contact_stand_still = 0.1
                     feet_near_edge = -1.0
                     feet_air_time = 0.6
-
                     #base_up_pit = 0.5
                     #corner_proximity = -0.2
                     #base_height = -0.0
@@ -368,9 +367,9 @@ class Go2DepthWaqCfgPPO( LeggedRobotDreamwaqCfgPPO ):
             max_iterations = int(num_iters)
         else:
             if terrain_name in ("baseline"):
-                max_iterations = 3000
+                max_iterations = 5000
             elif terrain_name in ("pit"):
-                max_iterations = 30000
+                max_iterations = 40000
             elif terrain_name in ("stairs", "gap"):
                 max_iterations = 20000
             else:

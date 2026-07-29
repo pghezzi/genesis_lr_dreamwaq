@@ -550,7 +550,7 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
     def _reward_world_heading_l2norm(self):
         def wrap_to_pi(angle):
             return torch.remainder(angle + torch.pi, 2 * torch.pi) - torch.pi
-        return torch.abs(wrap_to_pi(self.commands[:, 2] - self.heading))
+        return torch.abs(wrap_to_pi(self.commands[:, 3] - self.heading))
 
     def _reward_corner_proximity(self):
         # position relative to the platform center, in the horizontal plane
