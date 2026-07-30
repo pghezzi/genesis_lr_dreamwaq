@@ -13,6 +13,8 @@ from collections import OrderedDict
 from itertools import repeat
 from abc import abstractmethod
 
+from typing import Tuple
+
 
 class LoRALayer():
     def __init__(
@@ -489,7 +491,7 @@ class MultiLora(nn.Module):
     def append(self, lora: "LoRALayer"):
         self.loras.append((lora.lora_A, lora.lora_B, lora.scaling))
 
-    def _lora_weight(self, triple: tuple[torch.Tensor, torch.Tensor, float]):
+    def _lora_weight(self, triple: Tuple[torch.Tensor, torch.Tensor, float]):
         lora_A, lora_B, scaling = triple
         return (lora_B @ lora_A).view_as(self.base_module.weight) * scaling
 

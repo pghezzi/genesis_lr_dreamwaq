@@ -16,6 +16,63 @@ import cv2
 
 SWAP = 1
 
+command_tests = {
+    "forward": {
+        "vx": 1.0, "vy": 0.0, "wz": 0.0, "heading": 0.0,
+    },
+    "backward": {
+        "vx": -1.0, "vy": 0.0, "wz": 0.0, "heading": 0.0,
+    },
+    "left_strafe": {
+        "vx": 0.0, "vy": 1.0, "wz": 0.0, "heading": 0.0,
+    },
+    "right_strafe": {
+        "vx": 0.0, "vy": -1.0, "wz": 0.0, "heading": 0.0,
+    },
+    "forward_left": {
+        "vx": 1.0, "vy": 1.0, "wz": 0.0, "heading": 0.0,
+    },
+    "forward_right": {
+        "vx": 1.0, "vy": -1.0, "wz": 0.0, "heading": 0.0,
+    },
+    "backward_left": {
+        "vx": -1.0, "vy": 1.0, "wz": 0.0, "heading": 0.0,
+    },
+    "backward_right": {
+        "vx": -1.0, "vy": -1.0, "wz": 0.0, "heading": 0.0,
+    },
+    "rotate_ccw": {
+        "vx": 0.0, "vy": 0.0, "wz": 1.0, "heading": 0.0,
+    },
+    "rotate_cw": {
+        "vx": 0.0, "vy": 0.0, "wz": -1.0, "heading": 0.0,
+    },
+    "forward_turn_left": {
+        "vx": 1.0, "vy": 0.0, "wz": 0.5, "heading": 0.0,
+    },
+    "forward_turn_right": {
+        "vx": 1.0, "vy": 0.0, "wz": -0.5, "heading": 0.0,
+    },
+    "diag_turn_left": {
+        "vx": 0.5, "vy": 0.5, "wz": 0.5, "heading": 0,
+    },
+    "diag_turn_right": {
+        "vx": 0.5, "vy": -0.5, "wz": -0.5, "heading": 0,
+    },
+    "heading_90": {
+        "vx": 0.0, "vy": 0.0, "wz": 0.0, "heading": np.pi / 2,
+    },
+    "heading_180": {
+        "vx": 0.0, "vy": 0.0, "wz": 0.0, "heading": np.pi,
+    },
+    "heading_minus90": {
+        "vx": 0.0, "vy": 0.0, "wz": 0.0, "heading": -np.pi / 2,
+    },
+    "stand": {
+        "vx": 0.0, "vy": 0.0, "wz": 0.0, "heading": 0.0,
+    },
+}
+
 def _normalize_gpu_arg(gpu):
     gpu = str(gpu).strip().lower()
     if gpu.isdigit():
@@ -225,24 +282,28 @@ def override_configs(env_cfg, args):
     # adjust parameters according to terrain type
 
     #env_cfg.terrain.vertical_scale = 0.1
-    if env_cfg.terrain.mesh_type in ["heightfield", "trimesh"]:
+    if args.curriculum:
+        env_cfg.terrain.num_cols = sum(1 for x in env_cfg.terrain.terrain_proportions if x > 0)
+        env_cfg.terrain.num_rows = 10 // env_cfg.terrain.num_cols
+        env_cfg.terrain.border_size = 5.0
+    elif env_cfg.terrain.mesh_type in ["heightfield", "trimesh"]:
         env_cfg.terrain.num_rows = 10
         env_cfg.terrain.num_cols = 1
         env_cfg.terrain.border_size = 5.0
-        if args.curriculum:
-            return
         if args.test_terrain == "plane":
-            env_cfg.terrain.terrain_proportions = [0] * 10
+            if env_cfg.terrain.mesh_type == "heightfield":
+                env_cfg.terrain.terrain_proportions = [0] * 10
+            elif env_cfg.terrain.mesh_type == "trimesh":
+                pass
+                #TODO add patch to allow planes in issac
+            env_cfg.terrain.terrain_kwargs = {}
         else:
             env_cfg.terrain.curriculum = False
             env_cfg.terrain.selected   = True
-            pass
-        if args.test_terrain == "baseline":
-            env_cfg.terrain.terrain_kwargs = TERRAIN_CONFIGS["random_uniform"]
-        elif args.test_terrain == "plane":
-            env_cfg.terrain.terrain_kwargs = {}
-        else:
-            env_cfg.terrain.terrain_kwargs = TERRAIN_CONFIGS[args.test_terrain]
+            if args.test_terrain == "baseline":
+                env_cfg.terrain.terrain_kwargs = TERRAIN_CONFIGS["random_uniform"]
+            else:
+                env_cfg.terrain.terrain_kwargs = TERRAIN_CONFIGS[args.test_terrain]
 
         #env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.random_uniform_terrain", 
         #                                  "min_height" : -0.05, "max_height": 0.05, 
@@ -410,31 +471,23 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
     #if args.record_frames:
     #    env.simulator._floating_camera.start_recording()
     # interaction loop
+    if args.command_test_suite:
+        iter_count = len(list(command_tests.keys()))
+        test_names = list(command_tests.keys())
+    else:
+        iter_count = 4.0
 
-    for i in range(int(4.00*env.max_episode_length)):
-
-        #print(env.pit_depth)
-
+    for i in range(int(iter_count*env.max_episode_length)):
         if args.command_test_suite:
             current = i // env.max_episode_length
-            if current == 0:
-                env.commands[:, 0] = 1
-                env.commands[:, 1] = 0
-                env.commands[:, 3] = 0
-            if current == 1:
-                env.commands[:, 0] = 1
-                env.commands[:, 1] = 0
-                env.commands[:, 3] = 3.14/2
-            if current == 2:
-                env.commands[:, 0] = 1
-                env.commands[:, 1] = 1
-                env.commands[:, 3] = 0
-            if current == 3:
-                env.commands[:, 0] = 1
-                env.commands[:, 1] = 0
-                env.commands[:, 3] = 3.14
             if i % env.max_episode_length == 0:
-                print(f"Current commands [{env.commands[0, 0]}, {env.commands[0, 1]}, x, {env.commands[0, 3]}]")
+                name = test_names[current]
+                cmd = command_tests[name]
+                print(f"Running test {name}, {cmd}")
+            env.commands[:, 0] = cmd["vx"]
+            env.commands[:, 1] = cmd["vy"]
+            env.commands[:, 2] = cmd["wz"]
+            env.commands[:, 3] = cmd["heading"]
         elif args.use_joystick:
             joystick.update()
             env.commands[:, 0] = -joystick.ly
@@ -448,17 +501,12 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
 
         
         if args.jit and i == env.max_episode_length:
-            print("swap")
+            print(f"swap to {-1}")
             policy.swap(-1)
         if args.jit and i == 2*env.max_episode_length:
-            print("swap")
+            print(f"swap to {SWAP}")
             policy.swap(SWAP)
-        #if i % env.max_episode_length == 0:
-        #    env.commands[:, 0] = torch.empty(env.num_envs, device=env.device).uniform_(-1.0, 1.0)
-        #    env.commands[:, 1] = torch.empty(env.num_envs, device=env.device).uniform_(-1.0, 1.0)
-        #    env.commands[:, 2] = torch.empty(env.num_envs, device=env.device).uniform_(-1.0, 1.0)
-        #    env.commands[:, 3] = torch.empty(env.num_envs, device=env.device).uniform_(-3.14, 3.14)
-        
+
         # update commands from joystick
         
         
@@ -480,10 +528,9 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
             actions = policy(estimator_features.detach())
             estimator_features, estimator_labels, _, rews, dones, infos = env.step(actions.detach())
         elif "depth_waq" in task_name:
-            
             actions = policy(obs_buf, obs_history, depth)
             if policy1 is not None:
-                print(f"{torch.sum(torch.abs(actions - policy1(obs_buf, obs_history, depth)))}")
+                print(f"Models diff: {torch.sum(torch.abs(actions - policy1(obs_buf, obs_history, depth)))}")
             obs_buf, privileged_obs_buf, obs_history, explicit_labels, next_states, rews, dones, infos, depth = env.step(actions.detach())
             if not args.no_depth_cam:
                 cv2.imshow("Depth", ((env.depth_sensor_output[0].squeeze())*255).to(torch.uint8).cpu().numpy())
@@ -498,7 +545,7 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
                 _euler = env.simulator._base_euler[0].detach().cpu().clone()
                 _angve = env.simulator.base_ang_vel[0].detach().cpu().clone()
                 predicted = terrain_detector.predict_depth(_depth, _euler, _angve)
-                print(predicted.label)
+                print(f"Label predicted for frame {predicted.label}")
         elif "waq" in task_name:
             actions = policy(obs_buf, obs_history)
             obs_buf, privileged_obs_buf, obs_history, explicit_labels, next_states, rews, dones, infos = env.step(actions.detach())            
@@ -520,11 +567,7 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
             if env_ids.numel() > 0:
                 env.simulator._terrain_levels[env_ids] = env.simulator._max_terrain_level + 1
                 env.reset_idx(env_ids)
-        #print(env.pit_depth)
-
         
-        
-        #print(env.commands[0, :])
         # print debug info
         print_debug_info(env, robot_index)
         
@@ -574,10 +617,10 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
         cv2.destroyAllWindows()
 
     if args.save_depth_classifier_data:
-        depth_images_tensor = torch.stack(depth_images_log, dim=0).squeeze(2)   # [T, num_envs, H, W] (or however depth is shaped)
+        depth_images_tensor = torch.stack(depth_images_log, dim=0).squeeze(2)   # [T, num_envs, 1, H, W] (or however depth is shaped)
         base_rpy_tensor = torch.stack(base_rpy_log, dim=0)       # [T, num_envs, 4]
         base_ang_vel_tensor = torch.stack(base_ang_vel_log, dim=0)
-        save_dir = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name)
+        save_dir = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs_depth_data', train_cfg.runner.experiment_name)
         path = get_load_path(save_dir, load_run=train_cfg.runner.load_run, checkpoint=train_cfg.runner.checkpoint)
         os.makedirs(save_dir, exist_ok=True)
 

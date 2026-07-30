@@ -121,7 +121,10 @@ class IsaacGymSimulator(Simulator):
         self._dof_pos[env_ids] = dof_pos[:, self._dof_indices]
         self._dof_vel[env_ids] = dof_vel[:, self._dof_indices]
 
-        env_ids_int32 = env_ids.to(dtype=torch.int32)
+        
+
+        env_ids_int32 = env_ids.to(dtype=torch.int32, device=self._device)
+
         self._gym.set_dof_state_tensor_indexed(self._sim,
                                                gymtorch.unwrap_tensor(self._dof_state),
                                                gymtorch.unwrap_tensor(env_ids_int32), 
@@ -140,7 +143,7 @@ class IsaacGymSimulator(Simulator):
         # base velocities in world frame
         self._root_states[env_ids, 7:10] = base_lin_vel_w[:]
         self._root_states[env_ids, 10:13] = base_ang_vel_w[:]
-        env_ids_int32 = env_ids.to(dtype=torch.int32)
+        env_ids_int32 = env_ids.to(dtype=torch.int32, device=self._device)
         self._gym.set_actor_root_state_tensor_indexed(self._sim,
                                                       gymtorch.unwrap_tensor(self._root_states),
                                                       gymtorch.unwrap_tensor(env_ids_int32), 
@@ -588,7 +591,7 @@ class IsaacGymSimulator(Simulator):
             else:
                 self._terrain_types = torch.div(torch.arange(self._num_envs, device=self._device), (self._num_envs/self._cfg.terrain.num_cols), rounding_mode='floor').to(torch.long)
             self._max_terrain_level = self._cfg.terrain.num_rows
-            self._terrain_origins = torch.from_numpy(self._terrain.env_origins).to(self._device).to(torch.float)
+            self._terrain_origins = torch.from_numpy(self._terrain.env_origins).to(device=self._device, dtype=torch.float)
             self._env_origins[:] = self._terrain_origins[self._terrain_levels, self._terrain_types]
         else:
             self._custom_origins = False
@@ -679,7 +682,7 @@ class IsaacGymSimulator(Simulator):
             # reset base position to initial position
             self._root_states[env_ids, 0:3] = self._base_init_pos
             self._root_states[env_ids, 0:3] += self._env_origins[env_ids]
-            env_ids_int32 = env_ids.to(dtype=torch.int32)
+            env_ids_int32 = env_ids.to(dtype=torch.int32, device=self._device)
             self._gym.set_actor_root_state_tensor_indexed(self._sim,
                                                      gymtorch.unwrap_tensor(self._root_states),
                                                      gymtorch.unwrap_tensor(env_ids_int32), 
