@@ -47,18 +47,18 @@ command_tests = {
     "rotate_cw": {
         "vx": 0.0, "vy": 0.0, "wz": -1.0, "heading": 0.0,
     },
-    "forward_turn_left": {
-        "vx": 1.0, "vy": 0.0, "wz": 0.5, "heading": 0.0,
-    },
-    "forward_turn_right": {
-        "vx": 1.0, "vy": 0.0, "wz": -0.5, "heading": 0.0,
-    },
-    "diag_turn_left": {
-        "vx": 0.5, "vy": 0.5, "wz": 0.5, "heading": 0,
-    },
-    "diag_turn_right": {
-        "vx": 0.5, "vy": -0.5, "wz": -0.5, "heading": 0,
-    },
+    #"forward_turn_left": {
+    #    "vx": 1.0, "vy": 0.0, "wz": 0.5, "heading": 0.0,
+    #},
+    #"forward_turn_right": {
+    #    "vx": 1.0, "vy": 0.0, "wz": -0.5, "heading": 0.0,
+    #},
+    #"diag_turn_left": {
+    #    "vx": 0.5, "vy": 0.5, "wz": 0.5, "heading": 0,
+    #},
+    #"diag_turn_right": {
+    #    "vx": 0.5, "vy": -0.5, "wz": -0.5, "heading": 0,
+    #},
     "heading_90": {
         "vx": 0.0, "vy": 0.0, "wz": 0.0, "heading": np.pi / 2,
     },
