@@ -1,5 +1,5 @@
 THIS IS NOT THE ORIGINAL REPO. THIS A REPUPOSING OF THE ORIGINAL.
-TEXT BELOW IS FROM THE ORIGINAL
+TEXT BELOW IS FROM THE ORIGINAL + Additional Comments at the end of the file (Jasmine)
 
 # 🦿 LeggedGym-Ex
 
@@ -87,3 +87,48 @@ You can add our Feishu group to get latest update or ask questions:
 <img src="https://github.com/lupinjia/leggedgym-ex-doc/blob/main/source/_static/images/feishu_group_qrcode.png?raw=true" width="350">
 
 Or you add our [discord channel](https://discord.gg/s9Hd8B7r6) to get updates or ask questions:
+
+## How to Configure the LoRA teachers
+
+Edit only:
+
+`legged_gym/envs/go2/go2_depth_waq_distill/go2_depth_waq_distill_config.py`
+
+Example:
+
+```python
+teachers = [
+    {
+        "name": "stairs",
+        "base_model": "/abs/base/model_5000.pt",
+        "checkpoint": "/abs/lora_stairs/model_3000.pt",
+        "rank": 8,
+    },
+    {
+        "name": "gaps",
+        "base_model": "/abs/base/model_5000.pt",
+        "checkpoint": "/abs/lora_gaps/model_3000.pt",
+        "rank": 8,
+    },
+]
+
+terrain_type_to_teacher = [0, 0, 0, 1, 1, 1]
+```
+
+Each teacher is reconstructed through the repo's existing
+`ActorCriticDreamWaQDepthLora`. The constructor loads `base_model`; the runner
+then loads the teacher's saved LoRA checkpoint.
+
+## Important semantics // Overview of DAggger Implementation 
+
+- The generalist student is `ActorCriticDreamWaQDepth`.
+- Every fixed teacher is `ActorCriticDreamWaQDepthLora`.
+- Only the student action is passed to `env.step`.
+- Each teacher labels the same state from which the student acted.
+- The critic, rewards, returns, advantages, PPO ratio, and value loss are not
+  used to train the student.
+- The algorithm name remains `PPO_WAQ_Distill` only for repository/config
+  compatibility and because that is the name requested by the PI.
+- Teacher IDs have shape `[num_envs, 1]`.
+- Fewer camera environments are supported: missing per-env depth inputs are
+  padded with zeros, matching the current depth actor's zero-latent behavior.

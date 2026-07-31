@@ -79,6 +79,7 @@ from legged_gym.envs.go2.go2_cat.go2_cat_config import Go2CaTCfg, Go2CaTCfgPPO
 # go2_ts_depth
 from legged_gym.envs.go2.go2_ts_depth.go2_ts_depth import Go2TSDepth
 from legged_gym.envs.go2.go2_ts_depth.go2_ts_depth_config import Go2TSDepthCfg, Go2TSDepthCfgPPO
+
 # go2_nav
 from legged_gym.envs.go2.go2_nav.go2_nav import GO2Nav
 from legged_gym.envs.go2.go2_nav.go2_nav_config import GO2NavCfg, GO2NavCfgPPO
@@ -125,12 +126,16 @@ task_registry.register( "tron1sf", TRON1SF, TRON1SFCfg(), TRON1SFCfgPPO())
 # task_registry.register( "go2_sysid", GO2SysID, GO2SysIDCfg(), GO2CfgPPO())
 # task_registry.register( "bipedal_walker", BipedalWalker, BipedalWalkerCfg(), BipedalWalkerCfgPPO())
 
-#custom
+# CUSTOM
 from legged_gym.envs.go2.go2_depth_waq.go2_depth_waq import Go2DepthWaq
 from legged_gym.envs.go2.go2_depth_waq.go2_depth_waq_config import Go2DepthWaqCfg, Go2DepthWaqCfgPPO
 from legged_gym.envs.go2.go2_depth_waq_lora.go2_depth_waq_lora import Go2DepthWaqLora
 from legged_gym.envs.go2.go2_depth_waq_lora.go2_depth_waq_lora_config import Go2DepthWaqLoraCfg, Go2DepthWaqLoraCfgPPO
+## go2_depth_waq_distill
+from legged_gym.envs.go2.go2_depth_waq_distill import Go2DepthWaqDistill
+from legged_gym.envs.go2.go2_depth_waq_distill.go2_depth_waq_distill_config import (Go2DepthWaqDistillCfg,Go2DepthWaqDistillCfgPPO)
+
 
 task_registry.register( "go2_depth_waq", Go2DepthWaq, Go2DepthWaqCfg(), Go2DepthWaqCfgPPO())
 task_registry.register( "go2_depth_waq_lora", Go2DepthWaqLora, Go2DepthWaqLoraCfg(), Go2DepthWaqLoraCfgPPO())
-
+task_registry.register("go2_depth_waq_distill",Go2DepthWaqDistill, Go2DepthWaqDistillCfg(),Go2DepthWaqDistillCfgPPO())
