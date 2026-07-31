@@ -10,6 +10,66 @@ from legged_gym.envs.go2.go2_depth_waq.go2_depth_waq_config import (
     Go2DepthWaqCfgPPO,
 )
 
+# This file is located at:
+#
+# Legged_Gym_EX/
+# └── legged_gym/
+#     └── envs/
+#         └── go2/
+#             └── go2_depth_waq_distill/
+#                 └── go2_depth_waq_distill_config.py
+#
+# parents[4] therefore points to the Legged_Gym_EX repository root.
+REPO_ROOT = Path(__file__).resolve().parents[4]
+
+# Load environment variables from:
+#
+# Legged_Gym_EX/.env
+#
+# override=False means values already exported in the shell take priority
+# over values written in the .env file.
+load_dotenv(
+    dotenv_path=REPO_ROOT / ".env",
+    override=False,
+)
+
+
+def required_env(name: str) -> str:
+    """Read a required environment variable.
+
+    Raises a clear error during configuration loading when the variable has not
+    been provided through the shell or the repository's local .env file.
+    """
+    value = os.getenv(name)
+
+    if value is None or not value.strip():
+        raise RuntimeError(
+            f"Required environment variable {name!r} is not set.\n"
+            f"Create the local file:\n"
+            f"  {REPO_ROOT / '.env'}\n"
+            f"using the committed .env.example file."
+        )
+
+    return value.strip()
+
+
+def optional_int_env(name: str, default: int) -> int:
+    """Read an optional integer environment variable."""
+    raw_value = os.getenv(name)
+
+    if raw_value is None or not raw_value.strip():
+        return int(default)
+
+    try:
+        return int(raw_value)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Environment variable {name!r} must be an integer, "
+            f"but received {raw_value!r}."
+        ) from exc
+
+
+
 class Go2DepthWaqDistillCfg(Go2DepthWaqCfg):
     """Environment configuration for multi-teacher LoRA distillation."""
 
@@ -167,62 +227,3 @@ class Go2DepthWaqDistillCfgPPO(Go2DepthWaqCfgPPO):
         # existing generalist checkpoint. The LoRA teacher checkpoints are
         # configured separately above.
         pre_trained = None
-
-# This file is located at:
-#
-# Legged_Gym_EX/
-# └── legged_gym/
-#     └── envs/
-#         └── go2/
-#             └── go2_depth_waq_distill/
-#                 └── go2_depth_waq_distill_config.py
-#
-# parents[4] therefore points to the Legged_Gym_EX repository root.
-REPO_ROOT = Path(__file__).resolve().parents[4]
-
-# Load environment variables from:
-#
-# Legged_Gym_EX/.env
-#
-# override=False means values already exported in the shell take priority
-# over values written in the .env file.
-load_dotenv(
-    dotenv_path=REPO_ROOT / ".env",
-    override=False,
-)
-
-
-def required_env(name: str) -> str:
-    """Read a required environment variable.
-
-    Raises a clear error during configuration loading when the variable has not
-    been provided through the shell or the repository's local .env file.
-    """
-    value = os.getenv(name)
-
-    if value is None or not value.strip():
-        raise RuntimeError(
-            f"Required environment variable {name!r} is not set.\n"
-            f"Create the local file:\n"
-            f"  {REPO_ROOT / '.env'}\n"
-            f"using the committed .env.example file."
-        )
-
-    return value.strip()
-
-
-def optional_int_env(name: str, default: int) -> int:
-    """Read an optional integer environment variable."""
-    raw_value = os.getenv(name)
-
-    if raw_value is None or not raw_value.strip():
-        return int(default)
-
-    try:
-        return int(raw_value)
-    except ValueError as exc:
-        raise RuntimeError(
-            f"Environment variable {name!r} must be an integer, "
-            f"but received {raw_value!r}."
-        ) from exc
-

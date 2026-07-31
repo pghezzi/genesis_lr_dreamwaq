@@ -132,7 +132,7 @@ from legged_gym.envs.go2.go2_depth_waq.go2_depth_waq_config import Go2DepthWaqCf
 from legged_gym.envs.go2.go2_depth_waq_lora.go2_depth_waq_lora import Go2DepthWaqLora
 from legged_gym.envs.go2.go2_depth_waq_lora.go2_depth_waq_lora_config import Go2DepthWaqLoraCfg, Go2DepthWaqLoraCfgPPO
 ## go2_depth_waq_distill
-from legged_gym.envs.go2.go2_depth_waq_distill import Go2DepthWaqDistill
+from legged_gym.envs.go2.go2_depth_waq_distill.go2_depth_waq_distill import Go2DepthWaqDistill
 from legged_gym.envs.go2.go2_depth_waq_distill.go2_depth_waq_distill_config import (Go2DepthWaqDistillCfg,Go2DepthWaqDistillCfgPPO)
 
 
