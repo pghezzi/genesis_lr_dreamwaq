@@ -64,3 +64,8 @@ wandb
 build
 *debug*
 resources/terrains/*.stl
+
+# Local checkpoint paths and private machine configuration
+.env
+.env.*
+!.env.example

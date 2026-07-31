@@ -1,12 +1,13 @@
 """Pure imitation from multiple fixed depth-LoRA teachers.
 
-This class is named PPO_WAQ_Distill to fit the repo's algorithm registry and
-the PI's requested interface. It intentionally performs no PPO optimization:
+This class is named PPO_WAQ_Distill to fit the repo's algorithm registry. 
+It intentionally performs no PPO optimization:
 student actions control the environment, while the selected LoRA teacher only
 provides an action label for the same state.
 """
 
 from __future__ import annotations
+
 
 from itertools import chain
 from typing import Dict, Tuple

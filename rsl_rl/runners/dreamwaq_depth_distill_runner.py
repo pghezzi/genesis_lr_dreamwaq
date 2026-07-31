@@ -49,8 +49,12 @@ class DreamWaQDepthDistillRunner(OnPolicyRunner):
         rank = int(teacher_cfg.get("rank", 8))
         kwargs = dict(self.policy_cfg)
         kwargs.update(
-            base_model=teacher_cfg["base_model"],
-            actor_ranks=teacher_cfg.get("actor_ranks", rank),
+
+            base_model=teacher_cfg.get("base_model",self.distillation_cfg.base_model),
+
+            actor_ranks= int(teacher_cfg.get("rank",self.distillation_cfg.lora_rank)),
+
+
             encoder_ranks=teacher_cfg.get("encoder_ranks", rank),
             decoder_ranks=teacher_cfg.get("decoder_ranks", rank),
             latent_mu_rank=teacher_cfg.get("latent_mu_rank", rank),
@@ -125,6 +129,12 @@ class DreamWaQDepthDistillRunner(OnPolicyRunner):
         init_at_random_ep_len=False,
     ):
         self._pre_learn(init_at_random_ep_len)
+
+        if self.current_learning_iteration == 0:
+            teacher_ids = self.env.get_teacher_ids()
+            unique_ids, counts = torch.unique(teacher_ids,return_counts=True)
+            print("Teacher ID check:",teacher_ids.shape,teacher_ids.dtype,unique_ids,counts)
+
         (
             obs,
             privileged_obs,

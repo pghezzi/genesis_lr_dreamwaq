@@ -130,5 +130,14 @@ then loads the teacher's saved LoRA checkpoint.
 - The algorithm name remains `PPO_WAQ_Distill` only for repository/config
   compatibility and because that is the name requested by the PI.
 - Teacher IDs have shape `[num_envs, 1]`.
-- Fewer camera environments are supported: missing per-env depth inputs are
-  padded with zeros, matching the current depth actor's zero-latent behavior.
+
+## Run Distill(DAgger) Training
+
+```bash
+python legged_gym/scripts/train.py \
+    --task=go2_depth_waq_distill \
+    --headless
+```
+## To change the base model for go2_depth_waq_distill
+
+Change the value of `BASE_MODEL` in `.envs`
