@@ -86,7 +86,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
         }
         terrain_curriculum_difficulty_custom = {
             "step_height": f"0.05 + {0.3 - 0.05} * difficulty",
-            "gap_size": f"0.1 + 1.0 * difficulty",
+            "gap_size": f"0.1 + {1.0 - 0.1} * difficulty",
             "pit_depth": f"0.1 + 0.6 * difficulty",
             "high_platform_params": {
                 "high_platform_height": f"0.1 + 0.6 * difficulty",
@@ -222,7 +222,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
         resampling_time = 10.  # time before command are changed[s]
         heading_command = True # if true: compute ang vel command from heading error
 
-        if terrain_name in ("baseline", "pit"):
+        if terrain_name in ("baseline", "stairs", "pit"):
             custom_command_curriculum = False
         else:
             custom_command_curriculum =  True
@@ -371,6 +371,6 @@ class Go2DepthWaqCfgPPO( LeggedRobotDreamwaqCfgPPO ):
             elif terrain_name in ("pit"):
                 max_iterations = 40000
             elif terrain_name in ("stairs", "gap"):
-                max_iterations = 20000
+                max_iterations = 30000
             else:
                 max_iterations = 10000
