@@ -73,6 +73,51 @@ def optional_int_env(name: str, default: int) -> int:
 class Go2DepthWaqDistillCfg(Go2DepthWaqCfg):
     """Environment configuration for multi-teacher LoRA distillation."""
 
+    class viewer(Go2DepthWaqCfg.viewer):
+        # Rendering only the two camera environments keeps visual smoke tests
+        # lightweight. CLI runs with one environment clamp this list to [0].
+        rendered_envs_idx = [0, 1]
+
+    class terrain(Go2DepthWaqCfg.terrain):
+        # Keep the ten curriculum columns used by Go2DepthWaqCfg, but dedicate
+        # the first half to stairs and the second half to gaps. The indices
+        # here follow TERRAIN_KEYS in legged_gym.utils.terrain_vars.
+        num_cols = 10
+        terrain_proportions = [
+            0.0,  # slope
+            0.0,  # random_uniform
+            0.5,  # stairs
+            0.0,  # upwards_stairs
+            0.0,  # discrete_obstacles
+            0.0,  # stepping_stones
+            0.5,  # gap
+            0.0,  # pit
+            0.0,  # multiple_high_platforms
+            0.0,  # high_platform_gaps
+        ]
+
+    class rewards(Go2DepthWaqCfg.rewards):
+        # Gap and stairs teachers were trained with the same reward scales.
+        # Define them explicitly because the parent config selects its scales
+        # at import time from TERRAIN, whose default is random_uniform.
+        class scales:
+            dof_pos_limits = -2.0
+            collision = -10.0
+            tracking_lin_vel = 1.5
+            tracking_ang_vel = 1.0
+            lin_vel_z = -1.0
+            ang_vel_xy = -0.05
+            orientation = -1.0
+            dof_power = -2e-05
+            dof_acc = -2e-07
+            action_rate = -0.01
+            action_smoothness = -0.01
+            hip_pos = -0.15
+            foot_clearance_terrain_aware = 0.7
+            feet_stumble = -1.0
+            feet_near_edge = -1.0
+            feet_air_time = 0.6
+
     class distillation:
         # ------------------------------------------------------------------
         # Shared LoRA teacher defaults
@@ -125,19 +170,10 @@ class Go2DepthWaqDistillCfg(Go2DepthWaqCfg):
         # Value:
         #   index into the teachers list above
         #
-        # Example:
-        #
-        #   terrain_type_to_teacher = [
-        #       0, 0, 0,  # terrain columns 0-2 use the gap teacher
-        #       1, 1, 1,  # terrain columns 3-5 use the stairs teacher
-        #   ]
-        #
-        # You must replace this with the actual terrain-column ordering used
-        # by the distillation terrain configuration.
-        terrain_type_to_teacher = [
-            0,
-            1,
-        ]
+        # Curriculum generation assigns the lower-numbered columns to stairs
+        # and the higher-numbered columns to gaps. Teacher 1 is stairs and
+        # teacher 0 is gap, matching the teachers list above.
+        terrain_type_to_teacher = [1] * 5 + [0] * 5
 
         # ------------------------------------------------------------------
         # Pure imitation-learning settings
@@ -204,7 +240,7 @@ class Go2DepthWaqDistillCfgPPO(Go2DepthWaqCfgPPO):
 
         # These are still used by the pure-imitation optimizer.
         num_learning_epochs = 1
-        num_mini_batches = 4
+        num_mini_batches = 8
         max_grad_norm = 1.0
 
     class runner(Go2DepthWaqCfgPPO.runner):

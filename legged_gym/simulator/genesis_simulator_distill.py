@@ -19,6 +19,50 @@ class GenesisSimulatorDistill(GenesisSimulator):
     def __init__(self, cfg, sim_params, device, headless):
         super().__init__(cfg, sim_params, device, headless)
         self._teacher_ids = self._make_teacher_ids()
+        self._print_assignment_summary()
+
+    def _print_assignment_summary(self) -> None:
+        """Print the realized terrain-column and teacher allocation."""
+        teacher_ids = self._teacher_ids.view(-1)
+        terrain_types = self._terrain_types.view(-1)
+        teachers = self._cfg.distillation.teachers
+
+        print("Distillation assignment summary:")
+        for column in torch.unique(terrain_types, sorted=True).tolist():
+            mask = terrain_types == column
+            column_teacher_ids = torch.unique(teacher_ids[mask])
+            teacher_labels = []
+            for teacher_id in column_teacher_ids.tolist():
+                name = teachers[teacher_id].get(
+                    "name", f"teacher_{teacher_id}"
+                )
+                teacher_labels.append(f"{teacher_id} ({name})")
+            print(
+                f"  terrain column {column}: {int(mask.sum().item())} "
+                f"env(s) -> teacher {', '.join(teacher_labels)}"
+            )
+
+        teacher_counts = torch.bincount(
+            teacher_ids,
+            minlength=len(teachers),
+        )
+        for teacher_id, teacher_cfg in enumerate(teachers):
+            count = int(teacher_counts[teacher_id].item())
+            percentage = 100.0 * count / max(self._num_envs, 1)
+            name = teacher_cfg.get("name", f"teacher_{teacher_id}")
+            print(
+                f"  teacher {teacher_id} ({name}) total: {count} "
+                f"env(s), {percentage:.1f}%"
+            )
+
+        spread = int(
+            (teacher_counts.max() - teacher_counts.min()).item()
+        )
+        balance = "PASS" if spread <= 1 else "WARNING"
+        print(
+            f"  teacher balance check: {balance} "
+            f"(max count difference {spread})"
+        )
 
     def _make_teacher_ids(self) -> torch.Tensor:
         if not hasattr(self, "_terrain_types"):

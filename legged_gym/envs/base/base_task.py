@@ -22,6 +22,10 @@ SimulatorInstance = "Simulator"  # Forward reference to Simulator ABC
 # Base class for RL tasks
 class BaseTask:
 
+    # Specialized tasks may override the simulator implementation while the
+    # standard tasks continue to use the backend selected by SIMULATOR.
+    simulator_class = None
+
     # Public buffers and basic state (annotated for static typing)
     obs_buf: torch.Tensor
     rew_buf: torch.Tensor
@@ -71,7 +75,11 @@ class BaseTask:
 
         self.extras = {}
         
-        if SIMULATOR == "genesis":
+        if self.simulator_class is not None:
+            self.simulator = self.simulator_class(
+                cfg, sim_params, sim_device, self.headless
+            )
+        elif SIMULATOR == "genesis":
             self.simulator = GenesisSimulator(cfg, sim_params, sim_device, self.headless)
         elif SIMULATOR == "isaacgym":
             self.simulator = IsaacGymSimulator(cfg, sim_params, sim_device, self.headless)

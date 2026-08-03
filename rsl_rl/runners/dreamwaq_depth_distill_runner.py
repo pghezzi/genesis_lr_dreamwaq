@@ -13,6 +13,7 @@ from rsl_rl.modules import (
     ActorCriticDreamWaQDepth,
     ActorCriticDreamWaQDepthLora,
 )
+from .log_utils import add_timing_info
 from .on_policy_runner import OnPolicyRunner
 
 
@@ -238,10 +239,12 @@ class DreamWaQDepthDistillRunner(OnPolicyRunner):
             if self.log_dir is not None:
                 self._log_distill(
                     iteration,
+                    total_iterations,
                     mean_loss,
                     stats,
                     collection_time,
                     learn_time,
+                    ep_infos,
                     rewbuffer,
                     lenbuffer,
                 )
@@ -266,10 +269,12 @@ class DreamWaQDepthDistillRunner(OnPolicyRunner):
     def _log_distill(
         self,
         iteration,
+        total_iterations,
         mean_loss,
         stats,
         collection_time,
         learn_time,
+        ep_infos,
         rewbuffer,
         lenbuffer,
     ):
@@ -297,9 +302,61 @@ class DreamWaQDepthDistillRunner(OnPolicyRunner):
             stats["action_mse_mean"],
             iteration,
         )
-        self.writer.add_scalar("Perf/total_fps", fps, iteration)
+        self.writer.add_scalar(
+            "Loss/learning_rate",
+            stats["learning_rate"],
+            iteration,
+        )
 
-        reward_line = ""
+        # Keep the original depth runner's Episode/* namespace so reward
+        # components and curriculum statistics remain directly comparable.
+        episode_stats = {}
+        if ep_infos:
+            episode_keys = set().union(
+                *(episode_info.keys() for episode_info in ep_infos)
+            )
+            for key in sorted(episode_keys):
+                values = []
+                for episode_info in ep_infos:
+                    if key not in episode_info:
+                        continue
+                    value = episode_info[key]
+                    if isinstance(value, torch.Tensor):
+                        value = value.detach().to(self.device).reshape(-1)
+                    else:
+                        value = torch.as_tensor(
+                            value,
+                            dtype=torch.float32,
+                            device=self.device,
+                        ).reshape(-1)
+                    values.append(value)
+                if values:
+                    mean_value = (
+                        torch.cat(values).float().mean().item()
+                    )
+                    episode_stats[key] = mean_value
+                    self.writer.add_scalar(
+                        "Episode/" + key,
+                        mean_value,
+                        iteration,
+                    )
+
+        # The student acts deterministically during distillation, but logging
+        # its (frozen) policy standard deviation preserves dashboard parity.
+        mean_std = self.alg.actor_critic.std.mean().item()
+        self.writer.add_scalar(
+            "Policy/mean_noise_std", mean_std, iteration
+        )
+        self.writer.add_scalar("Perf/total_fps", fps, iteration)
+        self.writer.add_scalar(
+            "Perf/collection time", collection_time, iteration
+        )
+        self.writer.add_scalar(
+            "Perf/learning_time", learn_time, iteration
+        )
+
+        mean_reward = None
+        mean_length = None
         if rewbuffer:
             mean_reward = statistics.mean(rewbuffer)
             mean_length = statistics.mean(lenbuffer)
@@ -311,16 +368,56 @@ class DreamWaQDepthDistillRunner(OnPolicyRunner):
                 mean_length,
                 iteration,
             )
-            reward_line = (
-                f"\nMean reward: {mean_reward:.3f}"
-                f"\nMean episode length: {mean_length:.2f}"
+            self.writer.add_scalar(
+                "Train/mean_reward/time",
+                mean_reward,
+                self.tot_time,
+            )
+            self.writer.add_scalar(
+                "Train/mean_episode_length/time",
+                mean_length,
+                self.tot_time,
+            )
+        width = 80
+        pad = 35
+        episode_lines = "".join(
+            f"{f'Mean episode {key}:':>{pad}} {value:.4f}\n"
+            for key, value in episode_stats.items()
+        )
+        iteration_header = (
+            f" \033[1m Learning iteration "
+            f"{iteration}/{total_iterations} \033[0m "
+        )
+        log_string = (
+            f"{'#' * width}\n"
+            f"{iteration_header.center(width, ' ')}\n\n"
+            f"{'Computation:':>{pad}} {fps:.0f} steps/s "
+            f"(collection: {collection_time:.3f}s, "
+            f"learning {learn_time:.3f}s)\n"
+            f"{'Distillation loss:':>{pad}} {mean_loss:.4f}\n"
+            f"{'Action L1 mean:':>{pad}} "
+            f"{stats['action_l1_mean']:.4f}\n"
+            f"{'Action MSE mean:':>{pad}} "
+            f"{stats['action_mse_mean']:.4f}\n"
+            f"{'Learning rate:':>{pad}} "
+            f"{stats['learning_rate']:.6g}\n"
+            f"{'Mean action noise std:':>{pad}} {mean_std:.2f}\n"
+        )
+        if mean_reward is not None and mean_length is not None:
+            log_string += (
+                f"{'Mean reward:':>{pad}} {mean_reward:.2f}\n"
+                f"{'Mean episode length:':>{pad}} {mean_length:.2f}\n"
             )
 
-        print(
-            f"\nLearning iteration {iteration}\n"
-            f"FPS: {fps}\n"
-            f"Distillation loss: {mean_loss:.6f}\n"
-            f"Action L1 mean: {stats['action_l1_mean']:.6f}\n"
-            f"Action MSE mean: {stats['action_mse_mean']:.6f}"
-            f"{reward_line}\n"
+        log_string += add_timing_info(
+            self.current_learning_iteration,
+            total_iterations - self.current_learning_iteration,
+            iteration,
+            episode_lines,
+            iteration_time,
+            width,
+            pad,
+            self.tot_timesteps,
+            self.tot_time,
         )
+        print(log_string)
