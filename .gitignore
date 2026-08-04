@@ -55,6 +55,7 @@ Thumbs.db
 # logs
 logs*/
 exp_logs/
+depth_waq_selector/
 runs/
 
 # other

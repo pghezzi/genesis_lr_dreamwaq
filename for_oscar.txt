@@ -1,0 +1,18 @@
+So the main idea of the pipeline is it goes
+
+play_exp.py --> Runs the sim, gets the data
+
+compile_depth_classifier_data.py --> Compiles the files into train, val, test, and calibration with a file to keep track which files were used
+
+train_depth_selector_model.py --> use the compiled data from compile_depth_classifier_data to train the model.
+
+(hard coded currently)
+add_basyes_filter_to_comparison.py --> wrap data classifier with a baysian add_basyes_filter_to_comparison
+
+
+Things to note:
+- I'm working on the DO_NOTTOUCH version just in case i do something wrong, except for add_basyes_filter_to_comparison.py
+- For some reason the depth classifier work best with EXTREME data (aka using the limits that the model can do) (extreme_mode variable in play_exp)
+- Filtering does seem to work somewhat for better baysians. (Filtering: Agresivly cutting data to ensure data continuity)(_filter variable)
+- I was using genesis before this so all these notes mostly apply to genesis. It should work the same in both.
+- these generated files are HUGE so be careful
