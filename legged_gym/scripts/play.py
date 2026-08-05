@@ -125,7 +125,9 @@ def interaction_loop(env, policy, args, task_type):
     stop_rew_log = env.max_episode_length + 1 # number of steps before print average episode rewards
         
     # Get initial observations according to task type
-    if task_type == "ts_depth":
+    if task_type == "depth_waq_distill":
+        obs_buf, privileged_obs_buf, obs_history, explicit_labels, next_states, depth_image = env.get_observations()
+    elif task_type == "ts_depth":
         obs_buf, privileged_obs_buf, depth_image, critic_obs = env.get_observations()
     elif task_type == "ts" or task_type == "cat" or task_type == "cts" or task_type == "cts_amp": # teacher-student specific (including AMP)
         obs_buf, privileged_obs_buf, obs_history, critic_obs = env.get_observations()
@@ -159,7 +161,10 @@ def interaction_loop(env, policy, args, task_type):
             env.set_viewer_camera(pos, lookat)
             
         # Step the environment according to task type
-        if task_type == "ts_depth":
+        if task_type == "depth_waq_distill":
+            actions = policy(obs_buf, obs_history, depth_image)
+            obs_buf, privileged_obs_buf, obs_history, explicit_labels, next_states, rews, dones, infos, depth_image = env.step(actions.detach())
+        elif task_type == "ts_depth":
             actions = policy(obs_buf, depth_image)
             obs_buf, privileged_obs_buf, depth_image, critic_obs, rews, dones, infos = env.step(actions.detach())
         elif task_type == "ts" or task_type == "cat" or task_type == "cts":

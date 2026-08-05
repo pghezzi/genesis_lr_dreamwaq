@@ -263,3 +263,6 @@ class Go2DepthWaqDistillCfgPPO(Go2DepthWaqCfgPPO):
         # existing generalist checkpoint. The LoRA teacher checkpoints are
         # configured separately above.
         pre_trained = None
+        resume = True
+        load_run = "Aug03_17-52-31_pure_imitation"
+        checkpoint = -1
