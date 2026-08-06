@@ -32,6 +32,7 @@ import numpy as np
 import trimesh
 
 from . import terrain_utils
+from .terrain_vars import TERRAIN_INDEX
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg
 
 class Terrain:
@@ -58,6 +59,7 @@ class Terrain:
         self.border = int(cfg.border_size/self.cfg.horizontal_scale)
         self.tot_rows = int(cfg.num_rows * self.length_per_env_pixels) + 2 * self.border
         self.tot_cols = int(cfg.num_cols * self.width_per_env_pixels) + 2 * self.border
+        self.labels = np.full((cfg.num_rows, cfg.num_cols), -1)
     
         self.height_field_raw = np.zeros((self.tot_rows , self.tot_cols), dtype=np.int16)
         # edge mask to indicate the edge points of the terrain, for use in rewards
@@ -72,6 +74,9 @@ class Terrain:
         elif cfg.selected:
             print("Generating selected terrain...")
             self.selected_terrain()
+        elif cfg.custom_selected:
+            print("Generating custom selected terrain...")
+            self.custom_selected_terrain()
         else:
             print("Generating randomized terrain...")
             self.randomized_terrain()   
@@ -81,11 +86,6 @@ class Terrain:
             self._add_terrain_border()
             self.terrain_mesh = trimesh.util.concatenate(self.terrain_meshes)
             
-            # self.vertices, self.triangles = terrain_utils.convert_heightfield_to_trimesh(   self.height_field_raw,
-            #                                                                                 self.cfg.horizontal_scale,
-            #                                                                                 self.cfg.vertical_scale,
-            #                                                                                 self.cfg.slope_treshold)
-    
     def randomized_terrain(self):
         for k in range(self.cfg.num_sub_terrains):
             # Env coordinates in the world
@@ -101,7 +101,6 @@ class Terrain:
             for i in range(self.cfg.num_rows): # X
                 difficulty = i / self.cfg.num_rows      # add difficulty along X axis, row
                 choice = j / self.cfg.num_cols + 0.001 # change terrain type along Y axis, col
-
                 terrain = self.make_terrain(choice, difficulty)
                 self.add_terrain_to_map(terrain, i, j)
 
@@ -117,9 +116,41 @@ class Terrain:
                               length=self.length_per_env_pixels,
                               vertical_scale=self.cfg.vertical_scale,
                               horizontal_scale=self.cfg.horizontal_scale)
-                
             eval(terrain_type)(terrain, **self.cfg.terrain_kwargs, terrain_type=self.type)
+            t_name = terrain_type.split(".")[-1].replace("_terrain", "")
+            if "stairs" in t_name:
+                if kwargs['step_height'] < 0:
+                    self.labels[i, j] = TERRAIN_INDEX["stairs"]
+                else:
+                    self.labels[i, j] = TERRAIN_INDEX["upwards_stairs"]
+            else:
+                self.labels[i, j] = TERRAIN_INDEX[t_name]
             self.add_terrain_to_map(terrain, i, j)
+    
+    def custom_selected_terrain(self):
+        assert len(self.cfg.terrain_map) >= self.cfg.num_rows * self.cfg.num_cols, "terrain_map must be greater or equal to all terrains"
+        for k, kwargs in enumerate(self.cfg.terrain_map):
+            if k >= self.cfg.num_rows * self.cfg.num_cols:
+                break
+            terrain_type = kwargs.pop('type')
+            print(kwargs)
+            (i, j) = np.unravel_index(k, (self.cfg.num_rows, self.cfg.num_cols))
+            terrain = terrain_utils.SubTerrain("terrain",
+                              width=self.width_per_env_pixels,
+                              length=self.length_per_env_pixels,
+                              vertical_scale=self.cfg.vertical_scale,
+                              horizontal_scale=self.cfg.horizontal_scale)
+            eval(terrain_type)(terrain, **kwargs, terrain_type=self.type)
+            t_name = terrain_type.split(".")[-1].replace("_terrain", "")
+            if "stairs" in t_name:
+                if kwargs['step_height'] < 0:
+                    self.labels[i, j] = TERRAIN_INDEX["stairs"]
+                else:
+                    self.labels[i, j] = TERRAIN_INDEX["upwards_stairs"]
+            else:
+                self.labels[i, j] = TERRAIN_INDEX[t_name]
+            self.add_terrain_to_map(terrain, i, j)
+
     
     def make_terrain(self, choice, difficulty):
         terrain = terrain_utils.SubTerrain(   "terrain",
@@ -142,6 +173,7 @@ class Terrain:
         # get params if exist
         high_platform_params = self.terrain_curriculum_difficulty.get("high_platform_params", None)
         high_platform_gaps_params = self.terrain_curriculum_difficulty.get("high_platform_gaps_params", None)
+        terrain.height_field_raw[:] = 0
         if choice < self.proportions[0]:
             if choice < self.proportions[0]/ 2: # slope
                 slope *= -1
@@ -149,6 +181,7 @@ class Terrain:
                                                  slope=slope, 
                                                  platform_size=self.platform_size,
                                                  terrain_type=self.type)
+            self.labels[int(difficulty * self.cfg.num_rows), int((choice - 0.001) * self.cfg.num_cols)] = 0
         elif choice < self.proportions[1]: # random uniform
             terrain_utils.random_uniform_terrain(terrain, 
                                                  min_height=eval(random_uniform_params["min_height"]), 
@@ -156,9 +189,13 @@ class Terrain:
                                                  step=0.005, 
                                                  downsampled_scale=0.2, 
                                                  terrain_type=self.type)
+            self.labels[int(difficulty * self.cfg.num_rows), int((choice - 0.001) * self.cfg.num_cols)] = 1
         elif choice < self.proportions[3]:
             if choice<self.proportions[2]: # stairs
                 step_height *= -1
+                self.labels[int(difficulty * self.cfg.num_rows), int((choice - 0.001) * self.cfg.num_cols)] = 2
+            else:
+                self.labels[int(difficulty * self.cfg.num_rows), int((choice - 0.001) * self.cfg.num_cols)] = 3
             terrain_utils.pyramid_stairs_terrain(terrain, 
                                                  step_width=0.4, 
                                                  step_height=step_height, 
@@ -177,6 +214,7 @@ class Terrain:
                                                      platform_size=self.platform_size,
                                                      terrain_type=self.type,
                                                      simplify_mesh=self.simplify_mesh)
+            self.labels[int(difficulty * self.cfg.num_rows), int((choice - 0.001) * self.cfg.num_cols)] = 4
         elif choice < self.proportions[5]: # stepping stones
             terrain_utils.stepping_stones_terrain(terrain, 
                                                   stone_length=eval(stepping_stones_params["stone_length"]), 
@@ -187,18 +225,21 @@ class Terrain:
                                                   platform_size=self.platform_size,
                                                   terrain_type=self.type,
                                                   simplify_mesh=self.simplify_mesh)
+            self.labels[int(difficulty * self.cfg.num_rows), int((choice - 0.001) * self.cfg.num_cols)] = 5
         elif choice < self.proportions[6]: # gap
             terrain_utils.gap_terrain(terrain, 
                                       gap_size=gap_size, 
                                       platform_size=self.platform_size,
                                       terrain_type=self.type,
                                       simplify_mesh=self.simplify_mesh)
+            self.labels[int(difficulty * self.cfg.num_rows), int((choice - 0.001) * self.cfg.num_cols)] = 6
         elif choice < self.proportions[7]: # pit
             terrain_utils.pit_terrain(terrain, 
                                       depth=pit_depth, 
                                       platform_size=self.platform_size,
                                       terrain_type=self.type,
                                       simplify_mesh=self.simplify_mesh)
+            self.labels[int(difficulty * self.cfg.num_rows), int((choice - 0.001) * self.cfg.num_cols)] = 7
         elif choice < self.proportions[8]: # multiple high platforms
             if high_platform_params is None:
                 raise ValueError("high_platform_params is required for multiple high platforms terrain.")
@@ -210,6 +251,8 @@ class Terrain:
                                                         platform_size=self.platform_size,
                                                         terrain_type=self.type,
                                                         simplify_mesh=self.simplify_mesh)
+
+            self.labels[int(difficulty * self.cfg.num_rows), int((choice - 0.001) * self.cfg.num_cols)] = 8
         elif choice < self.proportions[9]: # high platform gaps
             if high_platform_gaps_params is None:
                 raise ValueError("high_platform_gaps_params is required for high platform gaps terrain.")
@@ -222,6 +265,7 @@ class Terrain:
                                                         platform_size=self.platform_size,
                                                         terrain_type=self.type,
                                                         simplify_mesh=self.simplify_mesh)
+            self.labels[int(difficulty * self.cfg.num_rows), int((choice - 0.001) * self.cfg.num_cols)] = 9
         elif choice < self.proportions[10]:
             terrain_utils.center_platform_terrain(
                 terrain,
@@ -229,6 +273,7 @@ class Terrain:
                 platform_size=self.platform_size,
                 terrain_type=self.type,
                 simplify_mesh=self.simplify_mesh)
+            self.labels[int(difficulty * self.cfg.num_rows), int((choice - 0.001) * self.cfg.num_cols)] = 10
         return terrain
 
     def add_terrain_to_map(self, terrain, row, col):

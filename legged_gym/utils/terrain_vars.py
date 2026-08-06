@@ -12,7 +12,10 @@ TERRAIN_KEYS =[
   "multiple_high_platforms",
   "high_platform_gaps",
   "center_platform"
+  
 ]
+
+TERRAIN_KEYS.append("plane")
 
 TERRAIN_INDEX = {name: idx for idx, name in enumerate(TERRAIN_KEYS)}
 
@@ -31,6 +34,10 @@ def get_env_vars():
         terrain_list[TERRAIN_INDEX["slope"]] = 0.5
         terrain_list[TERRAIN_INDEX["random_uniform"]] = 0.5
         terrain_index = None
+    
+    if terrain_name == "plane":
+        terrain_list = [0] * len(TERRAIN_KEYS)
+        terrain_index = -1
 
     elif terrain_name in TERRAIN_INDEX:
         terrain_index = TERRAIN_INDEX[terrain_name]

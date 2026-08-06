@@ -9,7 +9,7 @@ import numpy as np
 import torch
 
 from legged_gym.utils.exp_data_logger import ExpLogger
-from legged_gym.utils.terrain_vars import TERRAIN_INDEX
+from legged_gym.utils.terrain_vars import TERRAIN_INDEX, TERRAIN_KEYS
 import argparse
 
 import cv2
@@ -18,6 +18,62 @@ SWAP = 0
 
 extreme_mode = True
 _filter = False
+def get_viewed_terrain_idx(env, look_ahead_frac: float = 0.25):
+    """
+    Determine which terrain patch(es) the robot's depth camera is looking at.
+
+    Projects a point forward from the base position along the current heading,
+    at a fraction of the depth camera's far-plane range, then finds the
+    nearest terrain origin(s) to that point (in the xy-plane).
+
+    Args:
+        env: environment instance exposing env.heading, env.simulator.base_pos,
+             and env._terrain_origins.
+        look_ahead_frac: fraction of the far plane (4.0) to project forward.
+            0.75 -> looks ~3m ahead, a reasonable "what's dominating the FOV"
+            heuristic. Use 1.0 for the far-plane edge, ~0.5 for near-field.
+
+    Returns:
+        idx: LongTensor of shape (num_envs,) — flat index into
+             env._terrain_origins.reshape(-1, 3)
+        row_col: LongTensor of shape (num_envs, 2) — (row, col) indices into
+             the original (num_rows, num_cols, 3) grid, in case you need that
+             instead of the flat index.
+    """
+    far_plane = 4.0
+    look_ahead_dist = far_plane * look_ahead_frac
+
+    base_pos_xy = env.simulator.base_pos[..., :2]
+    base_pos = env.simulator.base_pos  # (num_envs, 3) or (3,)
+    heading = env.heading              # (num_envs,)  or scalar
+
+    # Ensure batch dim exists so this works for single-robot too
+    single = base_pos.dim() == 1
+    if single:
+        base_pos = base_pos.unsqueeze(0)
+        heading = heading.unsqueeze(0) if torch.is_tensor(heading) else torch.tensor([heading])
+
+    device = base_pos.device
+    heading = heading.to(device)
+
+    look_dir = torch.stack([torch.cos(heading), torch.sin(heading)], dim=-1)  # (num_envs, 2)
+    look_point = base_pos[:, :2] + look_dir * look_ahead_dist                  # (num_envs, 2)
+    query_point = torch.where((base_pos[:, 2] < 0.25).unsqueeze(-1), base_pos_xy, look_point)
+
+    origins = env.simulator._terrain_origins.to(device)            # (num_rows, num_cols, 3)
+    num_rows, num_cols = origins.shape[0], origins.shape[1]
+    origins_xy = origins[..., :2].reshape(-1, 2)         # (num_terrains, 2)
+
+    dists = torch.cdist(query_point, origins_xy)          # (num_envs, num_terrains)
+    idx = torch.argmin(dists, dim=-1)                    # (num_envs,)
+
+    row_col = torch.stack([idx // num_cols, idx % num_cols], dim=-1)
+
+    if single:
+        idx = idx.squeeze(0)
+        row_col = row_col.squeeze(0)
+
+    return idx, row_col
 
 def _normalize_gpu_arg(gpu):
     gpu = str(gpu).strip().lower()
@@ -144,6 +200,7 @@ def get_args():
 
 
     parser.add_argument('--terrain_detector', type=str, default='', help="test a terrain detector")
+    parser.add_argument('--hard_terrain_detector', action='store_true', default=False, help="using sim to determine terrain")
     parser.add_argument('--terrain_detector_jit', type=str, default='', help="test a terrain detector")
     parser.add_argument('--baysian_filter', type=str, default='', help="test a terrain detector")
     parser.add_argument('--command_test_suite', action='store_true', default=False, help="run a simple commnad test suite")
@@ -227,8 +284,6 @@ def override_configs(env_cfg, args):
     task_name = args.task
     # override some parameters for testing
     # number of environments
-    if args.multiterrain:
-        env_cfg.init_state.pos[0] -= 2
     env_cfg.env.num_envs = envs
     env_cfg.asset.terminate_after_contacts_on = []
     env_cfg.init_state.yaw_random_scale = 0
@@ -256,17 +311,53 @@ def override_configs(env_cfg, args):
             env_cfg.commands.custom_command_curriculum = True
             pass
         if args.multiterrain:
-            env_cfg.terrain.num_rows = 1
+            env_cfg.terrain.num_rows = 10
             env_cfg.terrain.num_cols = 4
-            env_cfg.terrain.curriculum = True
+            env_cfg.terrain.platform_size = 3.0
+            env_cfg.terrain.curriculum = False
             env_cfg.terrain.selected   = False
-            env_cfg.terrain.terrain_proportions[TERRAIN_INDEX["random_uniform"]] = 1/4
-            env_cfg.terrain.terrain_proportions[TERRAIN_INDEX["gap"]] = 1/4
-            env_cfg.terrain.terrain_proportions[TERRAIN_INDEX["stairs"]] = 1/4
-            env_cfg.terrain.terrain_proportions[TERRAIN_INDEX["pit"]] = 1/4
-            env_cfg.terrain.terrain_curriculum_difficulty["step_height"] = "0.25"
-            env_cfg.terrain.terrain_curriculum_difficulty["gap_size"] = "0.5"
-            env_cfg.terrain.terrain_curriculum_difficulty["pit_depth"] = "0.3"
+            env_cfg.terrain.custom_selected   = True
+            terrain_types = [
+                {
+                    "type": "terrain_utils.random_uniform_terrain",
+                    "min_height": -0.05,
+                    "max_height": 0.05,
+                    "step": 0.005,
+                    "downsampled_scale": 0.2,
+                },
+                {
+                    "type": "terrain_utils.gap_terrain",
+                    "gap_size": 0.5,
+                    "platform_size": 3.0,
+                },
+                {
+                    "type": "terrain_utils.pyramid_stairs_terrain",
+                    "step_width": 0.4,
+                    "step_height": -0.2,
+                    "platform_size": 3.0,
+                },
+                #{
+                #    "type": "terrain_utils.pyramid_stairs_terrain",
+                #    "step_width": 0.4,
+                #    "step_height": 0.2,   # stairs up
+                #    "platform_size": 3.0,
+                #},
+                {
+                    "type": "terrain_utils.pit_terrain",
+                    "depth": 0.2,
+                    "platform_size": 3.0,
+                },
+            ]
+
+            import random
+            seed = 42
+            rng = random.Random(seed)
+
+            env_cfg.terrain.terrain_map = [
+                rng.choice(terrain_types).copy()
+                for _ in range(env_cfg.terrain.num_rows * env_cfg.terrain.num_cols)
+            ]
+
         elif args.save_depth_classifier_data and not extreme_mode:
             env_cfg.terrain.curriculum = True
             env_cfg.terrain.selected   = False
@@ -455,6 +546,7 @@ def override_configs(env_cfg, args):
     # Turn off/on domain randomization elements
     env_cfg.noise.add_noise = True
     # Disable some of the domain randomization (our payload will handle that now)
+    env_cfg.domain_rand.randomize_motor_strength = False
     env_cfg.domain_rand.randomize_com_displacement = False
     env_cfg.domain_rand.randomize_pd_gain = False           # Maybe keep this on?
     env_cfg.domain_rand.push_robots = False
@@ -598,7 +690,11 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
         def keyboard_thread():
             nonlocal requested_mode
             while True:
-                key = input("> ").strip()[-1]
+                key = input("> ")
+                if key:
+                    key = key.strip()[-1]
+                else:
+                    continue
                 with lock:
                     if key.isnumeric():
                         requested_mode = int(key)
@@ -646,6 +742,10 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
     #)
 
     for i in range(int(4.00*env.max_episode_length)):
+        if not args.headless and args.follow_robot:
+            pos = env.simulator.base_pos[0].cpu().numpy() + np.array(env.cfg.viewer.pos)
+            lookat = env.simulator.base_pos[0].cpu().numpy() + np.array(env.cfg.viewer.lookat)
+            env.set_viewer_camera(pos, lookat)
         
         if args.command_test_suite:
             current = i // env.max_episode_length
@@ -677,10 +777,12 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
             #env.commands[:, 1] = 0
             #env.commands[:, 2] = 0
             #env.commands[:, 3] = 0
-
         if args.multiterrain:
-            env.commands[:, 3] = np.pi/2
-
+            dx = env.simulator.base_pos[:, 0] - env.simulator.base_pos[:, 0]
+            dy = env.simulator.env_origins[:, 1] - env.simulator.base_pos[:, 1]
+            k = 0.5
+            desired_heading = k*torch.atan2(dy, dx)
+            env.commands[:, 3] = desired_heading
         if args.jit:
             import time
             with lock:
@@ -747,17 +849,6 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
                     _euler = env.simulator._base_euler[0].detach().cpu().clone()
                     _angve = env.simulator.base_ang_vel[0].detach().cpu().clone()
                     predicted = terrain_detector.predict_depth(_depth, _euler, _angve)
-                    
-                    #if last_label == None:
-                    #    last_label = predicted.label
-                    #label = terrain_detector.filter.predict_label(
-                    #    min_posterior=0.55,
-                    #    min_margin=0.15,
-                    #    fallback_label=last_label,
-                    #)
-                    #last_label = label
-                    #if i%5 == 0:
-                    #    predicted1 = terrain_detector_comp.predict_depth(depth, _euler, _angve)
                     if args.terrain_detector:
                         print(predicted.label, predicted.instantaneous_label)
                     if args.baysian_filter:
@@ -766,12 +857,24 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
                     _depth = env.depth_sensor_output[0].unsqueeze(0).detach().cpu()
                     label = terrain_detector.predict_depth(_depth).lower()
                     print(label)
-                    if label == "baseline":
-                        policy.swap(-1)
-                    elif label == "gap":
-                        policy.swap(0)
-                    elif label == "stairs":
-                        policy.swap(1)
+                if args.hard_terrain_detector:
+                    _, row_col = get_viewed_terrain_idx(env)
+                    row_col = row_col.cpu()
+                    labels = env.simulator._terrain.labels[row_col[:, 0], row_col[:, 1]]
+                    if args.jit:
+                        if labels.ndim == 0:
+                            t = TERRAIN_KEYS[labels]
+                        else:
+                            t = TERRAIN_KEYS[labels[0]]
+                        if t == "random_uniform":
+                            policy.swap(-1)
+                        if "stairs" in t:
+                            policy.swap(1)
+                        if t == "gap":
+                            policy.swap(0)
+                        if t == "pit":
+                            policy.swap(2)
+                        print(t)
         elif "waq" in task_name:
             actions = policy(obs_buf, obs_history)
             obs_buf, privileged_obs_buf, obs_history, explicit_labels, next_states, rews, dones, infos = env.step(actions.detach())            
