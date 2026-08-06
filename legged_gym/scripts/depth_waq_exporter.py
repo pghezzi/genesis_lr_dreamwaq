@@ -1,16 +1,16 @@
-from rsl_rl.utils.LoRA import SequentialMultiLora, MultiLora
-import copy
-
-from legged_gym import *
 import os
 
+from legged_gym import *
 from legged_gym.envs import *
 from legged_gym.utils import *
+from legged_gym.scripts.joystick import Joystick
+from legged_gym.utils.exp_data_logger import ExpLogger
 
 import numpy as np
 import torch
-from legged_gym.scripts.joystick import Joystick
-from legged_gym.utils.exp_data_logger import ExpLogger
+from rsl_rl.utils.LoRA import SequentialMultiLora, MultiLora
+import copy
+
 import argparse
 
 import cv2
@@ -36,11 +36,13 @@ class PolicyExporterDepthWaQ(torch.nn.Module):
         self.vae_encoder = SequentialMultiLora(vae.encoder)
         self.vae_latent_mu = MultiLora(vae.latent_mu)
         self.vae_vel_mu = MultiLora(vae.vel_mu)
-        self.vae_latent_var = SequentialMultiLora(vae.latent_var)
-        self.vae_vel_var = SequentialMultiLora(vae.vel_var)
+        #self.vae_latent_var = SequentialMultiLora(vae.latent_var)
+        #self.vae_vel_var = SequentialMultiLora(vae.vel_var)
 
         #visual encoder
         self.visual_encoder = SequentialMultiLora(visual_encoder.cnn)
+
+        self.num_of_loras = 0
 
     @torch.jit.unused
     def append(self, actor_critic_lora):
@@ -54,19 +56,18 @@ class PolicyExporterDepthWaQ(torch.nn.Module):
         self.vae_encoder.append(vae.encoder)
         self.vae_latent_mu.append(vae.latent_mu)
         self.vae_vel_mu.append(vae.vel_mu)
-        self.vae_latent_var.append(vae.latent_var)
-        self.vae_vel_var.append(vae.vel_var)
+        #self.vae_latent_var.append(vae.latent_var)
+        #self.vae_vel_var.append(vae.vel_var)
 
         self.visual_encoder.append(visual_encoder.cnn)
+
+        self.num_of_loras += 1
     
     @torch.jit.unused
-    def export(self, path):
-        os.makedirs(path, exist_ok=True)
-        filename = f"compiled_lora_{timestamp}.pt"
-        path = os.path.join(path, filename)
+    def export(self, filename):
         self.to('cpu')
         traced_script_module = torch.jit.script(self)
-        traced_script_module.save(path)
+        traced_script_module.save(filename)
 
     def depth_actor(self, observations, samples, depth_image):
         visual_latent = self.visual_encoder(depth_image)
@@ -78,9 +79,9 @@ class PolicyExporterDepthWaQ(torch.nn.Module):
     def vae_inference(self, obs_history):
         encoded = self.vae_encoder(obs_history)
         latent_mu = self.vae_latent_mu(encoded)
-        latent_var = self.vae_latent_var(encoded)
+        #latent_var = self.vae_latent_var(encoded)
         vel_mu = self.vae_vel_mu(encoded)
-        vel_var = self.vae_vel_var(encoded)
+        #vel_var = self.vae_vel_var(encoded)
         return torch.cat((latent_mu, vel_mu), dim=-1)
     
     @torch.jit.export
@@ -215,13 +216,28 @@ if __name__ == "__main__":
     from rsl_rl.modules import ActorCriticDreamWaQDepth, ActorCriticDreamWaQDepthLora
     base_model = loader(
         ActorCriticDreamWaQDepth, 
-        ("/home/pablo/Legged_Gym_EX/logs/go2_depth_waq_baseline_start_fresh/Jul07_06-24-55_dreamwaq_isaacgym/model_3000.pt","/home/pablo/Legged_Gym_EX/logs/go2_depth_waq_baseline_start_fresh/Jul07_06-24-55_dreamwaq_isaacgym/current_actor_args.pt")
+        ("/home/pablo/Documents/Legged_Gym_EX/logs/go2_depth_waq_baseline_final_version_with_better_headings/Jul28_21-00-55_dreamwaq_genesis/model_5000.pt","/home/pablo/Documents/Legged_Gym_EX/logs/go2_depth_waq_baseline_final_version_with_better_headings/Jul28_21-00-55_dreamwaq_genesis/current_actor_args.pt")
         
     )
-    loras_files = [
-        ("/home/pablo/Legged_Gym_EX/logs/go2_depth_waq_lora_8_stairs/Jul09_01-33-34_dreamwaq_genesis/model_10000.pt", "/home/pablo/Legged_Gym_EX/logs/go2_depth_waq_lora_8_stairs/Jul09_01-33-34_dreamwaq_genesis/current_actor_args.pt"),
-        ("/home/pablo/Legged_Gym_EX/logs/go2_depth_waq_lora_8_gap_experiment1_first_test/Jul16_19-41-34_dreamwaq_genesis/model_10000.pt","/home/pablo/Legged_Gym_EX/logs/go2_depth_waq_lora_8_gap_experiment1_first_test/Jul16_19-41-34_dreamwaq_genesis/current_actor_args.pt")
+
+    lora_raw = [
+        ("/home/pablo/Documents/Legged_Gym_EX/logs/go2_depth_waq_lora_8_gap_experiment1_better_headings/Aug01_08-38-05_dreamwaq_isaacgym", 30000),
+        ("/home/pablo/Documents/Legged_Gym_EX/logs/go2_depth_waq_lora_8_stairs_experiment1_better_headings/Jul30_23-25-59_dreamwaq_isaacgym", 30000),
+        ("/home/pablo/Documents/Legged_Gym_EX/logs/go2_depth_waq_lora_8_pit_experiment1_better_headings/Aug04_23-58-15_dreamwaq_isaacgym", 25000),
     ]
+
+    #loras_files = [
+    #    (/.pt", "/home/pablo/Documents/Legged_Gym_EX/logs/go2_depth_waq_lora_8_gap_experiment1_better_headings/Aug01_08-38-05_dreamwaq_isaacgym/"),
+    #    ("/model_pt","/home/pablo/Documents/Legged_Gym_EX/logs/go2_depth_waq_lora_8_stairs_experiment1_better_headings/Jul30_23-25-59_dreamwaq_isaacgym/current_actor_args.pt")
+    #
+    #]
+
+    loras_files = [
+        (os.path.join(folder, f"model_{model}.pt"), os.path.join(folder, f"current_actor_args.pt"))
+        for folder, model in lora_raw
+
+    ]
+
     loras = [
         loader(ActorCriticDreamWaQDepthLora, file)
         for file in loras_files
@@ -241,7 +257,10 @@ if __name__ == "__main__":
     #test_swap_eager_and_exported(exporter, tmp_export_dir="/tmp/lora_export_test")
 
     path = os.path.join(LEGGED_GYM_ROOT_DIR, "exported")
-    exporter.export(path)
+    os.makedirs(path, exist_ok=True)
+    file = os.path.join(path, f"compiled_lora_{timestamp}.pt")
+    exporter.export(file)
+    
     #policy = torch.jit.load(os.path.join(path, f"compiled_lora_{timestamp}.pt"))
     #print(
     #    torch.sum(output - policy(observations, obs_history, depth_image))
