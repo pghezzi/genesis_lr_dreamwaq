@@ -222,7 +222,13 @@ class Terrain:
                                                         platform_size=self.platform_size,
                                                         terrain_type=self.type,
                                                         simplify_mesh=self.simplify_mesh)
-        
+        elif choice < self.proportions[10]:
+            terrain_utils.center_platform_terrain(
+                terrain,
+                height=pit_depth,
+                platform_size=self.platform_size,
+                terrain_type=self.type,
+                simplify_mesh=self.simplify_mesh)
         return terrain
 
     def add_terrain_to_map(self, terrain, row, col):

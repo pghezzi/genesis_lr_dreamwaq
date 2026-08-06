@@ -95,6 +95,8 @@ class IsaacGymSimulator(Simulator):
         # resample pd randomization params
         if self._cfg.domain_rand.randomize_pd_gain:
             self._randomize_pd_gain(env_ids)
+        if self._cfg.domain_rand.randomize_motor_strength:
+            self._randomize_motor_strength(env_ids)
         
         self._last_dof_vel[env_ids] = 0.
         self._last_feet_vel[env_ids] = 0.
@@ -715,6 +717,7 @@ class IsaacGymSimulator(Simulator):
             torques = actions_scaled
         else:
             raise NameError(f"Unknown controller type: {control_type}")
+        torques *= self._motor_strength_scale
         return torch.clip(torques, -self._torque_limits, self._torque_limits)
     
     def _init_domain_params(self):
@@ -738,6 +741,9 @@ class IsaacGymSimulator(Simulator):
         self._kp_scale = torch.ones(
             self._num_envs, self._num_dof, dtype=torch.float, device=self._device, requires_grad=False)
         self._kd_scale = torch.ones(
+            self._num_envs, self._num_dof, dtype=torch.float, device=self._device, requires_grad=False)
+        ### ADDING MOTOR ###
+        self._motor_strength_scale = torch.ones(
             self._num_envs, self._num_dof, dtype=torch.float, device=self._device, requires_grad=False)
 
     def _randomize_friction(self, env_ids):
@@ -766,6 +772,10 @@ class IsaacGymSimulator(Simulator):
                 self._cfg.domain_rand.kp_range[0], self._cfg.domain_rand.kp_range[1], (len(env_ids), self._num_actions), device=self._device)
         self._kd_scale[env_ids] = torch_rand_float(
                 self._cfg.domain_rand.kd_range[0], self._cfg.domain_rand.kd_range[1], (len(env_ids), self._num_actions), device=self._device)
+
+    def _randomize_motor_strength(self, env_ids):
+        self._motor_strength_scale[env_ids] = torch_rand_float(
+                self._cfg.domain_rand.motor_strength_range[0], self._cfg.domain_rand.motor_strength_range[1], (len(env_ids), self._num_actions), device=self._device)
     
     def _update_depth_camera(self):
         near_clip = self._cfg.sensor.depth_camera_config.near_clip
@@ -1354,3 +1364,9 @@ class IsaacGymSimulator(Simulator):
         return dr_normalize(self._kd_scale[:, self._dof_indices],
                             self._cfg.domain_rand.kd_range[0],
                             self._cfg.domain_rand.kd_range[1])
+
+    @property
+    def dr_motor_strength_scale(self):
+        return self._motor_strength_scale[:, self._dof_indices]
+
+    

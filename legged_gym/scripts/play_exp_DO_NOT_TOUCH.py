@@ -14,7 +14,7 @@ import argparse
 
 import cv2
 
-SWAP = 1
+SWAP = 0
 
 extreme_mode = True
 _filter = False
@@ -203,7 +203,7 @@ def override_configs(env_cfg, args):
         },
         "pit": {
             "type": "terrain_utils.pit_terrain",
-            "depth": 0.5,
+            "depth": 0.3,
             "platform_size": 3.0,
         },
         "multiple_high_platforms" : {
@@ -212,6 +212,11 @@ def override_configs(env_cfg, args):
             "high_platform_length": 1,
             "high_platform_width": 1.5,
             "high_platform_interval": 1.5,
+        },
+        "center_platform": {
+            "type": "terrain_utils.center_platform_terrain",
+            "height": 0.4,
+            "platform_size": 3.0,
         }
     }
     if args.num_envs:
@@ -221,11 +226,11 @@ def override_configs(env_cfg, args):
     task_name = args.task
     # override some parameters for testing
     # number of environments
-    env_cfg.init_state.pos[0] -= 3
+    if args.multiterrain:
+        env_cfg.init_state.pos[0] -= 2
     env_cfg.env.num_envs = envs
     env_cfg.asset.terminate_after_contacts_on = []
     env_cfg.init_state.yaw_random_scale = 0
-    env_cfg.init_state.rot = [0.0, 0.0, 0.70710678, 0.70710678]
     if hasattr(env_cfg.env, "num_camera_envs"):
         env_cfg.env.num_camera_envs = env_cfg.env.num_envs
     if "cts" in task_name:  # cts specific
@@ -241,6 +246,7 @@ def override_configs(env_cfg, args):
         env_cfg.terrain.num_cols = 1
         env_cfg.terrain.border_size = 5.0
         if args.curriculum:
+            env_cfg.commands.custom_command_curriculum = False
             return
         if args.save_depth_classifier_data:
             env_cfg.init_state.yaw_random_scale = 3.14 # camera views all terrain possible
@@ -248,7 +254,19 @@ def override_configs(env_cfg, args):
             env_cfg.rewards.scales.tracking_lin_vel = 0.0
             env_cfg.commands.custom_command_curriculum = True
             pass
-        if args.save_depth_classifier_data and not extreme_mode:
+        if args.multiterrain:
+            env_cfg.terrain.num_rows = 1
+            env_cfg.terrain.num_cols = 4
+            env_cfg.terrain.curriculum = True
+            env_cfg.terrain.selected   = False
+            env_cfg.terrain.terrain_proportions[TERRAIN_INDEX["random_uniform"]] = 1/4
+            env_cfg.terrain.terrain_proportions[TERRAIN_INDEX["gap"]] = 1/4
+            env_cfg.terrain.terrain_proportions[TERRAIN_INDEX["stairs"]] = 1/4
+            env_cfg.terrain.terrain_proportions[TERRAIN_INDEX["pit"]] = 1/4
+            env_cfg.terrain.terrain_curriculum_difficulty["step_height"] = "0.25"
+            env_cfg.terrain.terrain_curriculum_difficulty["gap_size"] = "0.5"
+            env_cfg.terrain.terrain_curriculum_difficulty["pit_depth"] = "0.3"
+        elif args.save_depth_classifier_data and not extreme_mode:
             env_cfg.terrain.curriculum = True
             env_cfg.terrain.selected   = False
             env_cfg.terrain.terrain_proportions = [0] * 10
@@ -335,16 +353,6 @@ def override_configs(env_cfg, args):
                     "platform_size": 3.0,
                 }
                 print(f"Step heights: {env_cfg.terrain.terrain_kwargs['step_height']}")
-        elif args.multiterrain:
-            env_cfg.terrain.num_rows = 1
-            env_cfg.terrain.num_cols = 3
-            env_cfg.terrain.curriculum = True
-            env_cfg.terrain.selected   = False
-            env_cfg.terrain.terrain_proportions[TERRAIN_INDEX["random_uniform"]] = 1/3
-            env_cfg.terrain.terrain_proportions[TERRAIN_INDEX["gap"]] = 1/3
-            env_cfg.terrain.terrain_proportions[TERRAIN_INDEX["stairs"]] = 1/3
-            env_cfg.terrain.terrain_curriculum_difficulty["step_height"] = "0.25"
-            env_cfg.terrain.terrain_curriculum_difficulty["gap_size"] = "0.5"
         else:
             if args.test_terrain == "plane":
                 if env_cfg.terrain.mesh_type == "heightfield":
@@ -576,6 +584,26 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
     if args.use_joystick:
         from legged_gym.scripts.joystick import Joystick
         joystick = Joystick(joystick_type=args.joystick_type)
+    if args.jit:
+        import threading
+        requested_mode = None
+        lock = threading.Lock()
+        import copy
+        policy_tester = torch.jit.load(args.jit,  'cpu')
+        policy_tester.swap(policy_tester.num_of_loras - 1)
+        policy_tester.swap(-1)
+        def keyboard_thread():
+            nonlocal requested_mode
+            while True:
+                key = input("> ").strip()[-1]
+                with lock:
+                    if key.isnumeric():
+                        requested_mode = int(key)
+                    elif key == "-":
+                        requested_mode = -1
+
+        threading.Thread(target=keyboard_thread, daemon=True).start()
+        env.max_episode_length = 100000
     
     # env.commands[:, 0] = 0.5
     # env.commands[:, 1] = 0
@@ -585,6 +613,34 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
     #if args.record_frames:
     #    env.simulator._floating_camera.start_recording()
     # interaction loop
+    #env_ids = torch.arange(env.num_envs)
+    #if env.simulator.custom_origins:
+    #    base_pos = env.simulator.base_init_pos.reshape(1, -1).repeat(len(env_ids), 1)
+    #    base_pos += env.simulator.env_origins[env_ids]
+    #    #base_pos[:, :2] += torch_rand_float(-0.5, 0.5, (len(env_ids), 2), device=env.device) # xy position within 1m of the center
+    #else:
+    #    base_pos = env.simulator.base_init_pos.reshape(1, -1).repeat(len(env_ids), 1)
+    #    base_pos += env.simulator.env_origins[env_ids]
+    #base_quat = quat_from_euler_xyz(
+    #    torch.full((len(env_ids), 1),       0, device=env.device), 
+    #    torch.full((len(env_ids), 1),       0, device=env.device), 
+    #    torch.full((len(env_ids), 1), np.pi/2, device=env.device)
+    #)
+    #base_lin_vel = torch_rand_float(0.5, 1.0, (len(env_ids), 3), env.device)
+    #base_ang_vel = torch_rand_float(0, 0, (len(env_ids), 3), env.device)
+    #print(
+    #    base_pos.device,
+    #    base_quat.device,
+    #    base_lin_vel.device,
+    #    base_ang_vel.device
+    #)
+    #env.simulator.reset_root_states(
+    #    env_ids,
+    #    base_pos,
+    #    base_quat,
+    #    base_lin_vel,
+    #    base_ang_vel
+    #)
 
     for i in range(int(4.00*env.max_episode_length)):
         
@@ -622,16 +678,26 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
         if args.multiterrain:
             env.commands[:, 3] = np.pi/2
 
+        if args.jit:
+            import time
+            with lock:
+                if requested_mode is not None:
+                    if requested_mode < policy.num_of_loras:
+                        policy.swap(requested_mode)
+                        start = time.perf_counter()
+                        policy_tester.swap(requested_mode)
+                        end = time.perf_counter()
+                        print(f"Time: {end - start} seconds")
+                        requested_mode = None
+
+
         #if arg.test_terrain not in ("plane", "baseline") and args.save_depth_classifier_data:
         #    env.commands[:, 2] = 0
-
-        
-        if args.jit and i == env.max_episode_length:
-            print("swap")
-            policy.swap(-1)
-        if args.jit and i == 2*env.max_episode_length:
-            print("swap")
-            policy.swap(SWAP)
+            #print("swap")
+            #policy.swap(-1)
+        #if args.jit and i == 2*env.max_episode_length:
+        #    print("swap")
+        #    policy.swap(SWAP)
         #if i % env.max_episode_length == 0:
         #    env.commands[:, 0] = torch.empty(env.num_envs, device=env.device).uniform_(-1.0, 1.0)
         #    env.commands[:, 1] = torch.empty(env.num_envs, device=env.device).uniform_(-1.0, 1.0)
@@ -659,10 +725,9 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
             actions = policy(estimator_features.detach())
             estimator_features, estimator_labels, _, rews, dones, infos = env.step(actions.detach())
         elif "depth_waq" in task_name:
-            
             actions = policy(obs_buf, obs_history, depth)
-            if policy1 is not None:
-                print(f"{torch.sum(torch.abs(actions - policy1(obs_buf, obs_history, depth)))}")
+            #if policy1 is not None:
+            #    print(f"{torch.sum(torch.abs(actions - policy1(obs_buf, obs_history, depth)))}")
             obs_buf, privileged_obs_buf, obs_history, explicit_labels, next_states, rews, dones, infos, depth = env.step(actions.detach())
             if not args.no_depth_cam:
                 cv2.imshow("Depth", ((env.depth_sensor_output[0].squeeze())*255).to(torch.uint8).cpu().numpy())
@@ -904,7 +969,7 @@ def play(args):
     if args.jit:
         policy1 = policy
         policy = torch.jit.load(args.jit,  map_location=args.gpu if not args.cpu else 'cpu')
-        policy.swap(SWAP)
+        policy.swap(-1)
     else:
         log_root = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name)
         path = get_load_path(log_root, load_run=train_cfg.runner.load_run, checkpoint=train_cfg.runner.checkpoint)

@@ -93,6 +93,7 @@ def update_cfg_from_args(env_cfg, cfg_train, args):
         # num envs
         if args.num_envs is not None:
             env_cfg.env.num_envs = args.num_envs
+            env_cfg.env.num_camera_envs = args.num_envs
         if args.debug:
             env_cfg.env.debug = args.debug
         if args.motion_file is not None:

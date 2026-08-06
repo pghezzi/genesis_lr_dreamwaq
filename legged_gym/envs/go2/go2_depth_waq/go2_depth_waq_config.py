@@ -54,7 +54,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
         frame_stack = 20    # number of frames to stack for obs_history
         num_history_obs = int(num_observations * frame_stack)
         c_frame_stack = 5
-        num_single_critic_obs = num_observations + 31 + 81 + 17 + 3
+        num_single_critic_obs = num_observations + 31 + 81 + 17 + 3 + 12
         num_privileged_obs = c_frame_stack * num_single_critic_obs
         debug_draw_height_points_around_base = True
     
@@ -141,7 +141,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                 pass
         else:
             soft_dof_pos_limit = 0.9
-            base_height_target = 0.4
+            base_height_target = 0.38
             foot_clearance_target = 0.08 # desired foot clearance above ground [m]
             foot_height_offset = 0.022   # height of the foot coordinate origin above ground [m]
             foot_clearance_tracking_sigma = 0.01
@@ -151,6 +151,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
             only_positive_rewards = True
             feet_edge_threshold = 0.05 # distance threshold below which foot is considered to be near the edge of a terrain
             class scales:
+                base_height = -1.0
                 if terrain_name in ("gap", "stairs"):
                     dof_pos_limits = -2.0
                     collision = -10.0
@@ -209,7 +210,6 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                     #feet_contact_stand_still = 0.1
                     feet_near_edge = -1.0
                     feet_air_time = 0.6
-                    base_height = -0.0
                     alive = 1
     class commands( LeggedRobotDreamwaqCfg.commands ):
         curriculum = True
@@ -244,42 +244,43 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                 heading = [0.0, 0.0]
             
     class domain_rand(LeggedRobotDreamwaqCfg.domain_rand):
+        randomize_friction = True
+        friction_range = [0.2, 1.7]
+
+        randomize_base_mass = True
+
+        push_robots = True
+
+        randomize_com_displacement = True
+        com_pos_x_range = [-0.03, 0.03]
+        com_pos_y_range = [-0.03, 0.03]
+        com_pos_z_range = [-0.03, 0.03]
+
+        randomize_pd_gain = True
+        kp_range = [0.8, 1.2]
+        kd_range = [0.8, 1.2]
+
+        randomize_motor_strength = True
+        motor_strength_range = [0.9, 1.1]
+
+        randomize_ctrl_delay = True
+        ctrl_delay_step_range = [0, 1]
+        randomize_joint_armature = True
+        joint_armature_range = [0.015, 0.025]  # [N*m*s/rad]
+        randomize_joint_friction = True
+        joint_friction_range = [0.01, 0.02]
+        randomize_joint_damping = True
+        joint_damping_range = [0.25, 0.3]
+
         if terrain_name in ("baseline"):
-            randomize_friction = True
-            friction_range = [0.2, 1.7]
-            randomize_base_mass = True
             added_mass_range = [-1., 1.]
-            push_robots = True
             push_interval_s = 10
             max_push_vel_xy = 1.
-            randomize_com_displacement = True
-            com_pos_x_range = [-0.03, 0.03]
-            com_pos_y_range = [-0.03, 0.03]
-            com_pos_z_range = [-0.03, 0.03]
-            randomize_pd_gain = True
-            kp_range = [0.8, 1.2]
-            kd_range = [0.8, 1.2]
-            randomize_joint_armature = False
-            joint_armature_range = [0.015, 0.025]  # [N*m*s/rad]
-            randomize_joint_friction = False
-            joint_friction_range = [0.01, 0.02]
-            randomize_joint_damping = False
-            joint_damping_range = [0.25, 0.3]
         else:
-            randomize_friction = True
-            friction_range = [0.2, 1.7]
-            randomize_base_mass = True
             added_mass_range = [-1., 2.]
-            push_robots = True
             push_interval_s = 3
             max_push_vel_xy = 0.5
-            randomize_com_displacement = True
-            com_pos_x_range = [-0.03, 0.03]
-            com_pos_y_range = [-0.03, 0.03]
-            com_pos_z_range = [-0.03, 0.03]
-            randomize_pd_gain = True
-            kp_range = [0.8, 1.2]
-            kd_range = [0.8, 1.2]
+        
         randomize_camera_pos = True
         camera_com_displacement_range = [0.01, 0.0025, 0.03]
         randomize_camera_euler = True
@@ -316,21 +317,21 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
             crop_left_right = [int(28/4), int(36/4)]
             resized_resolution = [48, 64]
 
-            #stereo_min_distance = 0.175 # when using (480, 640) resolution
-            #stereo_far_distance = 1.2
-            #stereo_far_noise_std = 0.08 
-            #stereo_near_noise_std = 0.02
-            #stereo_full_block_artifacts_prob = 0.008
-            #stereo_full_block_values = [0.0, 0.25, 0.5, 1., 3.]
-            #stereo_full_block_height_mean_std = [62, 1.5]
-            #stereo_full_block_width_mean_std = [3, 0.01]
-            #stereo_half_block_spark_prob = 0.02
-            #stereo_half_block_value = 3000
-            #sky_artifacts_prob = 0.001
-            #sky_artifacts_far_distance = 2.
-            #sky_artifacts_values = [0.6, 1., 1.2, 1.5, 1.8]
-            #sky_artifacts_height_mean_std = [2, 3.2]
-            #sky_artifacts_width_mean_std = [2, 3.2]
+            stereo_min_distance = 0.175 # when using (480, 640) resolution
+            stereo_far_distance = 1.2
+            stereo_far_noise_std = 0.08 
+            stereo_near_noise_std = 0.02
+            stereo_full_block_artifacts_prob = 0.008
+            stereo_full_block_values = [0.0, 0.25, 0.5, 1., 3.]
+            stereo_full_block_height_mean_std = [62, 1.5]
+            stereo_full_block_width_mean_std = [3, 0.01]
+            stereo_half_block_spark_prob = 0.02
+            stereo_half_block_value = 3000
+            sky_artifacts_prob = 0.001
+            sky_artifacts_far_distance = 2.
+            sky_artifacts_values = [0.6, 1., 1.2, 1.5, 1.8]
+            sky_artifacts_height_mean_std = [2, 3.2]
+            sky_artifacts_width_mean_std = [2, 3.2]
 
 
 class Go2DepthWaqCfgPPO( LeggedRobotDreamwaqCfgPPO ):

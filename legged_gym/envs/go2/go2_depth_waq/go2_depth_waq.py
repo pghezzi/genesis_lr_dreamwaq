@@ -75,9 +75,9 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
                     self.simulator.dr_base_com_bias,              # 3
                     self.simulator.dr_rand_push_vels[:, :2],      # 2
                     self.simulator.dr_kp_scale,                   # num_actions
-                    self.simulator.dr_kd_scale                    # num_actions
+                    self.simulator.dr_kd_scale,                    # num_actions
+                    self.simulator.dr_motor_strength_scale
             ), dim=-1)
-        
         # Critic observation
         critic_obs = torch.cat((
             self.simulator.base_lin_vel * self.obs_scales.lin_vel,                   # 3

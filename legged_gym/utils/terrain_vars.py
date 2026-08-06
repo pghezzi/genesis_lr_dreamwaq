@@ -10,7 +10,8 @@ TERRAIN_KEYS =[
   "gap",
   "pit",
   "multiple_high_platforms",
-  "high_platform_gaps"
+  "high_platform_gaps",
+  "center_platform"
 ]
 
 TERRAIN_INDEX = {name: idx for idx, name in enumerate(TERRAIN_KEYS)}
