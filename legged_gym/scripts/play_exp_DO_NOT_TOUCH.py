@@ -144,6 +144,7 @@ def get_args():
 
 
     parser.add_argument('--terrain_detector', type=str, default='', help="test a terrain detector")
+    parser.add_argument('--terrain_detector_jit', type=str, default='', help="test a terrain detector")
     parser.add_argument('--baysian_filter', type=str, default='', help="test a terrain detector")
     parser.add_argument('--command_test_suite', action='store_true', default=False, help="run a simple commnad test suite")
     parser.add_argument('--multiterrain', action='store_true', default=False, help="multiple terrains")
@@ -543,6 +544,8 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
         terrain_detector = DepthTerrainClassifier(pca_dim=12, num_prototypes=3)
         terrain_detector.load(args.terrain_detector)
         terrain_detector.reset_temporal_filter()
+    if args.terrain_detector_jit:
+        terrain_detector = torch.jit.load(args.terrain_detector_jit)
     if args.baysian_filter:
         terrain_detector = make_terrain_detector(args.baysian_filter)
         terrain_detector_comp = make_terrain_detector(args.baysian_filter)
@@ -759,6 +762,16 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
                         print(predicted.label, predicted.instantaneous_label)
                     if args.baysian_filter:
                         print(predicted.label)
+                if args.terrain_detector_jit:
+                    _depth = env.depth_sensor_output[0].unsqueeze(0).detach().cpu()
+                    label = terrain_detector.predict_depth(_depth).lower()
+                    print(label)
+                    if label == "baseline":
+                        policy.swap(-1)
+                    elif label == "gap":
+                        policy.swap(0)
+                    elif label == "stairs":
+                        policy.swap(1)
         elif "waq" in task_name:
             actions = policy(obs_buf, obs_history)
             obs_buf, privileged_obs_buf, obs_history, explicit_labels, next_states, rews, dones, infos = env.step(actions.detach())            
