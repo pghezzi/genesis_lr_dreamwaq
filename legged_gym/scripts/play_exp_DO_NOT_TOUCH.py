@@ -14,10 +14,6 @@ import argparse
 
 import cv2
 
-SWAP = 0
-
-extreme_mode = True
-_filter = False
 def get_viewed_terrain_idx(env, look_ahead_frac: float = 0.25):
     """
     Determine which terrain patch(es) the robot's depth camera is looking at.
@@ -193,20 +189,54 @@ def get_args():
 
     parser.add_argument('--jit',            type=str, default='', help="path to a jit-scripted policy to load and swap with the trained policy (replaces JIT env var)")
 
-    parser.add_argument('--save_depth_classifier_data', action='store_true', default=False, help="if with depth cam use to save depth image and rpy of all executed steps")
+    parser.add_argument('--test_terrain', type=str, default=None, help="current test_terrain")
     parser.add_argument('--curriculum', action='store_true', default=False, help="Load default curriculum")
-    parser.add_argument('--test_terrain', type=str, default='random_uniform', help="current test_terrain")
-    parser.add_argument('--no_depth_cam', action='store_true', default=False, help="disable test cam if available")
+    parser.add_argument('--multiterrain', action='store_true', default=False, help="multiple terrains")
+    parser.add_argument('--extreme', action='store_true', default=False, help="use extreme version of test terrain")
 
+    parser.add_argument('--save_depth_classifier_data', action='store_true', default=False, help="if with depth cam use to save depth image and rpy of all executed steps")
+    parser.add_argument('--filter_depth_classifier_data', type=str, default='', help="split data based on terminates")
+    parser.add_argument('--no_depth_cam', action='store_true', default=False, help="disable test cam if available")
 
     parser.add_argument('--terrain_detector', type=str, default='', help="test a terrain detector")
     parser.add_argument('--hard_terrain_detector', action='store_true', default=False, help="using sim to determine terrain")
     parser.add_argument('--terrain_detector_jit', type=str, default='', help="test a terrain detector")
     parser.add_argument('--baysian_filter', type=str, default='', help="test a terrain detector")
+
     parser.add_argument('--command_test_suite', action='store_true', default=False, help="run a simple commnad test suite")
-    parser.add_argument('--multiterrain', action='store_true', default=False, help="multiple terrains")
+    parser.add_argument('--explore', action='store_true', default=False, help="explore terrain")
+
+    args = configure_runtime_device(parser.parse_args())
+
+    selected = [
+        name for name, enabled in (
+            ("curriculum", args.curriculum),
+            ("multiterrain", args.multiterrain),
+            ("test_terrain", args.test_terrain is not None),
+        )
+        if enabled
+    ]
+
+    if len(selected) > 1:
+        parser.error(
+            f"Only one of --curriculum, --multiterrain, or --test_terrain may be specified. Got: {', '.join(selected)}"
+        )
     
-    return configure_runtime_device(parser.parse_args())
+    selected = [
+        name for name, enabled in (
+            ("test_terrain", args.test_terrain),
+            ("hard_terrain_detector", args.hard_terrain_detector),
+        )
+        if enabled
+    ]
+
+    if args.save_depth_classifier_data and len(selected) == 0:
+        parser.error(
+            f"To collect data you must have either test_terrain or hard_terrain_detector active to classify the data"
+        )
+
+
+    return args
 
 def override_configs(env_cfg, args):
     """Override some environment configuration parameters for testing
@@ -232,6 +262,12 @@ def override_configs(env_cfg, args):
             "type": "terrain_utils.pyramid_stairs_terrain",
             "step_width": 0.4,
             "step_height": -0.2,
+            "platform_size": 3.0,
+        },
+        "upwards_stairs": {
+            "type": "terrain_utils.pyramid_stairs_terrain",
+            "step_width": 0.4,
+            "step_height": 0.2,
             "platform_size": 3.0,
         },
         "discrete": {
@@ -286,30 +322,32 @@ def override_configs(env_cfg, args):
     # number of environments
     env_cfg.env.num_envs = envs
     env_cfg.asset.terminate_after_contacts_on = []
-    env_cfg.init_state.yaw_random_scale = 0
+    if args.explore:
+        env_cfg.init_state.yaw_random_scale = np.pi
+        env_cfg.commands.ranges.heading = [-3.14, 3.14]
+
+    else:
+        env_cfg.init_state.yaw_random_scale = 0
     if hasattr(env_cfg.env, "num_camera_envs"):
         env_cfg.env.num_camera_envs = env_cfg.env.num_envs
     if "cts" in task_name:  # cts specific
         env_cfg.env.num_teacher = 1
+    env_cfg.commands.custom_command_curriculum = True
     env_cfg.viewer.rendered_envs_idx = list(range(min(env_cfg.env.num_envs, envs)))
     # adjust parameters according to terrain type
-
-    
-
     #env_cfg.terrain.vertical_scale = 0.1
     if env_cfg.terrain.mesh_type in ["heightfield", "trimesh"]:
         env_cfg.terrain.num_rows = 10
         env_cfg.terrain.num_cols = 1
         env_cfg.terrain.border_size = 5.0
         if args.curriculum:
-            env_cfg.commands.custom_command_curriculum = False
             return
-        if args.save_depth_classifier_data:
-            env_cfg.init_state.yaw_random_scale = 3.14 # camera views all terrain possible
-            env_cfg.commands.heading_command = False
-            env_cfg.rewards.scales.tracking_lin_vel = 0.0
-            env_cfg.commands.custom_command_curriculum = True
-            pass
+        #if args.save_depth_classifier_data:
+        #    env_cfg.init_state.yaw_random_scale = 3.14 # camera views all terrain possible
+        #    env_cfg.commands.heading_command = False
+        #    env_cfg.rewards.scales.tracking_lin_vel = 0.0
+        #    env_cfg.commands.custom_command_curriculum = True
+        #    pass
         if args.multiterrain:
             env_cfg.terrain.num_rows = 10
             env_cfg.terrain.num_cols = 4
@@ -357,95 +395,7 @@ def override_configs(env_cfg, args):
                 rng.choice(terrain_types).copy()
                 for _ in range(env_cfg.terrain.num_rows * env_cfg.terrain.num_cols)
             ]
-
-        elif args.save_depth_classifier_data and not extreme_mode:
-            env_cfg.terrain.curriculum = True
-            env_cfg.terrain.selected   = False
-            env_cfg.terrain.terrain_proportions = [0] * 10
-            if args.test_terrain == "gap":
-                env_cfg.terrain.num_rows = 7
-                env_cfg.terrain.num_cols = 1
-                gap_scale = (1.0 - 0.4) * env_cfg.terrain.num_rows / (env_cfg.terrain.num_rows - 1)
-                env_cfg.terrain.terrain_curriculum_difficulty["gap_size"] = f"0.4 + {gap_scale} * difficulty"
-                print("Gap sizes:")
-                for i in range(env_cfg.terrain.num_rows):
-                    difficulty = i / env_cfg.terrain.num_rows
-                    value = 0.4 + gap_scale * difficulty
-                    print(f"  row {i}: {value:.3f}")
-            if args.test_terrain == "stairs":
-                env_cfg.terrain.num_rows = 3
-                env_cfg.terrain.num_cols = 1
-                stair_scale = (0.3 - 0.1) * env_cfg.terrain.num_rows / (env_cfg.terrain.num_rows - 1)
-                env_cfg.terrain.terrain_curriculum_difficulty["step_height"] = f"0.1 + {stair_scale} * difficulty"
-                print("Step heights:")
-                for i in range(env_cfg.terrain.num_rows):
-                    difficulty = i / env_cfg.terrain.num_rows
-                    value = 0.1 + stair_scale * difficulty
-                    print(f"  row {i}: {value:.3f}")
-            if args.test_terrain == "plane":
-                if env_cfg.terrain.mesh_type == "heightfield":
-                    env_cfg.terrain.curriculum = True
-                    env_cfg.terrain.selected   = False
-                    env_cfg.terrain.terrain_kwargs = {}
-                elif env_cfg.terrain.mesh_type == "trimesh":
-                    env_cfg.terrain.curriculum = False
-                    env_cfg.terrain.selected   = True
-                    env_cfg.terrain.terrain_kwargs = {
-                        "type": "terrain_utils.random_uniform_terrain",
-                        "min_height": 0,
-                        "max_height": 0,
-                        "step": 0.005,
-                        "downsampled_scale": 0.2,
-                    }
-            elif args.test_terrain == "baseline":
-                env_cfg.terrain.terrain_proportions[TERRAIN_INDEX["random_uniform"]] = 1
-            else:
-                env_cfg.terrain.terrain_proportions[TERRAIN_INDEX[args.test_terrain]] = 1
-        elif args.save_depth_classifier_data and extreme_mode:
-            if args.test_terrain == "plane":
-                if env_cfg.terrain.mesh_type == "heightfield":
-                    env_cfg.terrain.curriculum = True
-                    env_cfg.terrain.selected   = False
-                    env_cfg.terrain.terrain_proportions = [0] * 10
-                    env_cfg.terrain.terrain_kwargs = {}
-                elif env_cfg.terrain.mesh_type == "trimesh":
-                    env_cfg.terrain.curriculum = False
-                    env_cfg.terrain.selected   = True
-                    env_cfg.terrain.terrain_kwargs = {
-                        "type": "terrain_utils.random_uniform_terrain",
-                        "min_height": 0,
-                        "max_height": 0,
-                        "step": 0.005,
-                        "downsampled_scale": 0.2,
-                    }
-                print("plane")
-            else:
-                env_cfg.terrain.curriculum = False
-                env_cfg.terrain.selected   = True
-            if args.test_terrain == "baseline":
-                env_cfg.terrain.terrain_kwargs = {
-                    "type": "terrain_utils.random_uniform_terrain",
-                    "min_height": -0.05,
-                    "max_height": 0.05,
-                    "step": 0.005,
-                    "downsampled_scale": 0.2,
-                }
-            elif args.test_terrain == "gap":
-                env_cfg.terrain.terrain_kwargs = {
-                    "type": "terrain_utils.gap_terrain",
-                    "gap_size": 1.0,
-                    "platform_size": 3.0,
-                }
-                print(f"Gap sizes: {env_cfg.terrain.terrain_kwargs['gap_size']}")
-            elif args.test_terrain == "stairs":
-                env_cfg.terrain.terrain_kwargs = {
-                    "type": "terrain_utils.pyramid_stairs_terrain",
-                    "step_width": 0.4,
-                    "step_height": -0.3,
-                    "platform_size": 3.0,
-                }
-                print(f"Step heights: {env_cfg.terrain.terrain_kwargs['step_height']}")
-        else:
+        elif args.test_terrain:
             if args.test_terrain == "plane":
                 if env_cfg.terrain.mesh_type == "heightfield":
                     env_cfg.terrain.curriculum = True
@@ -465,14 +415,42 @@ def override_configs(env_cfg, args):
             else:
                 env_cfg.terrain.curriculum = False
                 env_cfg.terrain.selected   = True
-                pass
-            
-            if args.test_terrain == "baseline":
-                env_cfg.terrain.terrain_kwargs = TERRAIN_CONFIGS["random_uniform"]
-            elif args.test_terrain == "plane":
-                pass
-            else:
-                env_cfg.terrain.terrain_kwargs = TERRAIN_CONFIGS[args.test_terrain]
+                if args.extreme:
+                    if args.test_terrain == "baseline":
+                        env_cfg.terrain.terrain_kwargs = {
+                            "type": "terrain_utils.random_uniform_terrain",
+                            "min_height": -0.05,
+                            "max_height": 0.05,
+                            "step": 0.005,
+                            "downsampled_scale": 0.2,
+                        }
+                    elif args.test_terrain == "gap":
+                        from types import SimpleNamespace
+                        env_cfg.termination = SimpleNamespace(
+                            reset_unrecoverable_gaps=True,
+                            gap_terrain_depth_threshold=1.0,
+                            gap_foot_drop_threshold=0.25,
+                            gap_base_drop_threshold=0.30,
+                            gap_min_fallen_feet=1,
+                            gap_reset_steps=4,
+                        )
+                        env_cfg.terrain.terrain_kwargs = {
+                            "type": "terrain_utils.gap_terrain",
+                            "gap_size": 0.8,
+                            "platform_size": 3.0,
+                        }
+                    elif args.test_terrain == "stairs":
+                        env_cfg.terrain.terrain_kwargs = {
+                            "type": "terrain_utils.pyramid_stairs_terrain",
+                            "step_width": 0.4,
+                            "step_height": -0.3,
+                            "platform_size": 3.0,
+                        }
+                else:
+                    if args.test_terrain == "baseline":
+                        env_cfg.terrain.terrain_kwargs = TERRAIN_CONFIGS["random_uniform"]
+                    else:
+                        env_cfg.terrain.terrain_kwargs = TERRAIN_CONFIGS[args.test_terrain]
 
         #env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.random_uniform_terrain", 
         #                                  "min_height" : -0.05, "max_height": 0.05, 
@@ -701,8 +679,20 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
                     elif key == "-":
                         requested_mode = -1
 
+        t = args.test_terrain
+        if t is not None:
+            if t == "random_uniform":
+                policy.swap(-1)
+            if "stairs" in t:
+                policy.swap(1)
+            if t == "gap":
+                policy.swap(0)
+            if t in ("pit", "center_platform"):
+                policy.swap(2)
+
         threading.Thread(target=keyboard_thread, daemon=True).start()
         env.max_episode_length = 100000
+
     
     # env.commands[:, 0] = 0.5
     # env.commands[:, 1] = 0
@@ -740,7 +730,6 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
     #    base_lin_vel,
     #    base_ang_vel
     #)
-
     for i in range(int(4.00*env.max_episode_length)):
         if not args.headless and args.follow_robot:
             pos = env.simulator.base_pos[0].cpu().numpy() + np.array(env.cfg.viewer.pos)
@@ -845,7 +834,7 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
                     base_ang_vel_log.append(env.simulator.base_ang_vel.detach().cpu().clone())
                 if args.terrain_detector or args.baysian_filter:
                     quality = 0.25
-                    _depth = env.depth_sensor_output[0].squeeze().detach().cpu()
+                    _depth = env.depth_sensor_output[0].squeeze().detach().cpu().clone()
                     _euler = env.simulator._base_euler[0].detach().cpu().clone()
                     _angve = env.simulator.base_ang_vel[0].detach().cpu().clone()
                     predicted = terrain_detector.predict_depth(_depth, _euler, _angve)
@@ -889,19 +878,30 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
             actions = policy(obs.detach())
             obs, _, rews, dones, infos = env.step(actions.detach())
 
+
+        #terminate at bound:
+        x_out_of_bound = (env.simulator.base_pos[:, 0] < 0.0) | (env.simulator.base_pos[:, 0] > env.cfg.terrain.num_rows * env.cfg.terrain.terrain_length)
+        y_out_of_bound = (env.simulator.base_pos[:, 1] < 0.0) | (env.simulator.base_pos[:, 1] > env.cfg.terrain.num_cols * env.cfg.terrain.terrain_width)
+        out = x_out_of_bound | y_out_of_bound
+        dones |= out
+        env_ids = out.nonzero(as_tuple=False).squeeze(-1)
+        if env_ids.numel() > 0:
+            env.simulator._terrain_levels[env_ids] = env.simulator._max_terrain_level + 1
+            env.reset_idx(env_ids)
+
         #keep this?????
         if args.save_depth_classifier_data and env.cfg.terrain.terrain_proportions[TERRAIN_INDEX["gap"]]:
             difficulty = env.simulator.terrain_levels / env.cfg.terrain.num_rows
             dist = torch.norm(env.simulator.base_pos - env.simulator.env_origins, dim=-1)
-            bound = env.cfg.terrain.platform_size/2 + eval(env.cfg.terrain.terrain_curriculum_difficulty["gap_size"]) + (-0.1 if _filter else 1)
+            bound = env.cfg.terrain.platform_size/2 + eval(env.cfg.terrain.terrain_curriculum_difficulty["gap_size"]) + (-0.1 if args.filter_depth_classifier_data else 1)
             out = dist >= bound
-            dones &= out
+            dones |= out
             env_ids = out.nonzero(as_tuple=False).squeeze(-1)
             if env_ids.numel() > 0:
                 env.simulator._terrain_levels[env_ids] = env.simulator._max_terrain_level + 1
                 env.reset_idx(env_ids)
 
-        if args.save_depth_classifier_data and _filter:
+        if args.save_depth_classifier_data and args.filter_depth_classifier_data:
             resets_log.append(dones)
 
         if dones[0] == True:
@@ -989,10 +989,10 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
         base_rpy_tensor = torch.stack(base_rpy_log, dim=0)
         base_ang_vel_tensor = torch.stack(base_ang_vel_log, dim=0)
         if terrain_name_log:
-            labels_tensor = torch.stack(terrain_name_log, dim=0)
+            labels_tensor = torch.from_numpy(np.stack(arrays)).detach().cpu().clone()
         else:
             labels_list = None
-        if _filter:
+        if args.filter_depth_classifier_data:
             reset_tensor = torch.stack(resets_log, dim=0)
             depth_images_tensor = reset_split(depth_images_tensor, reset_tensor)   # [T, num_envs, H, W] (or however depth is shaped)
             base_rpy_tensor = reset_split(base_rpy_tensor, reset_tensor)       # [T, num_envs, 4]
@@ -1001,24 +1001,21 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
                 labels_tensor = reset_split(base_ang_vel_tensor, reset_tensor)
         if terrain_name_log:
             labels_list = tensor_to_keys(labels_tensor)
-        save_dir = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name)
-        path = get_load_path(save_dir, load_run=train_cfg.runner.load_run, checkpoint=train_cfg.runner.checkpoint)
+        save_dir = os.path.join(LEGGED_GYM_ROOT_DIR, 'depth_waq_selector', 'depth_data', train_cfg.runner.experiment_name)
         os.makedirs(save_dir, exist_ok=True)
 
-
         from datetime import datetime
-
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         save_name = (
             f"{train_cfg.runner.experiment_name}"
-            f"{'_filtered' if _filter else ''}"
+            f"{'_filtered' if args.filter_depth_classifier_data else ''}"
             f"{'_' + str(new) if new else ''}"
-            f"{'_extreme' if extreme_mode else ''}"
+            f"{'_extreme' if args.extreme else ''}"
             f"_{env.cfg.env.num_envs}_capture_{timestamp}.pt"
         )
 
-        save_path = os.path.join(os.path.dirname(path), save_name)
+        save_path = os.path.join(save_dir, save_name)
 
         torch.save({
             "depth_images": depth_images_tensor,
@@ -1027,8 +1024,11 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
             "base_rpy_shape": tuple(base_rpy_tensor.shape),
             "base_ang_vel": base_ang_vel_tensor,
             "base_ang_vel_shape": tuple(base_ang_vel_tensor.shape),
-            "terrain_name": labels_list if labels_list else [args.test_terrain] * depth_images_tensor.shape[0],
-            "filtered": _filter
+            "terrain_name": labels_list if labels_list else [
+                [args.test_terrain] * depth_images_tensor.shape[1]
+                for _ in range(depth_images_tensor.shape[0])
+            ],
+            "filtered": args.filter_depth_classifier_data
         }, save_path)
 
         print(f"Saved depth images {tuple(depth_images_tensor.shape)}, "

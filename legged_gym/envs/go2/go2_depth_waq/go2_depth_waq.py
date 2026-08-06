@@ -264,16 +264,18 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
 
         # identify env ids for different terrain types
         if self.cfg.terrain.curriculum:
-            terrain_types = self.simulator.terrain_types
+            terrain_types = self.simulator.terrain_types # terrains of all the envs
             terrain_type_bounds = torch.cumsum(torch.tensor(self.cfg.terrain.terrain_proportions), dim=0) * self.cfg.terrain.num_cols
+
             #self.slope_env_ids = ((terrain_types >=0) & (terrain_types < terrain_type_bounds[0])).nonzero(as_tuple=False).flatten()
-            self.stairs_env_ids = ((terrain_types >= terrain_type_bounds[2]) & (terrain_types < terrain_type_bounds[3])).nonzero(as_tuple=False).flatten()
+            self.stairs_env_ids = ((terrain_types >= terrain_type_bounds[1]) & (terrain_types < terrain_type_bounds[3])).nonzero(as_tuple=False).flatten()
             self.discrete_env_ids = ((terrain_types >= terrain_type_bounds[3]) & (terrain_types < terrain_type_bounds[4])).nonzero(as_tuple=False).flatten()
             self.stepping_stones_env_ids = ((terrain_types >= terrain_type_bounds[4]) & (terrain_types < terrain_type_bounds[5])).nonzero(as_tuple=False).flatten()
             self.gaps_env_ids = ((terrain_types >= terrain_type_bounds[5]) & (terrain_types < terrain_type_bounds[6])).nonzero(as_tuple=False).flatten()
             self.pits_env_ids = ((terrain_types >= terrain_type_bounds[6]) & (terrain_types < terrain_type_bounds[7])).nonzero(as_tuple=False).flatten()
             self.high_platform_env_ids = ((terrain_types >= terrain_type_bounds[7]) & (terrain_types < terrain_type_bounds[8])).nonzero(as_tuple=False).flatten()
             self.high_platform_gaps_env_ids = ((terrain_types >= terrain_type_bounds[8]) & (terrain_types < terrain_type_bounds[9])).nonzero(as_tuple=False).flatten()
+            self.center_platform_terrain_env_ids = ((terrain_types >= terrain_type_bounds[9]) & (terrain_types < terrain_type_bounds[10])).nonzero(as_tuple=False).flatten()
             # identify env ids for all heading command (others have fixed heading command specified in config)
             self.all_heading_env_ids = torch.cat((
                 #self.slope_env_ids,
@@ -281,7 +283,11 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
                 self.discrete_env_ids,
                 self.gaps_env_ids,
                 self.pits_env_ids, # elementary terrains with all heading commands
+                self.center_platform_terrain_env_ids
             ))
+            print(terrain_types, terrain_type_bounds)
+            print(self.stairs_env_ids)
+            print(self.gaps_env_ids)
             # identity termination base height for high_platform_gaps terrain
             difficulty = self.simulator.terrain_levels / self.cfg.terrain.num_rows
             self.high_platform_gaps_termination_height = eval(

@@ -35,7 +35,7 @@ def get_env_vars():
         terrain_list[TERRAIN_INDEX["random_uniform"]] = 0.5
         terrain_index = None
     
-    if terrain_name == "plane":
+    elif terrain_name == "plane":
         terrain_list = [0] * len(TERRAIN_KEYS)
         terrain_index = -1
 

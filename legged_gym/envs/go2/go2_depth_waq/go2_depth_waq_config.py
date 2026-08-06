@@ -222,7 +222,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
         resampling_time = 10.  # time before command are changed[s]
         heading_command = True # if true: compute ang vel command from heading error
 
-        if terrain_name in ("baseline", "stairs", "pit"):
+        if terrain_name in ("baseline"):
             custom_command_curriculum = False
         else:
             custom_command_curriculum =  True
