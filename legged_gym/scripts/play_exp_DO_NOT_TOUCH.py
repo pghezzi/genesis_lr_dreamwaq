@@ -658,7 +658,7 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
         base_rpy_log = []
         base_ang_vel_log = []
         resets_log = []
-        terrain_name_log = args.test_terrain
+        terrain_name_log = []
     
     # Get initial observations according to task type
     task_name = args.task
@@ -861,6 +861,8 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
                     _, row_col = get_viewed_terrain_idx(env)
                     row_col = row_col.cpu()
                     labels = env.simulator._terrain.labels[row_col[:, 0], row_col[:, 1]]
+                    if args.save_depth_classifier_data:
+                        terrain_name_log.append(labels)
                     if args.jit:
                         if labels.ndim == 0:
                             t = TERRAIN_KEYS[labels]
@@ -872,7 +874,7 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
                             policy.swap(1)
                         if t == "gap":
                             policy.swap(0)
-                        if t == "pit":
+                        if t in ("pit", "center_platform"):
                             policy.swap(2)
                         print(t)
         elif "waq" in task_name:
@@ -887,6 +889,7 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
             actions = policy(obs.detach())
             obs, _, rews, dones, infos = env.step(actions.detach())
 
+        #keep this?????
         if args.save_depth_classifier_data and env.cfg.terrain.terrain_proportions[TERRAIN_INDEX["gap"]]:
             difficulty = env.simulator.terrain_levels / env.cfg.terrain.num_rows
             dist = torch.norm(env.simulator.base_pos - env.simulator.env_origins, dim=-1)
@@ -897,9 +900,8 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
             if env_ids.numel() > 0:
                 env.simulator._terrain_levels[env_ids] = env.simulator._max_terrain_level + 1
                 env.reset_idx(env_ids)
-        #print(env.pit_depth)
 
-        if args.save_depth_classifier_data:
+        if args.save_depth_classifier_data and _filter:
             resets_log.append(dones)
 
         if dones[0] == True:
@@ -976,19 +978,29 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
         target_len = min(t.shape[0] for t in kept)
         final = [t[:target_len] for t in kept]
         return torch.stack(final, dim=1)
-        
+    
+    def tensor_to_keys(t):
+        if isinstance(t, list):
+            return [tensor_to_keys(x) for x in t]
+        return TERRAIN_KEYS[t]
     
     if args.save_depth_classifier_data:
         depth_images_tensor = torch.stack(depth_images_log, dim=0).squeeze(2)
         base_rpy_tensor = torch.stack(base_rpy_log, dim=0)
         base_ang_vel_tensor = torch.stack(base_ang_vel_log, dim=0)
-
+        if terrain_name_log:
+            labels_tensor = torch.stack(terrain_name_log, dim=0)
+        else:
+            labels_list = None
         if _filter:
             reset_tensor = torch.stack(resets_log, dim=0)
             depth_images_tensor = reset_split(depth_images_tensor, reset_tensor)   # [T, num_envs, H, W] (or however depth is shaped)
             base_rpy_tensor = reset_split(base_rpy_tensor, reset_tensor)       # [T, num_envs, 4]
             base_ang_vel_tensor = reset_split(base_ang_vel_tensor, reset_tensor)
-        
+            if labels_tensor:
+                labels_tensor = reset_split(base_ang_vel_tensor, reset_tensor)
+        if terrain_name_log:
+            labels_list = tensor_to_keys(labels_tensor)
         save_dir = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name)
         path = get_load_path(save_dir, load_run=train_cfg.runner.load_run, checkpoint=train_cfg.runner.checkpoint)
         os.makedirs(save_dir, exist_ok=True)
@@ -1015,7 +1027,7 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
             "base_rpy_shape": tuple(base_rpy_tensor.shape),
             "base_ang_vel": base_ang_vel_tensor,
             "base_ang_vel_shape": tuple(base_ang_vel_tensor.shape),
-            "terrain_name": terrain_name_log,
+            "terrain_name": labels_list if labels_list else [args.test_terrain] * depth_images_tensor.shape[0],
             "filtered": _filter
         }, save_path)
 

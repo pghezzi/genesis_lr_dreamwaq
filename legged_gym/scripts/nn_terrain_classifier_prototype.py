@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
 from typing import List
 
-class DepthEncoder(nn.Module):
+class TerrainClassifierNN(nn.Module):
     """Encodes a depth image into a latent vector."""
     __constants__ = ["classes"]
 
@@ -212,7 +212,7 @@ def main():
     train_images = train["depth_images"].unsqueeze(1).float()
     val_images = val["depth_images"].unsqueeze(1).float()
 
-    model = DepthEncoder(
+    model = TerrainClassifierNN(
         depth_image_resolution=train_images.shape[-2:],   # (H, W)
         cnn_input_channel=1,                              # grayscale
         cnn_channel_dims=[8, 16],

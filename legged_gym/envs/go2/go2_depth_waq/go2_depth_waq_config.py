@@ -170,7 +170,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                     #feet_contact_stand_still = 0.1
                     feet_near_edge = -1.0
                     feet_air_time = 0.6
-                elif terrain_name in ("pit"):
+                elif terrain_name in ("pit", "center_platform"):
                     dof_pos_limits = -2.0
                     collision = -10.0
                     tracking_lin_vel = 1.2

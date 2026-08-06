@@ -85,7 +85,7 @@ class Terrain:
         if self.type=="trimesh":
             self._add_terrain_border()
             self.terrain_mesh = trimesh.util.concatenate(self.terrain_meshes)
-            
+
     def randomized_terrain(self):
         for k in range(self.cfg.num_sub_terrains):
             # Env coordinates in the world
@@ -119,7 +119,7 @@ class Terrain:
             eval(terrain_type)(terrain, **self.cfg.terrain_kwargs, terrain_type=self.type)
             t_name = terrain_type.split(".")[-1].replace("_terrain", "")
             if "stairs" in t_name:
-                if kwargs['step_height'] < 0:
+                if self.cfg.terrain_kwargs['step_height'] < 0:
                     self.labels[i, j] = TERRAIN_INDEX["stairs"]
                 else:
                     self.labels[i, j] = TERRAIN_INDEX["upwards_stairs"]
