@@ -266,7 +266,6 @@ class Go2DepthWaq(LeggedRobotDreamwaq):
         if self.cfg.terrain.curriculum:
             terrain_types = self.simulator.terrain_types # terrains of all the envs
             terrain_type_bounds = torch.cumsum(torch.tensor(self.cfg.terrain.terrain_proportions), dim=0) * self.cfg.terrain.num_cols
-
             #self.slope_env_ids = ((terrain_types >=0) & (terrain_types < terrain_type_bounds[0])).nonzero(as_tuple=False).flatten()
             self.stairs_env_ids = ((terrain_types >= terrain_type_bounds[1]) & (terrain_types < terrain_type_bounds[3])).nonzero(as_tuple=False).flatten()
             self.discrete_env_ids = ((terrain_types >= terrain_type_bounds[3]) & (terrain_types < terrain_type_bounds[4])).nonzero(as_tuple=False).flatten()

@@ -3,8 +3,6 @@ from legged_gym import LEGGED_GYM_ROOT_DIR
 import torch
 import os
 
-SEED = 42
-
 def data_flattening(tensor):
     #data is stacked as episodes, envs, shape. This swaps it to ensure 
     return tensor.transpose(0, 1).flatten(start_dim=0, end_dim=1)
@@ -46,7 +44,7 @@ def get_data_raw(load_file, frac=0.1, seed=42):
     depth_images, base_rpy, base_ang_vel, terrain_labels = sample_envs(
         depth_images, base_rpy, base_ang_vel, terrain_labels,
         fraction=frac,
-        seed=SEED,
+        seed=seed,
     )
     return depth_images, base_rpy, base_ang_vel, terrain_labels
 

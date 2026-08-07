@@ -351,6 +351,7 @@ class Go2DepthWaqCfgPPO( LeggedRobotDreamwaqCfgPPO ):
         encoder_lr = 2.e-4
         num_encoder_epochs = 1
         vae_kld_weight = 2.0
+        num_mini_batches = 4
     class runner( LeggedRobotDreamwaqCfgPPO.runner ):
         policy_class_name = "ActorCriticDreamWaQDepth"
         algorithm_class_name = "PPO_DreamWaQ_Depth"
@@ -369,9 +370,9 @@ class Go2DepthWaqCfgPPO( LeggedRobotDreamwaqCfgPPO ):
         else:
             if terrain_name in ("baseline"):
                 max_iterations = 5000
-            elif terrain_name in ("pit"):
-                max_iterations = 40000
-            elif terrain_name in ("stairs", "gap"):
-                max_iterations = 30000
+            #elif terrain_name in ("pit"):
+            #    max_iterations = 40000
+            #elif terrain_name in ("stairs", "gap"):
+            #    max_iterations = 30000
             else:
-                max_iterations = 10000
+                max_iterations = 40000

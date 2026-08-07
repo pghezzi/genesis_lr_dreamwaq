@@ -14,7 +14,7 @@ import argparse
 
 import cv2
 
-def get_viewed_terrain_idx(env, look_ahead_frac: float = 0.25):
+def get_viewed_terrain_idx(env, look_ahead_frac: float = 0.75):
     """
     Determine which terrain patch(es) the robot's depth camera is looking at.
 
@@ -374,12 +374,12 @@ def override_configs(env_cfg, args):
                     "step_height": -0.2,
                     "platform_size": 3.0,
                 },
-                #{
-                #    "type": "terrain_utils.pyramid_stairs_terrain",
-                #    "step_width": 0.4,
-                #    "step_height": 0.2,   # stairs up
-                #    "platform_size": 3.0,
-                #},
+                {
+                    "type": "terrain_utils.pyramid_stairs_terrain",
+                    "step_width": 0.4,
+                    "step_height": 0.2,   # stairs up
+                    "platform_size": 3.0,
+                },
                 {
                     "type": "terrain_utils.pit_terrain",
                     "depth": 0.2,
@@ -665,19 +665,19 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
         policy_tester = torch.jit.load(args.jit,  'cpu')
         policy_tester.swap(policy_tester.num_of_loras - 1)
         policy_tester.swap(-1)
-        def keyboard_thread():
-            nonlocal requested_mode
-            while True:
-                key = input("> ")
-                if key:
-                    key = key.strip()[-1]
-                else:
-                    continue
-                with lock:
-                    if key.isnumeric():
-                        requested_mode = int(key)
-                    elif key == "-":
-                        requested_mode = -1
+        #def keyboard_thread():
+        #    nonlocal requested_mode
+        #    while True:
+        #        key = input("> ")
+        #        if key:
+        #            key = key.strip()[-1]
+        #        else:
+        #            continue
+        #        with lock:
+        #            if key.isnumeric():
+        #                requested_mode = int(key)
+        #            elif key == "-":
+        #                requested_mode = -1
 
         t = args.test_terrain
         if t is not None:
@@ -690,7 +690,7 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
             if t in ("pit", "center_platform"):
                 policy.swap(2)
 
-        threading.Thread(target=keyboard_thread, daemon=True).start()
+        #threading.Thread(target=keyboard_thread, daemon=True).start()
 
     
     # env.commands[:, 0] = 0.5
@@ -765,12 +765,12 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
             #env.commands[:, 1] = 0
             #env.commands[:, 2] = 0
             #env.commands[:, 3] = 0
-        if args.multiterrain:
-            dx = env.simulator.base_pos[:, 0] - env.simulator.base_pos[:, 0]
-            dy = env.simulator.env_origins[:, 1] - env.simulator.base_pos[:, 1]
-            k = 0.5
-            desired_heading = k*torch.atan2(dy, dx)
-            env.commands[:, 3] = desired_heading
+        #if args.multiterrain:
+        #    dx = env.simulator.base_pos[:, 0] - env.simulator.base_pos[:, 0]
+        #    dy = env.simulator.env_origins[:, 1] - env.simulator.base_pos[:, 1]
+        #    k = 0.5
+        #    desired_heading = k*torch.atan2(dy, dx)
+        #    env.commands[:, 3] = desired_heading
         if args.jit:
             import time
             with lock:
