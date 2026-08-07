@@ -44,6 +44,12 @@ def get_env_vars():
         terrain_list[TERRAIN_INDEX["stairs"]] = 0.5
         terrain_list[TERRAIN_INDEX["upwards_stairs"]] = 0.5
         terrain_index = None
+    
+    elif terrain_name == "all_pit":
+        terrain_list = [0] * len(TERRAIN_KEYS)
+        terrain_list[TERRAIN_INDEX["pit"]] = 0.5
+        terrain_list[TERRAIN_INDEX["center_platform"]] = 0.5
+        terrain_index = None
 
     elif terrain_name in TERRAIN_INDEX:
         terrain_index = TERRAIN_INDEX[terrain_name]
