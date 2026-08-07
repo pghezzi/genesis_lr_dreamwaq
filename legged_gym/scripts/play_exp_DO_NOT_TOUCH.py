@@ -691,7 +691,6 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
                 policy.swap(2)
 
         threading.Thread(target=keyboard_thread, daemon=True).start()
-        env.max_episode_length = 100000
 
     
     # env.commands[:, 0] = 0.5
@@ -827,7 +826,7 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
                 cv2.imshow("Depth", ((env.depth_sensor_output[0].squeeze())*255).to(torch.uint8).cpu().numpy())
                 if cv2.waitKey(1) & 0xFF == ord('q'):
                     break
-            if i % 5 == 0: # this assumes a 50hz policy. If change, change this
+            if i % 5 == 0: # this assumes a 50hz policy so that we actually run at 10. If change, change this
                 if args.save_depth_classifier_data:
                     depth_images_log.append(env.depth_sensor_output.detach().cpu().clone())
                     base_rpy_log.append(env.simulator._base_euler.detach().cpu().clone())
@@ -943,19 +942,19 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
         # elif i==stop_rew_log:
         #     logger.print_rewards()
 
-        logger.log_states(
-            {
-                'base_cmd':env.commands.detach().cpu().numpy().tolist(),
-                'base_pose':env.simulator.base_pos.detach().cpu().numpy().tolist(),
-                'base_rpy':env.simulator.base_euler.detach().cpu().numpy().tolist(),
-                'q_actual':env.simulator.dof_pos.detach().cpu().numpy().tolist(),
-                'base_lin_vel':env.simulator.base_lin_vel.detach().cpu().numpy().tolist(),
-                'base_ang_vel':env.simulator.base_ang_vel.detach().cpu().numpy().tolist(),
-                'dof_vel':env.simulator.dof_vel.detach().cpu().numpy().tolist(),
-                'proj_grav':env.simulator.projected_gravity.detach().cpu().numpy().tolist(),
-                'feet_pos':env.simulator.feet_pos.detach().cpu().numpy().tolist(),
-                'failure':list(map(int, env.get_failure_idx().detach().cpu().numpy().tolist())),
-            })
+        #logger.log_states(
+        #    {
+        #        'base_cmd':env.commands.detach().cpu().numpy().tolist(),
+        #        'base_pose':env.simulator.base_pos.detach().cpu().numpy().tolist(),
+        #        'base_rpy':env.simulator.base_euler.detach().cpu().numpy().tolist(),
+        #        'q_actual':env.simulator.dof_pos.detach().cpu().numpy().tolist(),
+        #        'base_lin_vel':env.simulator.base_lin_vel.detach().cpu().numpy().tolist(),
+        #        'base_ang_vel':env.simulator.base_ang_vel.detach().cpu().numpy().tolist(),
+        #        'dof_vel':env.simulator.dof_vel.detach().cpu().numpy().tolist(),
+        #        'proj_grav':env.simulator.projected_gravity.detach().cpu().numpy().tolist(),
+        #        'feet_pos':env.simulator.feet_pos.detach().cpu().numpy().tolist(),
+        #        'failure':list(map(int, env.get_failure_idx().detach().cpu().numpy().tolist())),
+        #    })
     if "depth_waq" in task_name and not args.no_depth_cam:
         cv2.destroyAllWindows()
     
