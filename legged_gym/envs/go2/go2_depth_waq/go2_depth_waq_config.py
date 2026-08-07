@@ -74,7 +74,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                 "step": "0.005",
                 "downsampled_scale": "0.2",
             },
-            "slope": "difficulty * 0.6",
+            "slope": "difficulty * 0.4",
             "discrete_height": "0.05 + 0.2 * difficulty",
             "stepping_stones_params": {
                 "stone_length": "np.random.uniform(0.4, 1.2)",
@@ -136,81 +136,99 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
         #termination_count = 100
         #pass
     class rewards( Go2RoughCommonCfg.rewards ):
-        if terrain_name in ("baseline"):
-            class scales(Go2RoughCommonCfg.rewards.scales):
-                pass
-        else:
-            soft_dof_pos_limit = 0.9
-            base_height_target = 0.38
-            foot_clearance_target = 0.08 # desired foot clearance above ground [m]
-            foot_height_offset = 0.022   # height of the foot coordinate origin above ground [m]
-            foot_clearance_tracking_sigma = 0.01
-            base_up_pit_sigma = 0.01
-            tracking_sigma = 0.2
-            corner_proximity_sigma = 0.01
-            only_positive_rewards = True
-            feet_edge_threshold = 0.05 # distance threshold below which foot is considered to be near the edge of a terrain
-            class scales:
-                base_height = -1.0
-                if terrain_name in ("gap", "stairs"):
-                    dof_pos_limits = -2.0
-                    collision = -10.0
-                    tracking_lin_vel = 1.5
-                    tracking_ang_vel = 1.0
-                    lin_vel_z = -1.0
-                    ang_vel_xy = -0.05
-                    orientation = -1.0
-                    dof_power = -2e-05
-                    dof_acc = -2e-07
-                    action_rate = -0.01
-                    action_smoothness = -0.01
-                    hip_pos = -0.15
-                    foot_clearance_terrain_aware = 0.7
-                    feet_stumble = -1.0
-                    #feet_contact_stand_still = 0.1
-                    feet_near_edge = -1.0
-                    feet_air_time = 0.6
-                elif terrain_name in ("pit", "center_platform"):
-                    dof_pos_limits = -2.0
-                    collision = -10.0
-                    tracking_lin_vel = 1.2
-                    tracking_ang_vel =  0.7
-                    lin_vel_z = -0.1
-                    ang_vel_xy = -0.05
-                    orientation = -0.1
-                    dof_power = -2e-06
-                    dof_acc = -2e-08
-                    action_rate = -0.001
-                    action_smoothness = -0.001
-                    hip_pos = -0.015
-                    foot_clearance_terrain_aware = 0.7
-                    feet_stumble = -1.0
-                    #feet_contact_stand_still = 0.1
-                    feet_near_edge = -1.0
-                    feet_air_time = 0.6
-                    #base_up_pit = 0.5
-                    #corner_proximity = -0.2
-                    #base_height = -0.0
-                    #alive = 1
-                elif terrain_name in ("multiple_high_platforms"):
-                    dof_pos_limits = -2.0
-                    collision = -10.0
-                    tracking_ang_vel = 0.5
-                    tracking_lin_vel = 1.0
-                    lin_vel_z = -0.1
-                    ang_vel_xy = -0.05
-                    orientation = -0.1
-                    dof_power = -2e-06
-                    dof_acc = -2e-08
-                    action_rate = -0.001
-                    action_smoothness = -0.001
-                    hip_pos = -0.015
-                    foot_clearance_terrain_aware = 0.7
-                    feet_stumble = -1.0
-                    #feet_contact_stand_still = 0.1
-                    feet_near_edge = -1.0
-                    feet_air_time = 0.6
-                    alive = 1
+        
+        soft_dof_pos_limit = 0.9
+        base_height_target = 0.38
+        foot_clearance_target = 0.08 # desired foot clearance above ground [m]
+        foot_height_offset = 0.022   # height of the foot coordinate origin above ground [m]
+        foot_clearance_tracking_sigma = 0.01
+        soft_torque_limit = 0.9
+        base_up_pit_sigma = 0.01
+        tracking_sigma = 0.2
+        corner_proximity_sigma = 0.01
+        only_positive_rewards = True
+        feet_edge_threshold = 0.05 # distance threshold below which foot is considered to be near the edge of a terrain
+        class scales:
+            base_height = -1.0
+            torque_limits = -0.001
+            if terrain_name in ("baseline"):
+                # limitation
+                dof_pos_limits = -2.0
+                collision = -1.0
+                # command tracking
+                tracking_lin_vel = 1.0
+                tracking_ang_vel = 0.5
+                # smooth
+                lin_vel_z = -2.0
+                ang_vel_xy = -0.05
+                dof_power = -2.e-4
+                dof_acc = -2.e-7
+                action_rate = -0.01
+                action_smoothness = -0.01
+                # gait
+                feet_air_time = 1.0
+                foot_clearance_terrain_aware = 0.7
+                feet_contact_stand_still = 0.5
+                dof_close_to_default_stand_still = -0.5
+            elif terrain_name in ("gap", "stairs", "all_stairs"):
+                dof_pos_limits = -2.0
+                collision = -10.0
+                tracking_lin_vel = 1.5
+                tracking_ang_vel = 1.0
+                lin_vel_z = -1.0
+                ang_vel_xy = -0.05
+                orientation = -1.0
+                dof_power = -2e-05
+                dof_acc = -2e-07
+                action_rate = -0.01
+                action_smoothness = -0.01
+                hip_pos = -0.15
+                foot_clearance_terrain_aware = 0.7
+                feet_stumble = -1.0
+                #feet_contact_stand_still = 0.1
+                feet_near_edge = -1.0
+                feet_air_time = 0.6
+            elif terrain_name in ("pit", "center_platform"):
+                dof_pos_limits = -2.0
+                collision = -10.0
+                tracking_lin_vel = 1.2
+                tracking_ang_vel =  0.7
+                lin_vel_z = -0.1
+                ang_vel_xy = -0.05
+                orientation = -0.1
+                dof_power = -2e-06
+                dof_acc = -2e-08
+                action_rate = -0.001
+                action_smoothness = -0.001
+                hip_pos = -0.015
+                foot_clearance_terrain_aware = 0.7
+                feet_stumble = -1.0
+                #feet_contact_stand_still = 0.1
+                feet_near_edge = -1.0
+                feet_air_time = 0.6
+                #base_up_pit = 0.5
+                #corner_proximity = -0.2
+                #base_height = -0.0
+                #alive = 1
+            elif terrain_name in ("multiple_high_platforms"):
+                dof_pos_limits = -2.0
+                collision = -10.0
+                tracking_ang_vel = 0.5
+                tracking_lin_vel = 1.0
+                lin_vel_z = -0.1
+                ang_vel_xy = -0.05
+                orientation = -0.1
+                dof_power = -2e-06
+                dof_acc = -2e-08
+                action_rate = -0.001
+                action_smoothness = -0.001
+                hip_pos = -0.015
+                foot_clearance_terrain_aware = 0.7
+                feet_stumble = -1.0
+                #feet_contact_stand_still = 0.1
+                feet_near_edge = -1.0
+                feet_air_time = 0.6
+                alive = 1
     class commands( LeggedRobotDreamwaqCfg.commands ):
         curriculum = True
         if terrain_name in ("baseline"):
@@ -284,7 +302,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
         randomize_camera_pos = True
         camera_com_displacement_range = [0.01, 0.0025, 0.03]
         randomize_camera_euler = True
-        camera_euler_offset_range = [0.0577, 0.0173, 0.0577]
+        camera_euler_offset_range = [0.0577, 0.0577, 0.0577]
 
     class normalization( LeggedRobotDreamwaqCfg.normalization):
         class obs_scales( LeggedRobotDreamwaqCfg.normalization.obs_scales ):
@@ -304,7 +322,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
             return_pointcloud = False
             pointcloud_in_world_frame = False
             horizontal_fov_deg = 88
-            pos = (0.3, 0.0, 0.1)
+            pos = (0.32, 0.0, 0.10)
             euler = (0.0, 1.57 + 0.3, 0.0)
             near_plane = 0.05
             far_plane = 4.00
@@ -369,7 +387,7 @@ class Go2DepthWaqCfgPPO( LeggedRobotDreamwaqCfgPPO ):
             max_iterations = int(num_iters)
         else:
             if terrain_name in ("baseline"):
-                max_iterations = 5000
+                max_iterations = 10000
             #elif terrain_name in ("pit"):
             #    max_iterations = 40000
             #elif terrain_name in ("stairs", "gap"):
