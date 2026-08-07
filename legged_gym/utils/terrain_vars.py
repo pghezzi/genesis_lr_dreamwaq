@@ -39,6 +39,12 @@ def get_env_vars():
         terrain_list = [0] * len(TERRAIN_KEYS)
         terrain_index = -1
 
+    elif terrain_name == "all_stairs":
+        terrain_list = [0] * len(TERRAIN_KEYS)
+        terrain_list[TERRAIN_INDEX["stairs"]] = 0.5
+        terrain_list[TERRAIN_INDEX["upwards_stairs"]] = 0.5
+        terrain_index = None
+
     elif terrain_name in TERRAIN_INDEX:
         terrain_index = TERRAIN_INDEX[terrain_name]
         terrain_list = one_hot(terrain_index)
