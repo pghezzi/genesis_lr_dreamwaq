@@ -72,13 +72,8 @@ def fit_nn(
     model = self.model
     
     if isinstance(labels, list):
-        assert len(labels) == inputs.shape[0]
         self.set_class_ids(list(set(labels)))
-        labels = torch.tensor(
-            [self.class_to_index[c] for c in labels],
-            dtype=torch.long
-        )
-    assert labels.shape[0] == inputs.shape[0]
+        labels = self._encode_labels(labels)
     train_loader = DataLoader(
         TensorDataset(inputs, labels),
         batch_size=64,
@@ -89,12 +84,7 @@ def fit_nn(
         val_input = val[0]
         val_labels = val[1]
         if isinstance(val_labels, list):
-            assert len(val_labels) == val_input.shape[0]
-            val_labels = torch.tensor(
-                [self.class_to_index[c] for c in val_labels],
-                dtype=torch.long
-            )
-        assert val_labels.shape[0] == val_input.shape[0]
+            val_labels = self._encode_labels(val_labels)
         val_loader = DataLoader(
             TensorDataset(val_input, val_labels),
             batch_size=256,
@@ -204,9 +194,13 @@ def main():
     test_labels = test["labels"]
 
     metrics = nn_raw_depth_classifier.evaluate(test_images, test_labels)
+
     metrics.pop("labels")
     metrics.pop("predictions")
+
     print(metrics)
+
+
 
 if __name__ == "__main__":
     main()
