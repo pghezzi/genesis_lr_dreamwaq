@@ -39,3 +39,4 @@ from .ppo_cts_amp import PPO_CTS_AMP
 
 # CUSTOM
 from .ppo_dreamwaq_depth import PPO_DreamWaQ_Depth
+from .ppo_waq_distill import PPO_WAQ_Distill

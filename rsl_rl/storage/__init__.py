@@ -10,3 +10,4 @@ from .rollout_storage_ts_depth import RolloutStorageTSDepth
 
 # CUSTOM
 from .rollout_storage_dreamwaq_depth import RolloutStorageDreamWaQDepth
+from .rollout_storage_waq_distill import RolloutStorageWAQDistill
