@@ -224,7 +224,9 @@ class Go2DepthWaqDistillCfgPPO(Go2DepthWaqCfgPPO):
         )
 
         distill_target = (
-            Go2DepthWaqDistillCfg.distillation.distill_target
+            Go2DepthWaqDistillCfg
+            .distillation
+            .distill_target
         )
 
         distillation_loss_coef = (
