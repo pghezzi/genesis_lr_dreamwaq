@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from legged_gym import LEGGED_GYM_ROOT_DIR
+
 import os
 from pathlib import Path
 
@@ -20,7 +22,6 @@ from legged_gym.envs.go2.go2_depth_waq.go2_depth_waq_config import (
 #                 └── go2_depth_waq_distill_config.py
 #
 # parents[4] therefore points to the Legged_Gym_EX repository root.
-REPO_ROOT = Path(__file__).resolve().parents[4]
 
 # Load environment variables from:
 #
@@ -29,7 +30,7 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 # override=False means values already exported in the shell take priority
 # over values written in the .env file.
 load_dotenv(
-    dotenv_path=REPO_ROOT / ".env",
+    dotenv_path=LEGGED_GYM_ROOT_DIR / ".env",
     override=False,
 )
 
@@ -46,7 +47,7 @@ def required_env(name: str) -> str:
         raise RuntimeError(
             f"Required environment variable {name!r} is not set.\n"
             f"Create the local file:\n"
-            f"  {REPO_ROOT / '.env'}\n"
+            f"  {LEGGED_GYM_ROOT_DIR / '.env'}\n"
             f"using the committed .env.example file."
         )
 
@@ -211,11 +212,15 @@ class Go2DepthWaqDistillCfgPPO(Go2DepthWaqCfgPPO):
 
     class algorithm(Go2DepthWaqCfgPPO.algorithm):
         learning_rate = (
-            Go2DepthWaqDistillCfg.distillation.learning_rate
+            Go2DepthWaqDistillCfg
+            .distillation
+            .learning_rate
         )
 
         weight_decay = (
-            Go2DepthWaqDistillCfg.distillation.weight_decay
+            Go2DepthWaqDistillCfg
+            .distillation
+            .weight_decay
         )
 
         distill_target = (
