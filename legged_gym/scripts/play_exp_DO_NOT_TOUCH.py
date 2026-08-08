@@ -1057,6 +1057,9 @@ def export_policy(alg_runner, path: str, args, env_cfg, train_cfg):
     elif "dreamwaq" in task_name:
         exporter = PolicyExporterWaQ(alg_runner.alg.actor_critic)
         exporter.export(path, env_cfg, args.export_onnx, train_cfg)
+    elif "depth_waq" in task_name:
+        exporter = PolicyExporterDepthWaQ(alg_runner.alg.actor_critic)
+        exporter.export(path, env_cfg, train_cfg)
     elif "pact" in task_name:
         exporter = PolicyExporterPACT(alg_runner.alg.actor_critic)
         exporter.export(path, env_cfg, train_cfg)

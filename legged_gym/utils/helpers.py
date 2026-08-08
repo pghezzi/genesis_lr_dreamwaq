@@ -299,6 +299,39 @@ class PolicyExporterWaQ(torch.nn.Module):
                               output_names=output_names,
                               opset_version=11)
 
+
+class PolicyExporterDepthWaQ(torch.nn.Module):
+    """Policy exporter for DreamWaQ policies
+    
+    Attention: This module is consistent with ActorCriticDreamWaQ in rsl_rl/modules/actor_critic_dreamwaq.py
+               When ActorCriticDreamWaQ is updated, please remember to update this module accordingly.
+    """
+    def __init__(self, actor_critic):
+        super().__init__()
+        self.actor = copy.deepcopy(actor_critic.actor)
+        self.visual_encoder = copy.deepcopy(actor_critic.visual_encoder)
+        self.vae = copy.deepcopy(actor_critic.vae)
+
+    def depth_actor(self, observations, samples, depth_image):
+        visual_latent = self.visual_encoder(depth_image)
+        return self.actor(torch.cat(
+            (
+            observations, samples, visual_latent
+            ), dim=-1))
+    
+    def forward(self, obs, obs_history, depth_image):
+        mean_out = self.vae.inference(obs_history)
+        actions_mean = self.depth_actor(observations, mean_out, depth_image)
+        return actions_mean
+ 
+    def export(self, path, env_cfg, export_onnx=False, train_cfg=None):
+        os.makedirs(path, exist_ok=True)
+        filename = train_cfg.runner.load_run + "_ite" + str(train_cfg.runner.checkpoint) + ".pt"
+        path = os.path.join(path, filename)
+        self.to('cpu')
+        traced_script_module = torch.jit.script(self)
+        traced_script_module.save(path)
+
 class PolicyExporterDepth(torch.nn.Module):
     """Policy exporter for depth-based policies
     
