@@ -1,8 +1,8 @@
 from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import NeuralClassifierAdapter
+from util_func import fit_nn, evaluate_classifier, extract_in_chunks, make_terrain_extractor
 
 import torch
 import torch.nn as nn
-from torch.utils.data import TensorDataset, DataLoader
 
 class TerrainDepthClassifierNN(nn.Module):
     def __init__(
@@ -60,115 +60,14 @@ class TerrainDepthClassifierNN(nn.Module):
     def forward(self, depth_image):
         return self.cnn(depth_image)
 
-def fit_nn(
-    self: NeuralClassifierAdapter, 
-    inputs, 
-    labels,
-    val=None,
-    epochs=20,
-    lr=1e-3,
-):
-    device = self.device
-    model = self.model
-    
-    if isinstance(labels, list):
-        self.set_class_ids(list(set(labels)))
-        labels = self._encode_labels(labels)
-    train_loader = DataLoader(
-        TensorDataset(inputs, labels),
-        batch_size=64,
-        shuffle=True,
-    )
-    val_loader = None
-    if val:
-        val_input = val[0]
-        val_labels = val[1]
-        if isinstance(val_labels, list):
-            val_labels = self._encode_labels(val_labels)
-        val_loader = DataLoader(
-            TensorDataset(val_input, val_labels),
-            batch_size=256,
-        )
-    
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-
-    for epoch in range(epochs):
-        model.train()
-
-        train_loss = 0.0
-        train_correct = 0
-        train_total = 0
-
-        for inputs, labels in train_loader:
-            inputs = inputs.to(device)
-            labels = labels.to(device)
-
-            optimizer.zero_grad()
-
-            logits = model(inputs)
-            loss = criterion(logits, labels)
-
-            loss.backward()
-            optimizer.step()
-
-            train_loss += loss.item() * inputs.size(0)
-            train_correct += (logits.argmax(1) == labels).sum().item()
-            train_total += labels.size(0)
-
-        print(
-            f"Epoch {epoch+1:3d} | "
-            f"train loss {train_loss/train_total:.4f} | "
-            f"train acc {train_correct/train_total:.4f}",
-            end=""
-        )
-
-        if val_loader is not None:
-            model.eval()
-
-            val_loss = 0.0
-            val_correct = 0
-            val_total = 0
-
-            with torch.no_grad():
-                for inputs, labels in val_loader:
-                    inputs = inputs.to(device)
-                    labels = labels.to(device)
-
-                    logits = model(inputs)
-                    loss = criterion(logits, labels)
-
-                    val_loss += loss.item() * inputs.size(0)
-                    val_correct += (logits.argmax(1) == labels).sum().item()
-                    val_total += labels.size(0)
-
-            print(
-                f" | val loss {val_loss/val_total:.4f}"
-                f" | val acc {val_correct/val_total:.4f}"
-            )
-        else:
-            print()
-
-def main():
-    import argparse
-    parser = argparse.ArgumentParser(description="Create model using data")
-    parser.add_argument("--folder", type=str, default=None, help="folder with data")
-    args = parser.parse_args() 
-    from pathlib import Path 
-    folder = Path(args.folder)
-    files = { name : path for name in ("calibration", "val", "train", "test") if (path := folder / f"{name}.pt").is_file() } 
-    
-    train_file = files["train"] 
-    test_file = files["test"]
-    validation_file = files["val"]
-
+def train_raw_depth_nn_from_data_set(train_file, test_file, validation_file, *_, **__):
     train = torch.load(train_file)
-    val = torch.load(validation_file)
+    validation = torch.load(validation_file)
 
     train_images = train["depth_images"].unsqueeze(1).float()
     train_labels = train["labels"]
-    val_images = val["depth_images"].unsqueeze(1).float()
-    val_labels = val["labels"]
+    validation_images = validation["depth_images"].unsqueeze(1).float()
+    validation_labels = validation["labels"]
 
     nn_raw_depth_model = TerrainDepthClassifierNN(
         depth_image_resolution=train_images.shape[-2:],   # (H, W)
@@ -180,27 +79,38 @@ def main():
         cnn_activation_fn=nn.ELU(),
     )
 
-    nn_raw_depth_classifier = NeuralClassifierAdapter(
+    classifier = NeuralClassifierAdapter(
         model = nn_raw_depth_model,
         class_ids=[],
         input_transform=None,
         fit_callback=fit_nn,
     )
 
-    nn_raw_depth_classifier.fit(inputs=train_images, labels=train_labels, val=(val_images, val_labels), epochs=1)
+    classifier.fit(inputs=train_images, labels=train_labels, val=(validation_images, validation_labels), epochs=1)
 
     test = torch.load(test_file)
-    test_images = test["depth_images"].unsqueeze(1).float()
+    test_features = test["depth_images"].unsqueeze(1).float()
     test_labels = test["labels"]
 
-    metrics = nn_raw_depth_classifier.evaluate(test_images, test_labels)
+    acc = evaluate_classifier(classifier, test_features, test_labels)
 
-    metrics.pop("labels")
-    metrics.pop("predictions")
-
-    print(metrics)
-
-
+    #out_dir = f"{LEGGED_GYM_ROOT_DIR}/depth_waq_selector/models"
+    #os.makedirs(out_dir, exist_ok=True)
+    #
+    #timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    #model_path = os.path.join(out_dir, f"raw_depth_classifier_acc_{str(acc).replace('.', '_')}_{timestamp}.pt")
+    #
+    #classifier.save(model_path)
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description="Create model using data")
+    parser.add_argument("--folder", type=str, default=None, help="folder with data")
+    args = parser.parse_args() 
+    from pathlib import Path 
+    folder = Path(args.folder)
+    files = { name : path for name in ("calibration", "val", "train", "test") if (path := folder / f"{name}.pt").is_file() } 
+    train_file = files["train"] 
+    test_file = files["test"]
+    validation_file = files["val"]
+    train_raw_depth_nn_from_data_set(train_file, test_file, validation_file)
