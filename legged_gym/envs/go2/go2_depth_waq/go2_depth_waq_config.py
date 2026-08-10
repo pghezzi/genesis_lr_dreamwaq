@@ -167,7 +167,7 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                 action_smoothness = -0.01
                 # gait
                 feet_air_time = 1.0
-                foot_clearance_terrain_aware = 0.7
+                foot_clearance = 0.2
                 feet_contact_stand_still = 0.5
                 dof_close_to_default_stand_still = -0.5
             elif terrain_name in ("gap", "stairs", "all_stairs"):
