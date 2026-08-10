@@ -761,10 +761,11 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
             env.commands[:, 2] = -joystick.rx
         elif i % env.max_episode_length == 0:
             env._resample_commands(torch.arange(env.num_envs))
-            #env.commands[:, 0] = 1
-            #env.commands[:, 1] = 0
-            #env.commands[:, 2] = 0
-            #env.commands[:, 3] = 0
+        #print(env.commands)
+        #env.commands[:, 0] = 1
+        #env.commands[:, 1] = 0
+        #env.commands[:, 2] = 0
+        #env.commands[:, 3] = 0
         #if args.multiterrain:
         #    dx = env.simulator.base_pos[:, 0] - env.simulator.base_pos[:, 0]
         #    dy = env.simulator.env_origins[:, 1] - env.simulator.base_pos[:, 1]
@@ -879,17 +880,18 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
 
 
         #terminate at bound:
-        x_out_of_bound = (env.simulator.base_pos[:, 0] < 0.0) | (env.simulator.base_pos[:, 0] > env.cfg.terrain.num_rows * env.cfg.terrain.terrain_length)
-        y_out_of_bound = (env.simulator.base_pos[:, 1] < 0.0) | (env.simulator.base_pos[:, 1] > env.cfg.terrain.num_cols * env.cfg.terrain.terrain_width)
-        out = x_out_of_bound | y_out_of_bound
-        dones |= out
-        env_ids = out.nonzero(as_tuple=False).squeeze(-1)
-        if env_ids.numel() > 0:
-            env.simulator._terrain_levels[env_ids] = env.simulator._max_terrain_level + 1
-            env.reset_idx(env_ids)
+        if not args.multiterrain and args.test_terrain != "plane":
+            x_out_of_bound = (env.simulator.base_pos[:, 0] < 0.0) | (env.simulator.base_pos[:, 0] > env.cfg.terrain.num_rows * env.cfg.terrain.terrain_length)
+            y_out_of_bound = (env.simulator.base_pos[:, 1] < 0.0) | (env.simulator.base_pos[:, 1] > env.cfg.terrain.num_cols * env.cfg.terrain.terrain_width)
+            out = x_out_of_bound | y_out_of_bound
+            dones |= out
+            env_ids = out.nonzero(as_tuple=False).squeeze(-1)
+            if env_ids.numel() > 0:
+                env.simulator._terrain_levels[env_ids] = env.simulator._max_terrain_level
+                env.reset_idx(env_ids)
 
         #keep this?????
-        if args.save_depth_classifier_data and env.cfg.terrain.terrain_proportions[TERRAIN_INDEX["gap"]]:
+        if args.save_depth_classifier_data and not args.multiterrain and (env.cfg.terrain.terrain_proportions[TERRAIN_INDEX["gap"]] > 0 or args.test_terrain == "gap"):
             difficulty = env.simulator.terrain_levels / env.cfg.terrain.num_rows
             dist = torch.norm(env.simulator.base_pos - env.simulator.env_origins, dim=-1)
             bound = env.cfg.terrain.platform_size/2 + eval(env.cfg.terrain.terrain_curriculum_difficulty["gap_size"]) + (-0.1 if args.filter_depth_classifier_data else 1)
@@ -897,7 +899,7 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
             dones |= out
             env_ids = out.nonzero(as_tuple=False).squeeze(-1)
             if env_ids.numel() > 0:
-                env.simulator._terrain_levels[env_ids] = env.simulator._max_terrain_level + 1
+                env.simulator._terrain_levels[env_ids] = env.simulator._max_terrain_level
                 env.reset_idx(env_ids)
 
         if args.save_depth_classifier_data and args.filter_depth_classifier_data:
