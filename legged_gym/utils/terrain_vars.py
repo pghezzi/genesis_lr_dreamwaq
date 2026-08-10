@@ -1,7 +1,7 @@
 import os
 
 TERRAIN_KEYS =[
-  "slope",
+  "pyramid_sloped",
   "random_uniform",
   "stairs",
   "upwards_stairs",
@@ -29,9 +29,14 @@ def get_env_vars():
     terrain_name = os.environ.get("TERRAIN", "random_uniform").lower()
     finetune = os.environ.get("FINETUNE", "")
 
+    if terrain_name == "slope":
+        terrain_name = "pyramid_sloped"
+    if terrain_name == "rough":
+        terrain_name = "random_uniform"
+
     if terrain_name == "baseline":
         terrain_list = [0] * len(TERRAIN_KEYS)
-        terrain_list[TERRAIN_INDEX["slope"]] = 0.5
+        terrain_list[TERRAIN_INDEX["pyramid_sloped"]] = 0.5
         terrain_list[TERRAIN_INDEX["random_uniform"]] = 0.5
         terrain_index = None
     
@@ -50,7 +55,6 @@ def get_env_vars():
         terrain_list[TERRAIN_INDEX["pit"]] = 0.5
         terrain_list[TERRAIN_INDEX["center_platform"]] = 0.5
         terrain_index = None
-
     elif terrain_name in TERRAIN_INDEX:
         terrain_index = TERRAIN_INDEX[terrain_name]
         terrain_list = one_hot(terrain_index)
