@@ -1631,6 +1631,46 @@ class NeuralClassifierAdapter(ProbabilisticClassifier):
             raise RuntimeError(f"Neural model must return [B,{len(self.class_ids)}] logits")
         return logits
 
+    def save(self, path: str | Path) -> None: 
+        """Save the adapter's model weights and configuration.""" 
+        torch.save( { 
+            "model_state_dict": self.model.state_dict(), 
+            "class_ids": list(self.class_ids), 
+            "temperature": self.temperature, 
+            "eps": self.eps, 
+        }, path, )
+    
+    @classmethod
+    def load(
+        cls,
+        path: str | Path,
+        model: nn.Module,
+        *,
+        input_transform: Optional[Callable[[Any], torch.Tensor]] = None,
+        fit_callback: Optional[Callable[..., Any]] = None,
+        device: str | torch.device = "cpu",
+        dtype: torch.dtype = torch.float32,
+    ) -> "NeuralClassifierAdapter":
+        """Load an adapter from a saved checkpoint."""
+        checkpoint = torch.load(
+            path,
+            map_location=device,
+            weights_only=True,
+        )
+
+        adapter = cls(
+            model=model,
+            class_ids=checkpoint["class_ids"],
+            input_transform=input_transform,
+            fit_callback=fit_callback,
+            temperature=checkpoint["temperature"],
+            device=device,
+            dtype=dtype,
+            eps=checkpoint["eps"],
+        )
+
+        adapter.model.load_state_dict(checkpoint["model_state_dict"])
+        return adapter
 
 # =============================================================================
 # Discrete Bayesian filter

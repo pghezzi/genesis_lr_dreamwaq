@@ -67,7 +67,7 @@ def train_feature_nn_from_data_set(train_file, test_file, validation_file, extra
         fit_callback=fit_nn,
     )
 
-    classifier.fit(inputs=train_features, labels=train_labels, val=(validation_features, validation_labels), epochs=1)
+    classifier.fit(inputs=train_features, labels=train_labels, val=(validation_features, validation_labels), epochs=20)
 
     test = torch.load(test_file)
     test_features = extract_in_chunks(
@@ -80,6 +80,8 @@ def train_feature_nn_from_data_set(train_file, test_file, validation_file, extra
     test_labels = test["labels"]
 
     acc = evaluate_classifier(classifier, test_features, test_labels)
+
+    return classifier
 
     #out_dir = f"{LEGGED_GYM_ROOT_DIR}/depth_waq_selector/models"
     #os.makedirs(out_dir, exist_ok=True)

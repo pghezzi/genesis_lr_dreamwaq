@@ -108,7 +108,7 @@ def train_rbf_prototype_from_data_set(train_file, test_file, validation_file, ex
                 "variance_shrinkage": [0.1, 0.3],
             },
             scoring="validation_accuracy",
-            verbose=True,
+            verbose=False,
         )
     )
 
@@ -132,6 +132,8 @@ def train_rbf_prototype_from_data_set(train_file, test_file, validation_file, ex
     test_labels = test["labels"]
 
     acc = evaluate_classifier(classifier, test_features, test_labels)
+
+    return classifier
 
     #out_dir = f"{LEGGED_GYM_ROOT_DIR}/depth_waq_selector/models"
     #os.makedirs(out_dir, exist_ok=True)

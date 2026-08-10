@@ -86,13 +86,15 @@ def train_raw_depth_nn_from_data_set(train_file, test_file, validation_file, *_,
         fit_callback=fit_nn,
     )
 
-    classifier.fit(inputs=train_images, labels=train_labels, val=(validation_images, validation_labels), epochs=1)
+    classifier.fit(inputs=train_images, labels=train_labels, val=(validation_images, validation_labels), epochs=20)
 
     test = torch.load(test_file)
     test_features = test["depth_images"].unsqueeze(1).float()
     test_labels = test["labels"]
 
     acc = evaluate_classifier(classifier, test_features, test_labels)
+
+    return classifier
 
     #out_dir = f"{LEGGED_GYM_ROOT_DIR}/depth_waq_selector/models"
     #os.makedirs(out_dir, exist_ok=True)
