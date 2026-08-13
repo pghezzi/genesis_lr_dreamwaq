@@ -4,9 +4,15 @@ from train_raw_depth_nn import train_raw_depth_nn_from_data_set
 from train_feature_nn import train_feature_nn_from_data_set
 from train_rbf_prototype_classifier import train_rbf_prototype_from_data_set
 
+from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
+        ProbabilisticClassifier,
+        PCAWhitenedRBFPrototypeClassifier,
+        NeuralClassifierAdapter
+    )
+
 
 func_to_train = {
-    "raw_depth_nn":train_raw_depth_nn_from_data_set,
+    "raw_depth_nn": train_raw_depth_nn_from_data_set,
     "feature_nn": train_feature_nn_from_data_set,
     "rbf_prototype": train_rbf_prototype_from_data_set,
 }
@@ -27,7 +33,8 @@ if __name__ == "__main__":
     validation_file = files["val"]
     extractor = make_terrain_extractor(files["calibration"])
 
-    out_dir = Path(LEGGED_GYM_ROOT_DIR) / "depth_waq_selector" / "classifiers"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S") 
+    out_dir = Path(LEGGED_GYM_ROOT_DIR) / "depth_waq_selector" / "classifiers" / f"classifiers_{timestamp}"
     os.makedirs(out_dir, exist_ok=True)
 
     for name, func in func_to_train.items():
@@ -37,26 +44,7 @@ if __name__ == "__main__":
             validation_file,
             extractor
         )
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S") 
-        classifier_dir = out_dir / f"{name}_{timestamp}"
-        classifier_dir.mkdir(parents=True, exist_ok=True) # Save classifier classifier.save(classifier_dir / "classifier.pt") 
-        # Save the exact data files used to create this classifier 
-        #for file_name, source_path in files.items(): 
-        #    shutil.copy2( source_path, classifier_dir / f"{file_name}.pt", ) 
-        # TOO BIG
-        # Save metadata, including the original data folder
-        metadata = {
-            "classifier_name": name,
-            "timestamp": timestamp,
-            "data_folder": str(folder.resolve()),
-            "data_files": {
-                file_name: str(source_path.resolve())
-                for file_name, source_path in files.items()
-            },
-        }
-
-        with open(classifier_dir / "metadata.json", "w") as f:
-            json.dump(metadata, f, indent=2)
+        classifier_dir = save_classifier(classifier, files, extractor)
 
         print(f"Saved classifier to: {classifier_dir}")
         

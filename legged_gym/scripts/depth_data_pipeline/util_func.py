@@ -1,9 +1,17 @@
-from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import NeuralClassifierAdapter
+from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import PCAWhitenedRBFPrototypeClassifier, NeuralClassifierAdapter
+from .train_feature_nn import TerrainDepthFeatureClassifierNN
+from .train_raw_depth_nn import TerrainDepthClassifierNN
 from legged_gym.utils.depth_terrain_classifier.depth_terrain_classifier import SobelDepthTerrainFeatureExtractor
 
 import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
+
+import os
+from util_func import make_terrain_extractor
+import argparse
+from datetime import datetime
+from pathlib import Path
 
 def make_terrain_extractor(calibration_file):
     calibration = torch.load(calibration_file)
@@ -150,3 +158,77 @@ def evaluate_classifier(classifier, test_inputs, test_labels):
     print("Instantaneous macro F1:", instantaneous_metrics["macro_f1"])
     print("Confusion matrix:\n", instantaneous_metrics["confusion_matrix"])
     return instantaneous_metrics["accuracy"]
+
+
+def save_classifier(classifier, files, extractor = None):
+    out_dir = Path(LEGGED_GYM_ROOT_DIR) / "depth_waq_selector" / "classifiers"
+    os.makedirs(out_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S") 
+    classifier_dir = out_dir / f"{name}_{timestamp}"
+    classifier_dir.mkdir(parents=True, exist_ok=True) # Save classifier classifier.save(classifier_dir / "classifier.pt")
+    classifier.save(classifier_dir / f"{name}_classifier")
+    if extractor and classifier.require_feature:
+        extractor.save(classifier_dir / f"{name}_extractor")
+    metadata = {
+        "class": classifier.__name__,
+        "timestamp": timestamp,
+        "data_folder": str(folder.resolve()),
+        "data_files": {
+            file_name: str(source_path.resolve())
+            for file_name, source_path in files.items()
+        },
+    }
+
+    if hasattr(classifier, "model"):
+        metadata["nn_model"] = classifier.model.__name__
+        metadata["nn_model_args"] = classifier.model.get_args()
+
+    with open(classifier_dir / "metadata.json", "w") as f:
+        json.dump(metadata, f, indent=2)
+    
+    return classifier_dir
+
+def _find_one(classifier_dir: Path, pattern: str) -> Optional[Path]:
+    """Return the single file matching `pattern` in `classifier_dir`, or None."""
+    matches = sorted(classifier_dir.glob(pattern))
+    if not matches:
+        return None
+    if len(matches) > 1:
+        raise FileNotFoundError(
+            f"Expected exactly one file matching '{pattern}' in {classifier_dir}, "
+            f"found {[m.name for m in matches]}"
+        )
+    return matches[0]
+
+def load_classifier_extractor(
+    classifier_dir: str | Path,
+) -> tuple[Any, Any, dict]:
+    classifier_dir = Path(classifier_dir)
+
+    metadata_path = classifier_dir / "metadata.json"
+    if not metadata_path.exists():
+        raise FileNotFoundError(f"No metadata.json found in {classifier_dir}")
+    with open(metadata_path) as f:
+        metadata = json.load(f)
+
+    class_name = metadata["class"]
+    classifier_path = _find_one(classifier_dir, "*_classifier*")
+    extractor_path = _find_one(classifier_dir, "*_extractor*")
+
+    if classifier_path is None:
+        raise FileNotFoundError(f"No classifier checkpoint found in {classifier_dir}")
+
+    if "nn_model" in metadata:
+        model_class = metadata["nn_model"]
+        model_args = metadata["nn_model_args"]
+        model_blank = eval(model_class)(**model_args)
+        classifier = eval(class_name).load(classifier_path, model_blank)
+    else:
+        classifier = eval(class_name).load(classifier_path)
+    
+    if extractor_path:
+        extractor = SobelDepthTerrainFeatureExtractor.load(extractor_path)
+    else:
+        extractor = None
+
+    return classifier, extractor

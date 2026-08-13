@@ -1157,6 +1157,76 @@ class IncrementalPCAPrototypeClassifier:
         self.metric_precision = state["metric_precision"].to(self.device)
         self.metric_diagonal = state["metric_diagonal"].to(self.device)
 
+    # -------------------------------------------------------------------------
+    # Persistence
+    # -------------------------------------------------------------------------
+
+    def save(self, path: str | Path) -> None:
+        """Save the extractor's configuration and fitted reference model."""
+        torch.save(
+            {
+                "output_size": self.output_size,
+                "crop": self.crop,
+                "min_depth": self.min_depth,
+                "max_depth": self.max_depth,
+                "far_depth": self.far_depth,
+                "close_depth": self.close_depth,
+                "close_residual_threshold": self.close_residual_threshold,
+                "depth_scale": self.depth_scale,
+                "sobel_edge_threshold": self.sobel_edge_threshold,
+                "topk_fraction": self.topk_fraction,
+                "near_fraction": self.near_fraction,
+                "center_fraction": self.center_fraction,
+                "orientation_scale": self.orientation_scale,
+                "angular_velocity_scale": self.angular_velocity_scale,
+                "reference_ridge": self.reference_ridge,
+                "eps": self.eps,
+                "reference_coefficients": self.reference_coefficients,
+            },
+            path,
+        )
+
+    @classmethod
+    def load(
+        cls,
+        path: str | Path,
+        *,
+        device: str | torch.device = "cpu",
+    ) -> "SobelDepthTerrainFeatureExtractor":
+        """Load an extractor from a saved checkpoint, including any fitted
+        flat-ground reference model."""
+        checkpoint = torch.load(
+            path,
+            map_location=device,
+            weights_only=True,
+        )
+
+        extractor = cls(
+            output_size=checkpoint["output_size"],
+            crop=checkpoint["crop"],
+            min_depth=checkpoint["min_depth"],
+            max_depth=checkpoint["max_depth"],
+            far_depth=checkpoint["far_depth"],
+            close_depth=checkpoint["close_depth"],
+            close_residual_threshold=checkpoint["close_residual_threshold"],
+            depth_scale=checkpoint["depth_scale"],
+            sobel_edge_threshold=checkpoint["sobel_edge_threshold"],
+            topk_fraction=checkpoint["topk_fraction"],
+            near_fraction=checkpoint["near_fraction"],
+            center_fraction=checkpoint["center_fraction"],
+            orientation_scale=checkpoint["orientation_scale"],
+            angular_velocity_scale=checkpoint["angular_velocity_scale"],
+            reference_ridge=checkpoint["reference_ridge"],
+            device=device,
+            eps=checkpoint["eps"],
+        )
+
+        reference_coefficients = checkpoint["reference_coefficients"]
+        if reference_coefficients is not None:
+            extractor.reference_coefficients = reference_coefficients.to(device)
+
+        return extractor
+
 
 # =============================================================================
 # Temporal filtering

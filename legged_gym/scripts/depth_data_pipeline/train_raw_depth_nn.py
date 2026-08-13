@@ -1,5 +1,5 @@
 from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import NeuralClassifierAdapter
-from util_func import fit_nn, evaluate_classifier, extract_in_chunks, make_terrain_extractor
+from util_func import fit_nn, evaluate_classifier, extract_in_chunks, make_terrain_extractor, save_classifier
 
 import torch
 import torch.nn as nn
@@ -16,6 +16,16 @@ class TerrainDepthClassifierNN(nn.Module):
         cnn_activation_fn,
     ):
         super().__init__()
+
+
+        self.depth_image_resolution = tuple(depth_image_resolution)
+        self.cnn_input_channel = cnn_input_channel
+        self.cnn_channel_dims = list(cnn_channel_dims)
+        self.cnn_strides = list(cnn_strides)
+        self.cnn_fc_layer_dims = list(cnn_fc_layer_dims)
+        self.cnn_kernel_sizes = list(cnn_kernel_sizes)
+        self.cnn_activation_fn = cnn_activation_fn
+
         in_channels = cnn_input_channel
         in_height, in_width = depth_image_resolution
         cnn_layers = []
@@ -55,10 +65,28 @@ class TerrainDepthClassifierNN(nn.Module):
             cnn_layers.append(cnn_activation_fn)
 
         self._output_size = cnn_fc_layer_dims[-1]
-        self.cnn = nn.Sequential(*cnn_layers)
+        self.model = nn.Sequential(*cnn_layers)
 
     def forward(self, depth_image):
-        return self.cnn(depth_image)
+        return self.model(depth_image)
+    
+    def get_args(self) -> dict:
+        """Return constructor kwargs sufficient to rebuild an equivalent (untrained)
+        instance via `TerrainDepthClassifierNN(**model.get_args())`.
+
+        Note: `cnn_activation_fn` is returned as the live module instance actually used
+        (reused across all conv/fc layers already, so this matches original construction).
+        For a JSON-serializable summary instead, use `cnn_activation_fn.__class__.__name__`.
+        """
+        return {
+            "depth_image_resolution": tuple(self.depth_image_resolution),
+            "cnn_input_channel": self.cnn_input_channel,
+            "cnn_channel_dims": list(self.cnn_channel_dims),
+            "cnn_strides": list(self.cnn_strides),
+            "cnn_fc_layer_dims": list(self.cnn_fc_layer_dims),
+            "cnn_kernel_sizes": list(self.cnn_kernel_sizes),
+            "cnn_activation_fn": self.cnn_activation_fn,
+        }
 
 def train_raw_depth_nn_from_data_set(train_file, test_file, validation_file, *_, **__):
     train = torch.load(train_file)
@@ -115,4 +143,8 @@ if __name__ == "__main__":
     train_file = files["train"] 
     test_file = files["test"]
     validation_file = files["val"]
-    train_raw_depth_nn_from_data_set(train_file, test_file, validation_file)
+    classifier = train_raw_depth_nn_from_data_set(train_file, test_file, validation_file)
+
+    classifier_dir = save_classifier(classifier, files)
+
+    print(f"Saved classifier to: {classifier_dir}")

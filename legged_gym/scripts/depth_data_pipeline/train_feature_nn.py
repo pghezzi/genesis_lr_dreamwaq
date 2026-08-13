@@ -1,5 +1,5 @@
 from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import NeuralClassifierAdapter, PCAWhitenedRBFSVM
-from util_func import fit_nn, evaluate_classifier, extract_in_chunks, make_terrain_extractor
+from util_func import fit_nn, evaluate_classifier, extract_in_chunks, make_terrain_extractor, save_classifier
 
 import torch
 import torch.nn as nn
@@ -12,6 +12,9 @@ class TerrainDepthFeatureClassifierNN(nn.Module):
         activation_fn,
     ):
         super().__init__()
+        self.feature_input_dim = feature_input_dim
+        self.mlp_layer_dims = list(mlp_layer_dims)
+        self.activation_fn = activation_fn
 
         mlp_layers = []
 
@@ -25,10 +28,25 @@ class TerrainDepthFeatureClassifierNN(nn.Module):
                 mlp_layers.append(activation_fn)
 
         self._output_size = mlp_layer_dims[-1]
-        self.mlp = nn.Sequential(*mlp_layers)
+        self.model = nn.Sequential(*mlp_layers)
 
     def forward(self, features):
-        return self.mlp(features)
+        return self.model(features)
+    
+    def get_args(self) -> dict:
+        """Return constructor kwargs sufficient to rebuild an equivalent (untrained)
+        instance via `TerrainDepthFeatureClassifierNN(**model.get_args())`.
+
+        Note: `activation_fn` is returned as the live module instance actually used
+        (the same object stored on `self`), not a fresh copy, since activation modules
+        like `nn.ReLU()` are stateless and safe to reuse. If you need a JSON-serializable
+        summary instead (e.g. for metadata.json), use `activation_fn.__class__.__name__`.
+        """
+        return {
+            "feature_input_dim": self.feature_input_dim,
+            "mlp_layer_dims": list(self.mlp_layer_dims),
+            "activation_fn": self.activation_fn,
+        }
 
 def train_feature_nn_from_data_set(train_file, test_file, validation_file, extractor, *_, **__):
     train = torch.load(train_file)
@@ -67,6 +85,8 @@ def train_feature_nn_from_data_set(train_file, test_file, validation_file, extra
         fit_callback=fit_nn,
     )
 
+    classifier.require_feature = True
+
     classifier.fit(inputs=train_features, labels=train_labels, val=(validation_features, validation_labels), epochs=20)
 
     test = torch.load(test_file)
@@ -91,6 +111,9 @@ def train_feature_nn_from_data_set(train_file, test_file, validation_file, extra
     #
     #classifier.save(model_path)
 
+
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Create model using data")
@@ -104,6 +127,11 @@ if __name__ == "__main__":
     validation_file = files["val"]
     calibration_file = files["calibration"]
     extractor = make_terrain_extractor(calibration_file)
-    train_feature_nn_from_data_set(train_file, test_file, validation_file, extractor)
+    classifier = train_feature_nn_from_data_set(train_file, test_file, validation_file, extractor)
+
+    classifier_dir = save_classifier(classifier, files, extractor)
+
+    print(f"Saved classifier to: {classifier_dir}")
+    
 
 

@@ -1,5 +1,5 @@
 from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import PCAWhitenedRBFPrototypeClassifier, search_prototype_rbf_hyperparameters_dataloader
-from util_func import evaluate_classifier, extract_in_chunks, make_terrain_extractor
+from util_func import evaluate_classifier, extract_in_chunks, make_terrain_extractor, save_classifier
 
 from collections.abc import Sequence
 
@@ -152,9 +152,15 @@ if __name__ == "__main__":
     folder = Path(args.folder)
     files = { name : path for name in ("calibration", "val", "train", "test") if (path := folder / f"{name}.pt").is_file() } 
     
-    train_file = files["train"] 
+    train_file = files["train"]
     test_file = files["test"]
     validation_file = files["val"]
     calibration_file = files["calibration"]
     extractor = make_terrain_extractor(calibration_file)
-    train_rbf_prototype_from_data_set(train_file, test_file, validation_file, extractor)
+    classifier = train_rbf_prototype_from_data_set(train_file, test_file, validation_file, extractor)
+
+    save_classifier(classifier, files, extractor)
+
+    print(f"Saved classifier to: {classifier_dir}")
+
+

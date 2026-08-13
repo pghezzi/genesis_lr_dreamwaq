@@ -19,6 +19,67 @@ from datetime import datetime
 
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
+class DepthCNNExporter(torch.nn.Module):
+    def __init__(self, visual_encoder):
+        super().__init__()
+
+        # Reuse the already-constructed LoRA swapper.
+        self.visual_encoder = visual_encoder
+
+    @torch.jit.export
+    def forward(self, depth_image):
+        return self.visual_encoder(depth_image)
+
+    @torch.jit.export
+    def swap(self, index: int):
+        self.visual_encoder.swap(index)
+
+    @torch.jit.unused
+    def export(self, filename):
+        self.to("cpu")
+        traced_script_module = torch.jit.script(self)
+        traced_script_module.save(filename)
+
+
+class PolicyExporterFeaturesWaQ(torch.nn.Module):
+    @torch.jit.unused
+    def __init__(self, actor, vae_encoder, vae_latent_mu, vae_vel_mu, num_of_loras):
+        super().__init__()
+        # Already constructed LoRA swappers
+        self.actor = actor
+
+        self.vae_encoder = vae_encoder
+        self.vae_latent_mu = vae_latent_mu
+        self.vae_vel_mu = vae_vel_mu
+
+        self.num_of_loras = num_of_loras
+
+    def vae_inference(self, obs_history):
+        encoded = self.vae_encoder(obs_history)
+        latent_mu = self.vae_latent_mu(encoded)
+        vel_mu = self.vae_vel_mu(encoded)
+        return torch.cat((latent_mu, vel_mu), dim=-1)
+
+    @torch.jit.export
+    def forward(self, observations, obs_history, visual_latent):
+        mean_out = self.vae_inference(obs_history)
+        all_obs = torch.cat((observations, mean_out, visual_latent), dim=-1,)
+        return self.actor(all_obs)
+
+    @torch.jit.export
+    def swap(self, index: int):
+        self.actor.swap(index)
+        self.vae_encoder.swap(index)
+        self.vae_latent_mu.swap(index)
+        self.vae_vel_mu.swap(index)
+
+    @torch.jit.unused
+    def export(self, filename):
+        self.to("cpu")
+        traced_script_module = torch.jit.script(self)
+        traced_script_module.save(filename)
+
+
 
 class PolicyExporterDepthWaQ(torch.nn.Module):
     @torch.jit.unused
@@ -36,8 +97,6 @@ class PolicyExporterDepthWaQ(torch.nn.Module):
         self.vae_encoder = SequentialMultiLora(vae.encoder)
         self.vae_latent_mu = MultiLora(vae.latent_mu)
         self.vae_vel_mu = MultiLora(vae.vel_mu)
-        #self.vae_latent_var = SequentialMultiLora(vae.latent_var)
-        #self.vae_vel_var = SequentialMultiLora(vae.vel_var)
 
         #visual encoder
         self.visual_encoder = SequentialMultiLora(visual_encoder.cnn)
@@ -52,12 +111,9 @@ class PolicyExporterDepthWaQ(torch.nn.Module):
         visual_encoder = actor_critic_lora.visual_encoder
 
         self.actor.append(actor)
-
         self.vae_encoder.append(vae.encoder)
         self.vae_latent_mu.append(vae.latent_mu)
         self.vae_vel_mu.append(vae.vel_mu)
-        #self.vae_latent_var.append(vae.latent_var)
-        #self.vae_vel_var.append(vae.vel_var)
 
         self.visual_encoder.append(visual_encoder.cnn)
 
@@ -71,24 +127,18 @@ class PolicyExporterDepthWaQ(torch.nn.Module):
 
     def depth_actor(self, observations, samples, depth_image):
         visual_latent = self.visual_encoder(depth_image)
-        return self.actor(torch.cat(
-            (
-            observations, samples, visual_latent
-            ), dim=-1))
+        return self.actor(torch.cat((observations, samples, visual_latent), dim=-1))
 
     def vae_inference(self, obs_history):
         encoded = self.vae_encoder(obs_history)
         latent_mu = self.vae_latent_mu(encoded)
-        #latent_var = self.vae_latent_var(encoded)
         vel_mu = self.vae_vel_mu(encoded)
-        #vel_var = self.vae_vel_var(encoded)
         return torch.cat((latent_mu, vel_mu), dim=-1)
     
     @torch.jit.export
     def forward(self, observations, obs_history, depth_image):
         mean_out = self.vae_inference(obs_history)
-        actions_mean = self.depth_actor(observations, mean_out, depth_image)
-        return actions_mean
+        return self.depth_actor(observations, mean_out, depth_image)
 
     @torch.jit.export
     def swap(self, index: int):
@@ -97,6 +147,17 @@ class PolicyExporterDepthWaQ(torch.nn.Module):
         self.vae_latent_mu.swap(index)
         self.vae_vel_mu.swap(index)
         self.visual_encoder.swap(index)
+    
+
+    @torch.jit.unused
+    def split_cnn(self):
+        """
+        Split the already-constructed CNN LoRA swapper from the policy.
+        No new LoRA swappers are constructed.
+        """
+        cnn = DepthCNNExporter(self.visual_encoder)
+        main = PolicyExporterFeaturesWaQ(self.actor, self.vae_encoder, self.vae_latent_mu, self.vae_vel_mu, self.num_of_loras)
+        return cnn, main
 
 import os
 import copy
@@ -214,16 +275,19 @@ def loader(actor_critic, file):
 
 if __name__ == "__main__":
     from rsl_rl.modules import ActorCriticDreamWaQDepth, ActorCriticDreamWaQDepthLora
+
+
+
     base_model = loader(
         ActorCriticDreamWaQDepth, 
-        ("/home/pablo/Documents/Legged_Gym_EX/logs/go2_depth_waq_baseline_final_version_with_better_headings/Jul28_21-00-55_dreamwaq_genesis/model_5000.pt","/home/pablo/Documents/Legged_Gym_EX/logs/go2_depth_waq_baseline_final_version_with_better_headings/Jul28_21-00-55_dreamwaq_genesis/current_actor_args.pt")
+        (f"{LEGGED_GYM_ROOT_DIR}/logs/go2_depth_waq_baseline_final_version_with_better_headings/Jul28_21-00-55_dreamwaq_genesis/model_5000.pt",f"{LEGGED_GYM_ROOT_DIR}/logs/go2_depth_waq_baseline_final_version_with_better_headings/Jul28_21-00-55_dreamwaq_genesis/current_actor_args.pt")
         
     )
 
     lora_raw = [
-        ("/home/pablo/Documents/Legged_Gym_EX/logs/go2_depth_waq_lora_8_gap_experiment1_better_headings/Aug01_08-38-05_dreamwaq_isaacgym", 30000),
-        ("/home/pablo/Documents/Legged_Gym_EX/logs/go2_depth_waq_lora_8_stairs_experiment1_better_headings/Jul30_23-25-59_dreamwaq_isaacgym", 30000),
-        ("/home/pablo/Documents/Legged_Gym_EX/logs/go2_depth_waq_lora_8_pit_experiment1_better_headings/Aug04_23-58-15_dreamwaq_isaacgym", 25000),
+        (f"{LEGGED_GYM_ROOT_DIR}/logs/go2_depth_waq_lora_8_gap_experiment1_better_headings/Aug01_08-38-05_dreamwaq_isaacgym", 30000),
+        (f"{LEGGED_GYM_ROOT_DIR}/logs/go2_depth_waq_lora_8_stairs_experiment1_better_headings/Jul30_23-25-59_dreamwaq_isaacgym", 30000),
+        #(f"{LEGGED_GYM_ROOT_DIR}/logs/go2_depth_waq_lora_8_pit_experiment1_better_headings/Aug04_23-58-15_dreamwaq_isaacgym", 25000),
     ]
 
     #loras_files = [
@@ -260,6 +324,11 @@ if __name__ == "__main__":
     os.makedirs(path, exist_ok=True)
     file = os.path.join(path, f"compiled_lora_{timestamp}.pt")
     exporter.export(file)
+    cnn, main = exporter.split_cnn()
+    path = os.path.join(path, f"compiled_lora_{timestamp}_split")
+    os.makedirs(path, exist_ok=True)
+    cnn.export(os.path.join(path, f"DepthCNN.pt"))
+    main.export(os.path.join(path, f"FeaturesWaQ.pt"))
     
     #policy = torch.jit.load(os.path.join(path, f"compiled_lora_{timestamp}.pt"))
     #print(

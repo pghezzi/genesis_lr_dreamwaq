@@ -157,6 +157,7 @@ class ProbabilisticClassifier(ABC):
         self.device = torch.device(device)
         self.dtype = dtype
         self.eps = float(eps)
+        self.require_feature = False
 
     @abstractmethod
     def fit(self, inputs: Any, labels: Sequence[Hashable] | torch.Tensor, **kwargs: Any) -> "ProbabilisticClassifier":
@@ -406,6 +407,7 @@ class PCAWhitenedRBFSVM(ProbabilisticClassifier):
         self.training_history: Dict[str, List[float]] = {
             "train_loss": [], "validation_loss": [], "validation_accuracy": []
         }
+        self.require_feature = True
 
     @torch.no_grad()
     def fit_initial_pca(self, X: torch.Tensor | Sequence, pca_dim: Optional[int] = None) -> "PCAWhitenedRBFSVM":
@@ -802,6 +804,7 @@ class PCAWhitenedRBFPrototypeClassifier(ProbabilisticClassifier):
         self.prototype_log_weights: Dict[Hashable, torch.Tensor] = {}
         self.class_counts: Dict[Hashable, int] = {}
         self.raw_class_data: Dict[Hashable, torch.Tensor] = {}
+        self.require_feature = True
 
     @torch.no_grad()
     def fit_initial_pca(
@@ -1609,6 +1612,7 @@ class NeuralClassifierAdapter(ProbabilisticClassifier):
         self.model = model.to(self.device)
         self.input_transform = input_transform
         self.fit_callback = fit_callback
+        self.require_feature = False
 
     def _prepare(self, inputs: Any) -> torch.Tensor:
         value = self.input_transform(inputs) if self.input_transform is not None else inputs
