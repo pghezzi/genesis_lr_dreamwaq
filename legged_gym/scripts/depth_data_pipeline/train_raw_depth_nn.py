@@ -1,5 +1,5 @@
 from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import NeuralClassifierAdapter
-from util_func import fit_nn, evaluate_classifier, extract_in_chunks, make_terrain_extractor, save_classifier
+from util_func import fit_nn, evaluate_classifier, extract_in_chunks, save_classifier
 
 import torch
 import torch.nn as nn
@@ -79,6 +79,7 @@ class TerrainDepthClassifierNN(nn.Module):
         For a JSON-serializable summary instead, use `cnn_activation_fn.__class__.__name__`.
         """
         return {
+            "cls": self.__name__,
             "depth_image_resolution": tuple(self.depth_image_resolution),
             "cnn_input_channel": self.cnn_input_channel,
             "cnn_channel_dims": list(self.cnn_channel_dims),
@@ -88,17 +89,30 @@ class TerrainDepthClassifierNN(nn.Module):
             "cnn_activation_fn": self.cnn_activation_fn,
         }
 
-def train_raw_depth_nn_from_data_set(train_file, test_file, validation_file, *_, **__):
-    train = torch.load(train_file)
-    validation = torch.load(validation_file)
+def main():
+    from .util_func import get_files_for_training
 
-    train_images = train["depth_images"].unsqueeze(1).float()
-    train_labels = train["labels"]
-    validation_images = validation["depth_images"].unsqueeze(1).float()
-    validation_labels = validation["labels"]
+    (
+        structural_training_data,
+        structural_validation_data,
+        observation_calibration_data,
+        structural_test_data,
+        ordered_filter_validation,
+        final_test_sequences,
+    ) = get_files_for_training()
+
+    
+
+    train = torch.load(structural_training_data)
+    structural_training_images = train["depth_images"].unsqueeze(1).float()
+    structural_training_labels = train["labels"]
+
+    validation = torch.load(validation_file)
+    structural_validation_images = validation["depth_images"].unsqueeze(1).float()
+    structural_validation_labels = validation["labels"]
 
     nn_raw_depth_model = TerrainDepthClassifierNN(
-        depth_image_resolution=train_images.shape[-2:],   # (H, W)
+        depth_image_resolution=structural_training_images.shape[-2:],   # (H, W)
         cnn_input_channel=1,                              # grayscale
         cnn_channel_dims=[8, 16],
         cnn_strides=[1, 1],
@@ -114,37 +128,81 @@ def train_raw_depth_nn_from_data_set(train_file, test_file, validation_file, *_,
         fit_callback=fit_nn,
     )
 
-    classifier.fit(inputs=train_images, labels=train_labels, val=(validation_images, validation_labels), epochs=20)
+    classifier.fit(inputs=structural_training_images, labels=structural_training_labels, val=(structural_validation_images, structural_validation_labels), epochs=20)
 
-    test = torch.load(test_file)
-    test_features = test["depth_images"].unsqueeze(1).float()
-    test_labels = test["labels"]
 
-    acc = evaluate_classifier(classifier, test_features, test_labels)
+    del train, structural_training_images, structural_training_labels
+    del validation, structural_validation_images, structural_validation_labels
 
-    return classifier
+    test = torch.load(structural_test_data)
+    structural_test_features = test["depth_images"].unsqueeze(1).float()
+    structural_test_labels = test["labels"]
 
-    #out_dir = f"{LEGGED_GYM_ROOT_DIR}/depth_waq_selector/models"
-    #os.makedirs(out_dir, exist_ok=True)
-    #
-    #timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    #model_path = os.path.join(out_dir, f"raw_depth_classifier_acc_{str(acc).replace('.', '_')}_{timestamp}.pt")
-    #
-    #classifier.save(model_path)
+    acc = evaluate_classifier(classifier, structural_test_features, structural_test_labels)
+
+    manual_prior = {
+        label: 1.0 / len(classifier.class_ids)
+        for label in classifier.class_ids
+    }
+
+    validation = torch.load(ordered_filter_validation)
+    filter_validation_features = validation["depth_images"].unsqueeze(1).float()
+    filter_validation_labels = validation["labels"]
+
+    filter_validation_episode_ids = torch.arange(filter_validation_features.shape[0] // validation["per_eps"]).repeat_interleave(validation["per_eps"])
+
+    filter_results = search_bayes_filter_hyperparameters(
+        classifier=classifier,
+        filter_inputs=filter_validation_features,
+        true_labels=filter_validation_labels,
+        manual_prior=manual_prior,
+        sequence_ids=filter_validation_episode_ids,
+        temperatures=[0.5, 0.75, 1.0, 1.5, 2.0],
+        stay_probabilities=[0.90, 0.94, 0.97],
+        evidence_powers=[0.50, 0.75, 1.0],
+        min_evidence_powers=[0.10, 0.25],
+        confidence_gammas=[1.0, 2.0],
+        observation_modes=["soft"],
+        observation_pseudocounts=[0.5],
+        scoring="balanced_accuracy",
+    )
+
+    del validation, filter_validation_features, filter_validation_labels
+
+    best_filter = filter_results[0]
+    bayes_filter, selected_temperature = build_filter_from_search_result(
+        classifier,
+        best_filter,
+        manual_prior,
+    )
+
+    test_probabilities, ordered_labels = classifier.predict_class_distribution(
+        test_sequence_features,
+        temperature=selected_temperature,
+        probability_floor=1e-8,
+    )
+
+    test_predictions, test_posteriors, test_evidence = run_filter_sequences(
+        bayes_filter,
+        test_probabilities,
+        sequence_ids=test_sequence_episode_ids,
+    )
+
+    test_metrics = evaluate_predictions(
+        test_sequence_labels,
+        test_predictions,
+        ordered_labels,
+        sequence_ids=test_sequence_episode_ids,
+    )
+
+    print(test_metrics.as_dict())
+
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_dir = os.path.join(LEGGED_GYM_ROOT_DIR, "depth_waq_selector", "full_models", f"nn_raw_depth_model_{timestamp}")
+    bayes_filter.save(os.path.join(out_dir, "bayes_filter.pt"))
+    classifier.save(os.path.join(out_dir, "classifier.pt"))
+    torch.save(nn_raw_depth_model, os.path.join(out_dir, "nn_model_args.pt"))
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description="Create model using data")
-    parser.add_argument("--folder", type=str, default=None, help="folder with data")
-    args = parser.parse_args() 
-    from pathlib import Path 
-    folder = Path(args.folder)
-    files = { name : path for name in ("calibration", "val", "train", "test") if (path := folder / f"{name}.pt").is_file() } 
-    train_file = files["train"] 
-    test_file = files["test"]
-    validation_file = files["val"]
-    classifier = train_raw_depth_nn_from_data_set(train_file, test_file, validation_file)
-
-    classifier_dir = save_classifier(classifier, files)
-
-    print(f"Saved classifier to: {classifier_dir}")
+    main()

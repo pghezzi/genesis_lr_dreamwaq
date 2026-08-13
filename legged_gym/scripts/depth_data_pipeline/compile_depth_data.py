@@ -57,6 +57,7 @@ def calibration_data(*args, **kwargs):
 
 def train_val_test_data(*args, **kwargs):
     depth_images, base_rpy, base_ang_vel, terrain_labels = get_data_raw(*args, **kwargs)
+    episode_length = int(depth_images.shape(0))
 
     def _split_flat(t):
         train_split = int(t.shape[0] * 0.6)
@@ -87,6 +88,7 @@ def train_val_test_data(*args, **kwargs):
         "depth_images": train_depth,
         "orientation_rpy": train_rpy,
         "angular_velocity": train_ang,
+        "per_eps": episode_length,
         "labels": train_labels,
     }
 
@@ -94,6 +96,7 @@ def train_val_test_data(*args, **kwargs):
         "depth_images": val_depth,
         "orientation_rpy": val_rpy,
         "angular_velocity": val_ang,
+        "per_eps": episode_length,
         "labels": val_labels,
     }
 
@@ -101,6 +104,7 @@ def train_val_test_data(*args, **kwargs):
         "depth_images": test_depth,
         "orientation_rpy": test_rpy,
         "angular_velocity": test_ang,
+        "per_eps": episode_length,
         "labels": test_labels,
     }
 

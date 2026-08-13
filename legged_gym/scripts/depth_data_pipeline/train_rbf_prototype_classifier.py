@@ -1,4 +1,7 @@
-from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import PCAWhitenedRBFPrototypeClassifier, search_prototype_rbf_hyperparameters_dataloader
+from legged_gym import LEGGED_GYM_ROOT_DIR
+from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
+    PCAWhitenedRBFPrototypeClassifier, search_prototype_rbf_hyperparameters_dataloader, search_bayes_filter_hyperparameters
+)
 from util_func import evaluate_classifier, extract_in_chunks, make_terrain_extractor, save_classifier
 
 from collections.abc import Sequence
@@ -41,35 +44,44 @@ def make_loader(
     )
 
 
+def main():
+    from .util_func import get_files_for_training
 
+    (
+        structural_training_data,
+        structural_validation_data,
+        observation_calibration_data,
+        structural_test_data,
+        ordered_filter_validation,
+        final_test_sequences,
+    ) = get_files_for_training()
 
-def train_rbf_prototype_from_data_set(train_file, test_file, validation_file, extractor, *_, **__):
-    validation = torch.load(validation_file)
-    validation_features = extract_in_chunks(
+    extractor = make_terrain_extractor(observation_calibration_data)
+
+    validation = torch.load(structural_training_data)
+    structural_validation_features = extract_in_chunks(
         extractor,
         validation["depth_images"],
         validation["orientation_rpy"],
         validation["angular_velocity"],
         chunk_size=validation["depth_images"].shape[0]
     )
-    validation_labels = validation["labels"]
+    structural_validation_labels = validation["labels"]
 
-    train = torch.load(train_file)
-    train_features = extract_in_chunks(
+    train = torch.load(structural_training_data)
+    structural_training_features = extract_in_chunks(
         extractor,
         train["depth_images"],
         train["orientation_rpy"],
         train["angular_velocity"],
         chunk_size=256,   # tune down if still OOMing
     )
-    train_labels = train["labels"]
-
-    print("Past Training")
+    structural_training_labels = train["labels"]
 
     def make_train_loader():
         return make_loader(
-            train_features,
-            train_labels,
+            structural_training_features,
+            structural_training_labels,
             batch_size=256,
             shuffle=True,
         )
@@ -77,8 +89,8 @@ def train_rbf_prototype_from_data_set(train_file, test_file, validation_file, ex
 
     def make_validation_loader():
         return make_loader(
-            validation_features,
-            validation_labels,
+            structural_validation_features,
+            structural_validation_labels,
             batch_size=512,
             shuffle=False,
         )
@@ -120,47 +132,94 @@ def train_rbf_prototype_from_data_set(train_file, test_file, validation_file, ex
     print("Total prototypes:", best_trial.num_prototypes)
 
     classifier = best_classifier
+    
+    del train, structural_training_features, structural_training_labels
+    del validation, structural_validation_features, structural_validation_labels
 
-    test = torch.load(test_file)
-    test_features = extract_in_chunks(
+    test = torch.load(structural_test_data)
+    structural_test_features = extract_in_chunks(
         extractor,
         test["depth_images"],
         test["orientation_rpy"],
         test["angular_velocity"],
         chunk_size=test["depth_images"].shape[0]
     )
-    test_labels = test["labels"]
+    structural_test_labels = test["labels"]
 
-    acc = evaluate_classifier(classifier, test_features, test_labels)
+    acc = evaluate_classifier(classifier, structural_test_features, structural_test_labels)
 
-    return classifier
+    del test, structural_test_features, structural_test_labels
 
-    #out_dir = f"{LEGGED_GYM_ROOT_DIR}/depth_waq_selector/models"
-    #os.makedirs(out_dir, exist_ok=True)
-    #
-    #timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    #model_path = os.path.join(out_dir, f"feature_classifier_acc_{str(acc).replace('.', '_')}_{timestamp}.pt")
-    #
-    #classifier.save(model_path)
+    manual_prior = {
+        label: 1.0 / len(classifier.class_ids)
+        for label in classifier.class_ids
+    }
+
+    validation = torch.load(ordered_filter_validation)
+    filter_validation_features = extract_in_chunks(
+        extractor,
+        validation["depth_images"],
+        validation["orientation_rpy"],
+        validation["angular_velocity"],
+        chunk_size=256,   # tune down if still OOMing
+    )
+    filter_validation_labels = validation["labels"]
+
+    filter_validation_episode_ids = torch.arange(filter_validation_features.shape[0] // validation["per_eps"]).repeat_interleave(validation["per_eps"])
+
+    filter_results = search_bayes_filter_hyperparameters(
+        classifier=classifier,
+        filter_inputs=filter_validation_features,
+        true_labels=filter_validation_labels,
+        manual_prior=manual_prior,
+        sequence_ids=filter_validation_episode_ids,
+        temperatures=[0.5, 0.75, 1.0, 1.5, 2.0],
+        stay_probabilities=[0.90, 0.94, 0.97],
+        evidence_powers=[0.50, 0.75, 1.0],
+        min_evidence_powers=[0.10, 0.25],
+        confidence_gammas=[1.0, 2.0],
+        observation_modes=["soft"],
+        observation_pseudocounts=[0.5],
+        scoring="balanced_accuracy",
+    )
+
+    del validation, filter_validation_features, filter_validation_labels
+
+    best_filter = filter_results[0]
+    bayes_filter, selected_temperature = build_filter_from_search_result(
+        classifier,
+        best_filter,
+        manual_prior,
+    )
+
+    test_probabilities, ordered_labels = classifier.predict_class_distribution(
+        test_sequence_features,
+        temperature=selected_temperature,
+        probability_floor=1e-8,
+    )
+
+    test_predictions, test_posteriors, test_evidence = run_filter_sequences(
+        bayes_filter,
+        test_probabilities,
+        sequence_ids=test_sequence_episode_ids,
+    )
+
+    test_metrics = evaluate_predictions(
+        test_sequence_labels,
+        test_predictions,
+        ordered_labels,
+        sequence_ids=test_sequence_episode_ids,
+    )
+
+    print(test_metrics.as_dict())
+
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_dir = os.path.join(LEGGED_GYM_ROOT_DIR, "depth_waq_selector", "full_models", f"rbf_model_{timestamp}")
+    extractor.save(os.path.join(out_dir, "extractor.pt"))
+    bayes_filter.save(os.path.join(out_dir, "bayes_filter.pt"))
+    classifier.save(os.path.join(out_dir, "classifier.pt"))
+    
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description="Create model using data")
-    parser.add_argument("--folder", type=str, default=None, help="folder with data")
-    args = parser.parse_args() 
-    from pathlib import Path 
-    folder = Path(args.folder)
-    files = { name : path for name in ("calibration", "val", "train", "test") if (path := folder / f"{name}.pt").is_file() } 
-    
-    train_file = files["train"]
-    test_file = files["test"]
-    validation_file = files["val"]
-    calibration_file = files["calibration"]
-    extractor = make_terrain_extractor(calibration_file)
-    classifier = train_rbf_prototype_from_data_set(train_file, test_file, validation_file, extractor)
-
-    save_classifier(classifier, files, extractor)
-
-    print(f"Saved classifier to: {classifier_dir}")
-
-
+    main()

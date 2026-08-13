@@ -232,3 +232,40 @@ def load_classifier_extractor(
         extractor = None
 
     return classifier, extractor
+
+
+def get_files_for_training():
+    import argparse
+    parser = argparse.ArgumentParser(description="Create model using data")
+    parser.add_argument("--classifier_folder", type=str, default=None, help="folder with classifier training data")
+    parser.add_argument("--baysian_folder", type=str, default=None, help="folder with classifier training data")
+    args = parser.parse_args() 
+    from pathlib import Path 
+    classifier_folder = Path(args.classifier_folder)
+    bayes_folder = Path(args.baysian_folder)
+
+    classifier_files = {
+        name: path
+        for name in ("calibration", "val", "train", "test")
+        if (path := classifier_folder / f"{name}.pt").is_file()
+    }
+
+    bayesian_files = {
+        name: path
+        for name in ("calibration", "val", "train", "test")
+        if (path := bayesian_folder / f"{name}.pt").is_file()
+    }
+    structural_training_data = classifier_files["train"]
+    structural_validation_data = classifier_files["val"]
+    observation_calibration_data = classifier_files["calibration"]
+    structural_test_data = classifier_files["test"]
+    ordered_filter_validation = bayesian_files["val"]
+    final_test_sequences = bayesian_files["test"]
+    return (
+        structural_training_data,
+        structural_validation_data,
+        observation_calibration_data,
+        structural_test_data,
+        ordered_filter_validation,
+        final_test_sequences,
+    )

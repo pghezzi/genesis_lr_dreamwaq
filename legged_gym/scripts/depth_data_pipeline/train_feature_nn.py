@@ -43,34 +43,45 @@ class TerrainDepthFeatureClassifierNN(nn.Module):
         summary instead (e.g. for metadata.json), use `activation_fn.__class__.__name__`.
         """
         return {
+            "cls": self.__name__,
             "feature_input_dim": self.feature_input_dim,
             "mlp_layer_dims": list(self.mlp_layer_dims),
             "activation_fn": self.activation_fn,
         }
 
-def train_feature_nn_from_data_set(train_file, test_file, validation_file, extractor, *_, **__):
-    train = torch.load(train_file)
-    val = torch.load(validation_file)
+def main():
+    from .util_func import get_files_for_training
 
-    validation = torch.load(validation_file)
-    validation_features = extract_in_chunks(
+    (
+        structural_training_data,
+        structural_validation_data,
+        observation_calibration_data,
+        structural_test_data,
+        ordered_filter_validation,
+        final_test_sequences,
+    ) = get_files_for_training()
+
+    extractor = make_terrain_extractor(observation_calibration_data)
+
+    validation = torch.load(structural_validation_data)
+    structural_validation_features = extract_in_chunks(
         extractor,
         validation["depth_images"],
         validation["orientation_rpy"],
         validation["angular_velocity"],
         chunk_size=validation["depth_images"].shape[0]
     )
-    validation_labels = validation["labels"]
+    structural_validation_labels = validation["labels"]
 
-    train = torch.load(train_file)
-    train_features = extract_in_chunks(
+    train = torch.load(structural_training_data)
+    structural_training_features = extract_in_chunks(
         extractor,
         train["depth_images"],
         train["orientation_rpy"],
         train["angular_velocity"],
         chunk_size=256,   # tune down if still OOMing
     )
-    train_labels = train["labels"]
+    structural_training_labels = train["labels"]
 
     nn_feature_model = TerrainDepthFeatureClassifierNN(
         feature_input_dim=extractor.feature_dim,
@@ -101,37 +112,80 @@ def train_feature_nn_from_data_set(train_file, test_file, validation_file, extra
 
     acc = evaluate_classifier(classifier, test_features, test_labels)
 
-    return classifier
+    manual_prior = {
+        label: 1.0 / len(classifier.class_ids)
+        for label in classifier.class_ids
+    }
 
-    #out_dir = f"{LEGGED_GYM_ROOT_DIR}/depth_waq_selector/models"
-    #os.makedirs(out_dir, exist_ok=True)
-    #
-    #timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    #model_path = os.path.join(out_dir, f"feature_classifier_acc_{str(acc).replace('.', '_')}_{timestamp}.pt")
-    #
-    #classifier.save(model_path)
+    validation = torch.load(ordered_filter_validation)
+    filter_validation_features = extract_in_chunks(
+        extractor,
+        validation["depth_images"],
+        validation["orientation_rpy"],
+        validation["angular_velocity"],
+        chunk_size=256,   # tune down if still OOMing
+    )
+    filter_validation_labels = validation["labels"]
 
+    filter_validation_episode_ids = torch.arange(filter_validation_features.shape[0] // validation["per_eps"]).repeat_interleave(validation["per_eps"])
 
+    filter_results = search_bayes_filter_hyperparameters(
+        classifier=classifier,
+        filter_inputs=filter_validation_features,
+        true_labels=filter_validation_labels,
+        manual_prior=manual_prior,
+        sequence_ids=filter_validation_episode_ids,
+        temperatures=[0.5, 0.75, 1.0, 1.5, 2.0],
+        stay_probabilities=[0.90, 0.94, 0.97],
+        evidence_powers=[0.50, 0.75, 1.0],
+        min_evidence_powers=[0.10, 0.25],
+        confidence_gammas=[1.0, 2.0],
+        observation_modes=["soft"],
+        observation_pseudocounts=[0.5],
+        scoring="balanced_accuracy",
+    )
+
+    del validation, filter_validation_features, filter_validation_labels
+
+    best_filter = filter_results[0]
+    bayes_filter, selected_temperature = build_filter_from_search_result(
+        classifier,
+        best_filter,
+        manual_prior,
+    )
+
+    test_probabilities, ordered_labels = classifier.predict_class_distribution(
+        test_sequence_features,
+        temperature=selected_temperature,
+        probability_floor=1e-8,
+    )
+
+    test_predictions, test_posteriors, test_evidence = run_filter_sequences(
+        bayes_filter,
+        test_probabilities,
+        sequence_ids=test_sequence_episode_ids,
+    )
+
+    test_metrics = evaluate_predictions(
+        test_sequence_labels,
+        test_predictions,
+        ordered_labels,
+        sequence_ids=test_sequence_episode_ids,
+    )
+
+    print(test_metrics.as_dict())
+
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_dir = os.path.join(LEGGED_GYM_ROOT_DIR, "depth_waq_selector", "full_models", f"feature_nn_model_{timestamp}")
+    extractor.save(os.path.join(out_dir, "extractor.pt"))
+    bayes_filter.save(os.path.join(out_dir, "bayes_filter.pt"))
+    classifier.save(os.path.join(out_dir, "classifier.pt"))
+    torch.save(nn_feature_model.get_args(), os.path.join(out_dir, "nn_model_args.pt"))
 
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description="Create model using data")
-    parser.add_argument("--folder", type=str, default=None, help="folder with data")
-    args = parser.parse_args() 
-    from pathlib import Path 
-    folder = Path(args.folder)
-    files = { name : path for name in ("calibration", "val", "train", "test") if (path := folder / f"{name}.pt").is_file() } 
-    train_file = files["train"] 
-    test_file = files["test"]
-    validation_file = files["val"]
-    calibration_file = files["calibration"]
-    extractor = make_terrain_extractor(calibration_file)
-    classifier = train_feature_nn_from_data_set(train_file, test_file, validation_file, extractor)
-
-    classifier_dir = save_classifier(classifier, files, extractor)
-
-    print(f"Saved classifier to: {classifier_dir}")
+    main()
     
 
 
