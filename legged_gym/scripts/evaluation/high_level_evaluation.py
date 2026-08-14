@@ -165,72 +165,46 @@ def get_ground_truth_labels(env):
     return env.simulator._terrain.labels[row_col[:, 0], row_col[:, 1]]
 
 
-#FIX THIS
 # --------------------------------------------------------------------------- #
 # Classifier loading
 # --------------------------------------------------------------------------- #
 
 def build_classifier(args):
-    """Returns (classifier, predict_fn) where predict_fn(depth, euler, ang_vel) -> label str."""
-    if args.terrain_detector_jit:
-        model = torch.jit.load(args.terrain_detector_jit, map_location="cpu")
+    from legged_gym.scripts.depth_data_pipeline.train_feature_nn import TerrainDepthFeatureClassifierNN
+    from legged_gym.scripts.depth_data_pipeline.train_raw_depth_nn import TerrainDepthClassifierNN
+    from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import *
+    from legged_gym.utils.depth_terrain_classifier.depth_terrain_classifier import SobelDepthTerrainFeatureExtractor
+    from pathlib import Path 
+    all_data_files = Path(args.baysian_filter)
+    classifier_file = all_data_files / "classifier.pt"
+    bayes_filter_file = all_data_files / "bayes_filter.pt"
+    assert classifier_file.is_file() and bayes_filter_file.is_file()
+    extractor_file = all_data_files / "extractor.pt"
+    nn_model_args_file = all_data_files / "nn_model_args.pt"
 
-        def predict_fn(depth, euler, ang_vel):
-            _depth = depth.unsqueeze(0).detach().cpu()
-            return TERRAIN_KEYS[int(model.predict_depth(_depth))].lower() \
-                if hasattr(model, "predict_depth") else str(model(_depth)).lower()
+    if nn_model_args_file.is_file():
+        nn_model_args = torch.load(nn_model_args_file)
+        class_name = nn_model_args.pop("cls")
+        model = eval(class_name)(**nn_model_args)
+        classifier = NeuralClassifierAdapter.load(classifier_file, model)
+        extractor = lambda x, y, z : x
+    else:
+        classifier = PCAWhitenedRBFPrototypeClassifier.load(classifier_file)
+        extractor_base = SobelDepthTerrainFeatureExtractor.load(extractor_file)
+        extractor = lambda x, y, z : extractor_base.extract_batch(x, y, z)
 
-        if hasattr(model, "reset_temporal_filter"):
-            model.reset_temporal_filter()
-        return model, predict_fn
+    bayesian_terrain_filter = BayesianTerrainFilter.load(bayes_filter_file)
+
+    def predict_fn(_depth, _euler, _angve):
+        inputs = extractor(_depth, _euler, _angve)
+        classifier_probabilities, _ = classifier.predict_class_distribution(inputs)
+        predicted, _, _ = run_filter_sequences(bayesian_terrain_filter, classifier_probabilities)
+        return predicted
+
+    def reset_fn():
+        bayesian_terrain_filter.reset()
     
-
-    from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
-        BayesianTerrainFilter,
-        BayesianFilteredTerrainClassifier,
-    )
-    from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
-        ProbabilisticClassifier,
-        PCAWhitenedRBFPrototypeClassifier,
-        NeuralClassifierAdapter
-    )
-
-    ckpt_dir = args.baysian_filter
-    cfg = torch.load(os.path.join(ckpt_dir, "args.pt"), map_location="cpu")
-
-    fitted_model = DepthTerrainClassifier(
-        pca_dim=cfg["pca_dim"],
-        num_prototypes=cfg["num_prototypes"],
-    )
-    fitted_model.load(os.path.join(ckpt_dir, "fitted_model.pt"))
-    fitted_model.reset_temporal_filter()
-
-    bayesian_filter = BayesianTerrainFilter(
-        cfg["lables"],
-        {"baseline": 0.80, "stairs": 0.10, "gap": 0.10},
-        cfg["transition"],
-        cfg.get("observation"),
-    )
-    bayesian_filter.load(os.path.join(ckpt_dir, "bayes_filter.pt"))
-    bayesian_filter.reset()
-
-    model = BayesianFilteredTerrainClassifier(fitted_model, bayesian_filter)
-
-    def predict_fn(depth, euler, ang_vel):
-        pred = model.predict_depth(depth, euler, ang_vel)
-        return pred.label.lower()
-
-    return model, predict_fn
-
-    raise ValueError("Must supply either --terrain_detector_jit or --baysian_filter")
-
-
-def reset_classifier(model):
-    if hasattr(model, "reset_temporal_filter"):
-        model.reset_temporal_filter()
-    if hasattr(model, "reset"):
-        model.reset()
-
+    return predict_fn, reset_fn
 
 # --------------------------------------------------------------------------- #
 # Args
@@ -407,7 +381,7 @@ def run_eval(args):
 
     policy_set = PerTerrainPolicySet(args.jit, device=args.gpu if not args.cpu else "cpu")
 
-    classifier, predict_fn = build_classifier(args)
+    predict_fn, reset_fn = build_classifier(args)
 
     ep_stats = EpisodeStats(env.num_envs, env.device)
     cls_stats = ClassificationStats()
@@ -422,23 +396,19 @@ def run_eval(args):
 
     total_steps = int(args.num_episodes * env.max_episode_length)
     for i in range(total_steps):
-        actions = policy_set.act(obs_buf, obs_history, depth, assigned_lora)
+        actions = policy_set.act(obs_buf.detach(), obs_history.detach(), depth.detach(), assigned_lora.detach())
         obs_buf, privileged_obs_buf, obs_history, explicit_labels, next_states, rews, dones, infos, depth = \
             env.step(actions.detach())
 
         if i % args.classify_every == 0:
             gt_labels_id = get_ground_truth_labels(env)
             gt_labels = [TERRAIN_KEYS[int(l)].lower() for l in gt_labels_id]
-
             pred_labels = []
-            for e in range(env.num_envs):
-                _depth = env.depth_sensor_output[e].squeeze().detach().cpu().clone()
-                _euler = env.simulator._base_euler[e].detach().cpu().clone()
-                _angve = env.simulator.base_ang_vel[e].detach().cpu().clone()
-                pred_labels.append(predict_fn(_depth, _euler, _angve))
-
+            _depth = env.depth_sensor_output.squeeze().detach().cpu().clone()
+            _euler = env.simulator._base_euler.detach().cpu().clone()
+            _angve = env.simulator.base_ang_vel.detach().cpu().clone()
+            pred_labels.append(predict_fn(_depth, _euler, _angve))
             cls_stats.update(gt_labels, pred_labels)
-
             # Each env is routed to the sub-policy matching *its own*
             # classifier prediction - no global/majority swap.
             assigned_lora = torch.tensor(
@@ -448,7 +418,7 @@ def run_eval(args):
         ep_stats.on_done(env.simulator.base_pos, dones, infos)
 
         if dones[0]:
-            reset_classifier(classifier)
+            reset_fn()
 
     return ep_stats.summary(), cls_stats.summary()
 

@@ -1796,6 +1796,53 @@ class BayesianTerrainFilter:
             beta = self.evidence_power
         return float(beta * quality)
 
+    def save(self, path: str | Path) -> None:
+        """Save the filter's configuration and current belief state."""
+        torch.save(
+            {
+                "labels": list(self.labels),
+                "initial_prior": self.initial_prior.cpu(),
+                "belief": self.belief.cpu(),
+                "transition_matrix": self.transition_matrix.cpu(),
+                "observation_matrix": self.observation_matrix.cpu(),
+                "evidence_power": self.evidence_power,
+                "adaptive_evidence": self.adaptive_evidence,
+                "min_evidence_power": self.min_evidence_power,
+                "confidence_gamma": self.confidence_gamma,
+                "eps": self.eps,
+            },
+            path,
+        )
+
+    @classmethod
+    def load(
+        cls,
+        path: str | Path,
+        *,
+        device: str | torch.device = "cpu",
+    ) -> "BayesianTerrainFilter":
+        """Load a filter from a saved checkpoint, restoring its belief state."""
+        checkpoint = torch.load(
+            path,
+            map_location=device,
+            weights_only=True,
+        )
+
+        filt = cls(
+            labels=checkpoint["labels"],
+            prior=checkpoint["initial_prior"],
+            transition_matrix=checkpoint["transition_matrix"],
+            observation_matrix=checkpoint["observation_matrix"],
+            evidence_power=checkpoint["evidence_power"],
+            adaptive_evidence=checkpoint["adaptive_evidence"],
+            min_evidence_power=checkpoint["min_evidence_power"],
+            confidence_gamma=checkpoint["confidence_gamma"],
+            device=device,
+            eps=checkpoint["eps"],
+        )
+
+        filt.belief = checkpoint["belief"].to(filt.device)
+        return filt
 
 class BayesianFilteredClassifier:
     """Runtime composition of any ProbabilisticClassifier and a Bayes filter."""
