@@ -7,8 +7,8 @@ Included components
 -------------------
 1. ProbabilisticClassifier
    Abstract API for classifiers that expose ordered class scores/distributions.
-2. PCAWhitenedRBFSVM
-   PyTorch PCA-whitened, one-vs-rest Gaussian RBF SVM.
+2. RBFSVM
+   PyTorch one-vs-rest Gaussian RBF SVM for standardized features.
 3. PCAWhitenedRBFPrototypeClassifier
    Incrementally extensible multi-prototype Gaussian RBF classifier with
    Euclidean or diagonal-Mahalanobis local metrics and full-data or streaming
@@ -34,6 +34,7 @@ from __future__ import annotations
 import copy
 import itertools
 import math
+import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -78,6 +79,17 @@ class PrototypeRBFSearchResult:
     validation_nll: float
     validation_brier: float
     num_prototypes: int
+
+
+@dataclass
+class HybridTransitionCache:
+    """Classifier-independent empirical/persistent transition candidates."""
+
+    labels: List[Hashable]
+    empirical_matrix: torch.Tensor
+    matrices_by_parameters: Dict[Tuple[float, float], torch.Tensor]
+    unique_candidates: List[Dict[str, Any]]
+    transition_pseudocount: float
 
 
 @dataclass
@@ -330,16 +342,114 @@ class ProbabilisticClassifier(ABC):
 
 
 # =============================================================================
-# PCA-whitened Gaussian RBF SVM
+# Feature standardization
 # =============================================================================
 
 
-class PCAWhitenedRBFSVM(ProbabilisticClassifier):
-    """PCA-whitened multiclass Gaussian RBF SVM implemented in PyTorch.
+class FeatureStandardizer:
+    """Per-feature standardization fitted with streaming, batchwise Welford stats.
 
-    For whitened features ``z`` and kernel basis vectors ``z_i``,
+    The loader must be re-iterable and yield a feature tensor ``[B,D]`` directly,
+    as the first tuple item, or under a ``features`` mapping key. Accumulation is
+    performed in float64 and only the final mean/std are stored.
+    """
 
-        K(z, z_i) = exp(-gamma ||z-z_i||^2).
+    def __init__(self, eps: float = 1e-6) -> None:
+        if eps <= 0:
+            raise ValueError("eps must be positive")
+        self.eps = float(eps)
+        self.mean: Optional[torch.Tensor] = None
+        self.std: Optional[torch.Tensor] = None
+        self.count = 0
+
+    @staticmethod
+    def _features(batch: Any) -> torch.Tensor:
+        if isinstance(batch, Mapping):
+            if "features" not in batch:
+                raise ValueError("mapping batches require a 'features' entry")
+            batch = batch["features"]
+        elif isinstance(batch, (tuple, list)):
+            if not batch:
+                raise ValueError("empty DataLoader batch")
+            batch = batch[0]
+        value = torch.as_tensor(batch)
+        if value.ndim != 2:
+            raise ValueError(f"features must have shape [B,D], got {tuple(value.shape)}")
+        if not torch.isfinite(value).all():
+            raise ValueError("features contain non-finite values")
+        return value
+
+    @torch.no_grad()
+    def fit(self, dataloader: Iterable) -> "FeatureStandardizer":
+        count = 0
+        mean: Optional[torch.Tensor] = None
+        m2: Optional[torch.Tensor] = None
+        for batch in dataloader:
+            x = self._features(batch).detach().to(device="cpu", dtype=torch.float64)
+            if x.shape[0] == 0:
+                continue
+            batch_count = x.shape[0]
+            batch_mean = x.mean(0)
+            batch_m2 = (x - batch_mean).square().sum(0)
+            if mean is None:
+                count, mean, m2 = batch_count, batch_mean, batch_m2
+                continue
+            delta = batch_mean - mean
+            total = count + batch_count
+            m2 = m2 + batch_m2 + delta.square() * count * batch_count / total
+            mean = mean + delta * batch_count / total
+            count = total
+        if count == 0 or mean is None or m2 is None:
+            raise ValueError("dataloader yielded no feature rows")
+        variance = m2 / max(count, 1)
+        self.mean = mean.to(torch.float32)
+        self.std = variance.sqrt().clamp_min(self.eps).to(torch.float32)
+        self.count = int(count)
+        return self
+
+    def transform(self, features: torch.Tensor | Sequence) -> torch.Tensor:
+        if self.mean is None or self.std is None:
+            raise ValueError("standardizer is not fitted")
+        x = torch.as_tensor(features)
+        if x.ndim == 1:
+            x = x.unsqueeze(0)
+        if x.ndim != 2 or x.shape[1] != self.mean.numel():
+            raise ValueError(f"expected [B,{self.mean.numel()}], got {tuple(x.shape)}")
+        if not x.is_floating_point():
+            x = x.float()
+        mean = self.mean.to(device=x.device, dtype=x.dtype)
+        std = self.std.to(device=x.device, dtype=x.dtype)
+        return (x - mean) / std
+
+    def state_dict(self) -> Dict[str, Any]:
+        if self.mean is None or self.std is None:
+            raise ValueError("standardizer is not fitted")
+        return {"eps": self.eps, "count": self.count, "mean": self.mean, "std": self.std}
+
+    def save(self, path: str | Path) -> None:
+        torch.save(self.state_dict(), Path(path))
+
+    @classmethod
+    def load(cls, path: str | Path, map_location: str | torch.device = "cpu") -> "FeatureStandardizer":
+        state = torch.load(Path(path), map_location=map_location, weights_only=False)
+        result = cls(state["eps"])
+        result.count = int(state.get("count", 0))
+        result.mean = state["mean"].detach().cpu()
+        result.std = state["std"].detach().cpu().clamp_min(result.eps)
+        return result
+
+
+# =============================================================================
+# Gaussian RBF SVM
+# =============================================================================
+
+
+class RBFSVM(ProbabilisticClassifier):
+    """Multiclass Gaussian RBF SVM for externally standardized features.
+
+    For feature vectors ``x`` and kernel basis vectors ``x_i``,
+
+        K(x, x_i) = exp(-gamma ||x-x_i||^2).
 
     Each class has a one-vs-rest score
 
@@ -353,7 +463,6 @@ class PCAWhitenedRBFSVM(ProbabilisticClassifier):
     def __init__(
         self,
         feature_dim: int,
-        pca_dim: Optional[int] = None,
         *,
         gamma: float | str = "scale",
         max_kernel_samples: Optional[int] = 512,
@@ -373,8 +482,6 @@ class PCAWhitenedRBFSVM(ProbabilisticClassifier):
         super().__init__(None, temperature=temperature, device=device, dtype=dtype, eps=eps)
         if feature_dim <= 0:
             raise ValueError("feature_dim must be positive")
-        if pca_dim is not None and pca_dim <= 0:
-            raise ValueError("pca_dim must be positive or None")
         if isinstance(gamma, str) and gamma not in {"scale", "auto"}:
             raise ValueError("gamma must be positive, 'scale', or 'auto'")
         if not isinstance(gamma, str) and float(gamma) <= 0:
@@ -382,7 +489,6 @@ class PCAWhitenedRBFSVM(ProbabilisticClassifier):
         if max_kernel_samples is not None and max_kernel_samples <= 0:
             raise ValueError("max_kernel_samples must be positive or None")
         self.feature_dim = int(feature_dim)
-        self.pca_dim = int(pca_dim) if pca_dim is not None else int(feature_dim)
         self.gamma = gamma
         self.resolved_gamma: Optional[float] = None
         self.max_kernel_samples = max_kernel_samples
@@ -395,11 +501,7 @@ class PCAWhitenedRBFSVM(ProbabilisticClassifier):
         self.early_stopping_patience = int(early_stopping_patience)
         self.random_seed = int(random_seed)
 
-        self.pca_fitted = False
         self.model_fitted = False
-        self.global_mean: Optional[torch.Tensor] = None
-        self.pca_components: Optional[torch.Tensor] = None
-        self.pca_eigenvalues: Optional[torch.Tensor] = None
         self.kernel_basis: Optional[torch.Tensor] = None
         self.dual_coefficients: Optional[torch.Tensor] = None
         self.bias_vector: Optional[torch.Tensor] = None
@@ -409,69 +511,35 @@ class PCAWhitenedRBFSVM(ProbabilisticClassifier):
         }
         self.require_feature = True
 
-    @torch.no_grad()
-    def fit_initial_pca(self, X: torch.Tensor | Sequence, pca_dim: Optional[int] = None) -> "PCAWhitenedRBFSVM":
-        X = self._validate_input(X)
-        if X.shape[0] < 2:
-            raise ValueError("At least two samples are required to fit PCA")
-        if pca_dim is not None:
-            self.pca_dim = int(pca_dim)
-        mean = X.mean(dim=0)
-        centered = X - mean
-        _, singular_values, vh = torch.linalg.svd(centered, full_matrices=False)
-        k = min(self.pca_dim, X.shape[0] - 1, X.shape[1])
-        if k <= 0:
-            raise ValueError("PCA retained zero components")
-        self.global_mean = mean
-        self.pca_components = vh[:k].contiguous()
-        self.pca_eigenvalues = (
-            singular_values[:k].square() / max(X.shape[0] - 1, 1)
-        ).clamp_min(self.eps)
-        self.pca_fitted = True
-        self.model_fitted = False
-        return self
-
-    def transform(self, X: torch.Tensor | Sequence) -> torch.Tensor:
-        if not self.pca_fitted:
-            raise ValueError("PCA is not fitted")
-        X = self._validate_input(X)
-        projected = (X - self.global_mean) @ self.pca_components.T
-        return projected / torch.sqrt(self.pca_eigenvalues.unsqueeze(0) + self.eps)
-
     def fit(
         self,
         inputs: torch.Tensor | Sequence,
         labels: Sequence[Hashable] | torch.Tensor,
         *,
-        fit_pca: bool = True,
         validation_inputs: Optional[torch.Tensor | Sequence] = None,
         validation_labels: Optional[Sequence[Hashable] | torch.Tensor] = None,
         verbose: bool = False,
+        _kernel_cache: Optional[Mapping[str, torch.Tensor]] = None,
         **_: Any,
-    ) -> "PCAWhitenedRBFSVM":
+    ) -> "RBFSVM":
         X = self._validate_input(inputs)
         y_labels = self._normalize_labels(labels)
         if len(y_labels) != X.shape[0]:
             raise ValueError("input and label counts differ")
-        if fit_pca:
-            self.fit_initial_pca(X)
-        elif not self.pca_fitted:
-            raise ValueError("fit_pca=False requires a fitted PCA transform")
         self.set_class_ids(list(dict.fromkeys(y_labels)))
         if len(self.class_ids) < 2:
             raise ValueError("At least two classes are required")
         y = self._encode_labels(y_labels)
-        Z = self.transform(X)
-        self._resolve_gamma(Z)
+        self._resolve_gamma(X)
 
         if validation_inputs is not None or validation_labels is not None:
             if validation_inputs is None or validation_labels is None:
                 raise ValueError("validation_inputs and validation_labels must be supplied together")
-            Zv = self.transform(validation_inputs)
+            Xv = self._validate_input(validation_inputs)
             yv = self._encode_labels(validation_labels)
         else:
-            Zv = yv = None
-        self._fit_kernel_model(Z, y, Zv, yv, verbose)
+            Xv = yv = None
+        self._fit_kernel_model(X, y, Xv, yv, verbose, _kernel_cache)
         self.class_counts = torch.bincount(y, minlength=len(self.class_ids))
         self.model_fitted = True
         self.temperature_fitted = False
@@ -484,16 +552,25 @@ class PCAWhitenedRBFSVM(ProbabilisticClassifier):
         Zv: Optional[torch.Tensor],
         yv: Optional[torch.Tensor],
         verbose: bool,
+        kernel_cache: Optional[Mapping[str, torch.Tensor]] = None,
     ) -> None:
         torch.manual_seed(self.random_seed)
-        if self.max_kernel_samples is not None and Z.shape[0] > self.max_kernel_samples:
+        if kernel_cache is not None:
+            basis = kernel_cache["basis"].to(self.device)
+        elif self.max_kernel_samples is not None and Z.shape[0] > self.max_kernel_samples:
             basis_indices = self._stratified_basis_indices(y, self.max_kernel_samples)
             basis = Z[basis_indices]
         else:
             basis = Z
-        K_train = self._rbf_kernel(Z, basis)
-        K_basis = self._rbf_kernel(basis, basis)
-        K_val = self._rbf_kernel(Zv, basis) if Zv is not None else None
+        if kernel_cache is None:
+            K_train = self._rbf_kernel(Z, basis)
+            K_basis = self._rbf_kernel(basis, basis)
+            K_val = self._rbf_kernel(Zv, basis) if Zv is not None else None
+        else:
+            gamma = float(self.resolved_gamma)
+            K_train = torch.exp(-gamma * kernel_cache["train_distances"].to(self.device))
+            K_basis = torch.exp(-gamma * kernel_cache["basis_distances"].to(self.device))
+            K_val = None if Zv is None else torch.exp(-gamma * kernel_cache["validation_distances"].to(self.device))
         n, m, c = Z.shape[0], basis.shape[0], len(self.class_ids)
         alpha = torch.zeros(m, c, device=self.device, dtype=self.dtype, requires_grad=True)
         bias = torch.zeros(c, device=self.device, dtype=self.dtype, requires_grad=True)
@@ -550,8 +627,17 @@ class PCAWhitenedRBFSVM(ProbabilisticClassifier):
     def decision_function(self, inputs: torch.Tensor | Sequence) -> torch.Tensor:
         if not self.model_fitted:
             raise ValueError("SVM is not fitted")
-        Z = self.transform(inputs)
+        Z = self._validate_input(inputs)
         return self._rbf_kernel(Z, self.kernel_basis) @ self.dual_coefficients + self.bias_vector
+
+    def to(self, device: str | torch.device) -> "RBFSVM":
+        """Move fitted SVM state without changing its public interface."""
+        self.device = torch.device(device)
+        for name in ("kernel_basis", "dual_coefficients", "bias_vector", "class_counts"):
+            value = getattr(self, name)
+            if value is not None:
+                setattr(self, name, value.to(self.device))
+        return self
 
     def _resolve_gamma(self, Z: torch.Tensor) -> None:
         if self.gamma == "auto":
@@ -615,7 +701,6 @@ class PCAWhitenedRBFSVM(ProbabilisticClassifier):
     def get_config(self) -> Dict[str, Any]:
         return {
             "feature_dim": self.feature_dim,
-            "pca_dim": self.pca_dim,
             "gamma": self.gamma,
             "max_kernel_samples": self.max_kernel_samples,
             "learning_rate": self.learning_rate,
@@ -636,15 +721,11 @@ class PCAWhitenedRBFSVM(ProbabilisticClassifier):
         return {
             "config": self.get_config(),
             "class_ids": self.class_ids,
-            "global_mean": self.global_mean,
-            "pca_components": self.pca_components,
-            "pca_eigenvalues": self.pca_eigenvalues,
             "resolved_gamma": self.resolved_gamma,
             "kernel_basis": self.kernel_basis,
             "dual_coefficients": self.dual_coefficients,
             "bias_vector": self.bias_vector,
             "class_counts": self.class_counts,
-            "pca_fitted": self.pca_fitted,
             "model_fitted": self.model_fitted,
             "temperature_fitted": self.temperature_fitted,
             "temperature_calibration": self.temperature_calibration,
@@ -655,25 +736,28 @@ class PCAWhitenedRBFSVM(ProbabilisticClassifier):
         torch.save(self.state_dict(), Path(path))
 
     @classmethod
-    def load(cls, path: str | Path, map_location: str | torch.device = "cpu") -> "PCAWhitenedRBFSVM":
+    def load(cls, path: str | Path, map_location: str | torch.device = "cpu") -> "RBFSVM":
         state = torch.load(Path(path), map_location=map_location, weights_only=False)
         config = dict(state["config"])
         config["device"] = str(map_location)
         model = cls(**config)
         model.set_class_ids(state["class_ids"])
         for key in [
-            "global_mean", "pca_components", "pca_eigenvalues", "kernel_basis",
-            "dual_coefficients", "bias_vector", "class_counts"
+            "kernel_basis", "dual_coefficients", "bias_vector", "class_counts"
         ]:
             value = state[key]
             setattr(model, key, None if value is None else value.to(model.device))
         model.resolved_gamma = state["resolved_gamma"]
-        model.pca_fitted = state["pca_fitted"]
         model.model_fitted = state["model_fitted"]
         model.temperature_fitted = state.get("temperature_fitted", False)
         model.temperature_calibration = state.get("temperature_calibration", {})
         model.training_history = state.get("training_history", {})
         return model
+
+
+# Source compatibility for callers importing the historical name. New checkpoints
+# contain no PCA state and should be loaded through either name.
+PCAWhitenedRBFSVM = RBFSVM
 
 
 
@@ -859,6 +943,14 @@ class PCAWhitenedRBFPrototypeClassifier(ProbabilisticClassifier):
         elif not self.pca_fitted:
             raise ValueError("fit_pca=False requires a fitted PCA transform")
 
+        self._fit_from_transformed(X, y_labels, self.transform(X))
+        return self
+
+    @torch.no_grad()
+    def _fit_from_transformed(
+        self, X: torch.Tensor, y_labels: Sequence[Hashable], Z_all: torch.Tensor
+    ) -> None:
+        """Fit prototypes from rows transformed by this model's frozen PCA."""
         self.set_class_ids(list(dict.fromkeys(y_labels)))
         if len(self.class_ids) < 2:
             raise ValueError("At least two classes are required")
@@ -869,7 +961,6 @@ class PCAWhitenedRBFPrototypeClassifier(ProbabilisticClassifier):
         self.class_counts.clear()
         self.raw_class_data.clear()
 
-        Z_all = self.transform(X)
         self._resolve_gamma(Z_all)
         for class_id in self.class_ids:
             mask = torch.tensor(
@@ -884,7 +975,6 @@ class PCAWhitenedRBFPrototypeClassifier(ProbabilisticClassifier):
 
         self.model_fitted = True
         self.temperature_fitted = False
-        return self
 
 
     @torch.no_grad()
@@ -981,7 +1071,6 @@ class PCAWhitenedRBFPrototypeClassifier(ProbabilisticClassifier):
         self._resolve_gamma_from_dataloader(dataloader)
         self.model_fitted = True
         self.temperature_fitted = False
-        return self
 
     @torch.no_grad()
     def add_class_dataloader(
@@ -1322,6 +1411,21 @@ class PCAWhitenedRBFPrototypeClassifier(ProbabilisticClassifier):
         if not self.model_fitted:
             raise ValueError("Prototype RBF classifier is not fitted")
         Z = self.transform(inputs)
+        return self._decision_function_transformed(Z)
+
+    def to(self, device: str | torch.device) -> "PCAWhitenedRBFPrototypeClassifier":
+        """Move PCA/prototype state, primarily for low-memory search staging."""
+        self.device = torch.device(device)
+        for name in ("global_mean", "pca_components", "pca_eigenvalues"):
+            value = getattr(self, name)
+            if value is not None:
+                setattr(self, name, value.to(self.device))
+        for name in ("prototypes", "prototype_variances", "prototype_log_weights", "raw_class_data"):
+            setattr(self, name, {key: value.to(self.device) for key, value in getattr(self, name).items()})
+        return self
+
+    def _decision_function_transformed(self, Z: torch.Tensor) -> torch.Tensor:
+        """Score already PCA-transformed rows (used by cached searches)."""
         scores = [self._class_score(Z, class_id) for class_id in self.class_ids]
         return torch.stack(scores, dim=1)
 
@@ -1612,6 +1716,7 @@ class NeuralClassifierAdapter(ProbabilisticClassifier):
         self.model = model.to(self.device)
         self.input_transform = input_transform
         self.fit_callback = fit_callback
+        self.training_history: Dict[str, List[float]] = {}
         self.require_feature = False
 
     def _prepare(self, inputs: Any) -> torch.Tensor:
@@ -1624,7 +1729,9 @@ class NeuralClassifierAdapter(ProbabilisticClassifier):
     def fit(self, inputs: Any, labels: Sequence[Hashable] | torch.Tensor, **kwargs: Any) -> "NeuralClassifierAdapter":
         if self.fit_callback is None:
             raise NotImplementedError("Supply fit_callback or train the neural model externally")
-        self.fit_callback(self, inputs, labels, **kwargs)
+        history = self.fit_callback(self, inputs, labels, **kwargs)
+        if history is not None:
+            self.training_history = history
         return self
 
     def decision_function(self, inputs: Any) -> torch.Tensor:
@@ -1635,6 +1742,11 @@ class NeuralClassifierAdapter(ProbabilisticClassifier):
             raise RuntimeError(f"Neural model must return [B,{len(self.class_ids)}] logits")
         return logits
 
+    def to(self, device: str | torch.device) -> "NeuralClassifierAdapter":
+        self.device = torch.device(device)
+        self.model.to(self.device)
+        return self
+
     def save(self, path: str | Path) -> None: 
         """Save the adapter's model weights and configuration.""" 
         torch.save( { 
@@ -1642,6 +1754,8 @@ class NeuralClassifierAdapter(ProbabilisticClassifier):
             "class_ids": list(self.class_ids), 
             "temperature": self.temperature, 
             "eps": self.eps, 
+            "require_feature": self.require_feature,
+            "training_history": self.training_history,
         }, path, )
     
     @classmethod
@@ -1674,7 +1788,116 @@ class NeuralClassifierAdapter(ProbabilisticClassifier):
         )
 
         adapter.model.load_state_dict(checkpoint["model_state_dict"])
+        adapter.require_feature = bool(checkpoint.get("require_feature", False))
+        adapter.training_history = checkpoint.get("training_history", {})
         return adapter
+
+
+def fit_nn(
+    adapter: NeuralClassifierAdapter,
+    inputs: Any,
+    labels: Sequence[Hashable] | torch.Tensor,
+    *,
+    val: Optional[Tuple[Any, Sequence[Hashable] | torch.Tensor]] = None,
+    epochs: int = 20,
+    batch_size: int = 64,
+    validation_batch_size: int = 256,
+    optimizer: str | type[torch.optim.Optimizer] | Callable[..., torch.optim.Optimizer] = "adam",
+    lr: float = 1e-3,
+    optimizer_kwargs: Optional[Mapping[str, Any]] = None,
+    shuffle: bool = True,
+    verbose: bool = True,
+) -> Dict[str, List[float]]:
+    """Train a :class:`NeuralClassifierAdapter` with cross-entropy.
+
+    Inputs remain on CPU in the DataLoaders and are prepared by the adapter for
+    each device-safe batch. The same callback works for ``[N,D]`` engineered
+    features and ``[N,C,H,W]`` raw-depth tensors.
+    """
+    from torch.utils.data import DataLoader, TensorDataset
+
+    if epochs <= 0 or batch_size <= 0 or validation_batch_size <= 0:
+        raise ValueError("epochs and batch sizes must be positive")
+    label_values = adapter._normalize_labels(labels)
+    if not adapter.class_ids:
+        adapter.set_class_ids(list(dict.fromkeys(label_values)))
+    encoded = adapter._encode_labels(label_values).cpu()
+    train_x = torch.as_tensor(inputs).cpu()
+    if train_x.shape[0] != encoded.numel():
+        raise ValueError("input and label counts differ")
+    train_loader = DataLoader(
+        TensorDataset(train_x, encoded), batch_size=batch_size, shuffle=shuffle
+    )
+
+    validation_loader = None
+    if val is not None:
+        val_x, val_labels = val
+        val_encoded = adapter._encode_labels(val_labels).cpu()
+        val_x = torch.as_tensor(val_x).cpu()
+        if val_x.shape[0] != val_encoded.numel():
+            raise ValueError("validation input and label counts differ")
+        validation_loader = DataLoader(
+            TensorDataset(val_x, val_encoded), batch_size=validation_batch_size
+        )
+
+    kwargs = dict(optimizer_kwargs or {})
+    if isinstance(optimizer, str):
+        optimizer_types = {"adam": torch.optim.Adam, "adamw": torch.optim.AdamW, "sgd": torch.optim.SGD}
+        try:
+            optimizer_type = optimizer_types[optimizer.lower()]
+        except KeyError as exc:
+            raise ValueError(f"unsupported optimizer {optimizer!r}") from exc
+        opt = optimizer_type(adapter.model.parameters(), lr=lr, **kwargs)
+    else:
+        opt = optimizer(adapter.model.parameters(), lr=lr, **kwargs)
+    criterion = nn.CrossEntropyLoss()
+    history: Dict[str, List[float]] = {
+        "train_loss": [], "train_accuracy": [], "validation_loss": [], "validation_accuracy": []
+    }
+
+    for epoch in range(epochs):
+        adapter.model.train()
+        loss_sum = correct = total = 0
+        for x_batch, y_batch in train_loader:
+            x_batch = adapter._prepare(x_batch)
+            y_batch = y_batch.to(adapter.device, non_blocking=True)
+            opt.zero_grad(set_to_none=True)
+            logits = adapter.model(x_batch)
+            loss = criterion(logits, y_batch)
+            loss.backward()
+            opt.step()
+            total += y_batch.numel()
+            loss_sum += float(loss.detach()) * y_batch.numel()
+            correct += int((logits.detach().argmax(1) == y_batch).sum())
+        history["train_loss"].append(loss_sum / max(total, 1))
+        history["train_accuracy"].append(correct / max(total, 1))
+
+        if validation_loader is not None:
+            adapter.model.eval()
+            val_loss = val_correct = val_total = 0
+            with torch.inference_mode():
+                for x_batch, y_batch in validation_loader:
+                    x_batch = adapter._prepare(x_batch)
+                    y_batch = y_batch.to(adapter.device, non_blocking=True)
+                    logits = adapter.model(x_batch)
+                    loss = criterion(logits, y_batch)
+                    val_total += y_batch.numel()
+                    val_loss += float(loss) * y_batch.numel()
+                    val_correct += int((logits.argmax(1) == y_batch).sum())
+            history["validation_loss"].append(val_loss / max(val_total, 1))
+            history["validation_accuracy"].append(val_correct / max(val_total, 1))
+        if verbose:
+            message = (
+                f"Epoch {epoch + 1:3d} | train loss {history['train_loss'][-1]:.4f} "
+                f"| train acc {history['train_accuracy'][-1]:.4f}"
+            )
+            if history["validation_loss"]:
+                message += (
+                    f" | val loss {history['validation_loss'][-1]:.4f}"
+                    f" | val acc {history['validation_accuracy'][-1]:.4f}"
+                )
+            print(message)
+    return history
 
 # =============================================================================
 # Discrete Bayesian filter
@@ -1707,6 +1930,9 @@ class BayesianTerrainFilter:
         adaptive_evidence: bool = True,
         min_evidence_power: float = 0.20,
         confidence_gamma: float = 1.0,
+        transition_alpha: Optional[float] = None,
+        stay_probability: Optional[float] = None,
+        transition_source: Optional[str] = None,
         device: str | torch.device = "cpu",
         eps: float = 1e-8,
     ) -> None:
@@ -1720,6 +1946,9 @@ class BayesianTerrainFilter:
         self.adaptive_evidence = bool(adaptive_evidence)
         self.min_evidence_power = float(min_evidence_power)
         self.confidence_gamma = float(confidence_gamma)
+        self.transition_alpha = None if transition_alpha is None else float(transition_alpha)
+        self.stay_probability = None if stay_probability is None else float(stay_probability)
+        self.transition_source = transition_source
         if self.min_evidence_power > self.evidence_power:
             raise ValueError("min_evidence_power cannot exceed evidence_power")
         self.initial_prior = make_manual_prior(self.labels, prior, device=self.device, eps=self.eps)
@@ -1809,6 +2038,9 @@ class BayesianTerrainFilter:
                 "adaptive_evidence": self.adaptive_evidence,
                 "min_evidence_power": self.min_evidence_power,
                 "confidence_gamma": self.confidence_gamma,
+                "transition_alpha": self.transition_alpha,
+                "stay_probability": self.stay_probability,
+                "transition_source": self.transition_source,
                 "eps": self.eps,
             },
             path,
@@ -1837,6 +2069,9 @@ class BayesianTerrainFilter:
             adaptive_evidence=checkpoint["adaptive_evidence"],
             min_evidence_power=checkpoint["min_evidence_power"],
             confidence_gamma=checkpoint["confidence_gamma"],
+            transition_alpha=checkpoint.get("transition_alpha"),
+            stay_probability=checkpoint.get("stay_probability"),
+            transition_source=checkpoint.get("transition_source"),
             device=device,
             eps=checkpoint["eps"],
         )
@@ -1941,13 +2176,92 @@ def estimate_transition_matrix_from_sequences(
     device: str | torch.device = "cpu",
 ) -> torch.Tensor:
     labels = list(labels)
-    sequence_ids = list(sequence_ids) if sequence_ids is not None else [0] * len(true_labels)
+    true_labels = (
+        true_labels.detach().cpu().tolist() if torch.is_tensor(true_labels) else list(true_labels)
+    )
+    sequence_ids = (
+        sequence_ids.detach().cpu().tolist()
+        if torch.is_tensor(sequence_ids)
+        else list(sequence_ids) if sequence_ids is not None else [0] * len(true_labels)
+    )
+    if len(sequence_ids) != len(true_labels):
+        raise ValueError("transition labels and sequence_ids must have equal length")
     index = {v: i for i, v in enumerate(labels)}
     counts = torch.full((len(labels), len(labels)), float(pseudocount), device=device)
     for t in range(1, len(true_labels)):
         if sequence_ids[t] == sequence_ids[t - 1]:
             counts[index[true_labels[t - 1]], index[true_labels[t]]] += 1
     return counts / counts.sum(1, keepdim=True)
+
+
+def build_hybrid_transition_cache(
+    labels: Sequence[Hashable],
+    transition_training_labels: Sequence[Hashable] | torch.Tensor,
+    *,
+    transition_training_sequence_ids: Optional[Sequence[Any]] = None,
+    stay_probabilities: Sequence[float] = (0.90, 0.94, 0.97),
+    transition_alphas: Sequence[float] = (0.0, 0.25, 0.5, 0.75, 1.0),
+    transition_pseudocount: float = 1.0,
+    device: str | torch.device = "cpu",
+) -> HybridTransitionCache:
+    """Build reusable, deduplicated hybrid transition candidates.
+
+    This cache depends only on label ordering and ordered ground-truth sequences,
+    so one instance may be passed to searches for several classifiers. Candidate
+    matrices are ``alpha*T_empirical + (1-alpha)*T_persistent``. Numerically
+    identical matrices share storage and are evaluated once; in particular, the
+    pure empirical endpoint is independent of ``stay_probability``.
+    """
+    labels = list(labels)
+    training_labels = (
+        transition_training_labels.detach().cpu().tolist()
+        if torch.is_tensor(transition_training_labels)
+        else list(transition_training_labels)
+    )
+    if transition_pseudocount < 0:
+        raise ValueError("transition_pseudocount must be non-negative")
+    unknown = set(training_labels) - set(labels)
+    if unknown:
+        raise ValueError(f"transition training labels contain unknown classes: {unknown}")
+    for alpha in transition_alphas:
+        if not 0.0 <= float(alpha) <= 1.0:
+            raise ValueError("transition_alphas must be in [0,1]")
+
+    target_device = torch.device(device)
+    empirical = estimate_transition_matrix_from_sequences(
+        training_labels, labels, sequence_ids=transition_training_sequence_ids,
+        pseudocount=transition_pseudocount, device=target_device,
+    )
+    persistent_cache = {
+        float(stay): make_persistent_transition_matrix(labels, float(stay), device=target_device)
+        for stay in dict.fromkeys(stay_probabilities)
+    }
+    matrices_by_parameters: Dict[Tuple[float, float], torch.Tensor] = {}
+    unique_candidates: List[Dict[str, Any]] = []
+    for stay in dict.fromkeys(float(value) for value in stay_probabilities):
+        persistent = persistent_cache[stay]
+        for alpha in dict.fromkeys(float(value) for value in transition_alphas):
+            combined = alpha * empirical + (1.0 - alpha) * persistent
+            combined = combined / combined.sum(1, keepdim=True)
+            canonical = next(
+                (candidate for candidate in unique_candidates
+                 if torch.allclose(candidate["transition_matrix"], combined, rtol=1e-6, atol=1e-7)),
+                None,
+            )
+            if canonical is None:
+                canonical = {
+                    "stay_probability": stay,
+                    "transition_alpha": alpha,
+                    "transition_matrix": combined,
+                }
+                unique_candidates.append(canonical)
+            matrices_by_parameters[(stay, alpha)] = canonical["transition_matrix"]
+    if not unique_candidates:
+        raise ValueError("transition search produced no candidates")
+    return HybridTransitionCache(
+        labels, empirical, matrices_by_parameters, unique_candidates,
+        float(transition_pseudocount),
+    )
 
 
 def estimate_observation_matrix_from_probabilities(
@@ -1959,6 +2273,7 @@ def estimate_observation_matrix_from_probabilities(
     pseudocount: float = 0.5,
     device: str | torch.device = "cpu",
     eps: float = 1e-8,
+    encoded_true_labels: Optional[torch.Tensor | Sequence[int]] = None,
 ) -> torch.Tensor:
     labels = list(labels)
     probs = torch.as_tensor(probabilities, dtype=torch.float32, device=device)
@@ -1968,12 +2283,19 @@ def estimate_observation_matrix_from_probabilities(
         raise ValueError("probability matrix shape does not match labels")
     index = {v: i for i, v in enumerate(labels)}
     counts = torch.full((len(labels), len(labels)), float(pseudocount), device=device)
+    encoded = (
+        torch.as_tensor(encoded_true_labels, dtype=torch.long, device=device)
+        if encoded_true_labels is not None
+        else torch.tensor([index[y] for y in true_labels], dtype=torch.long, device=device)
+    )
+    if encoded.shape != (len(true_labels),):
+        raise ValueError("encoded_true_labels must have one index per label")
     if mode == "soft":
-        for p, y in zip(probs, true_labels):
-            counts[index[y]] += p
+        counts.index_add_(0, encoded, probs)
     elif mode == "hard":
-        for p, y in zip(probs.argmax(1).tolist(), true_labels):
-            counts[index[y], p] += 1
+        observed = probs.argmax(1)
+        flat = encoded * len(labels) + observed
+        counts += torch.bincount(flat, minlength=len(labels) ** 2).reshape_as(counts)
     else:
         raise ValueError("mode must be 'soft' or 'hard'")
     return counts / counts.sum(1, keepdim=True)
@@ -1993,6 +2315,52 @@ def collect_classifier_probabilities(
 
 
 @torch.inference_mode()
+def collect_classifier_scores_batched(
+    classifier: ProbabilisticClassifier,
+    inputs: Any,
+    *,
+    batch_size: int = 512,
+    cache_device: str | torch.device = "cpu",
+) -> torch.Tensor:
+    """Run classifier inference in bounded batches and retain only ``[N,C]`` scores.
+
+    ``inputs`` may be an indexable tensor/array or a DataLoader-style iterable.
+    Iterable batches may provide inputs directly, as their first tuple item, or
+    under ``inputs``/``features``. Scores are transferred to ``cache_device`` after
+    every batch so a GPU classifier never retains the full dataset in VRAM.
+    """
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+
+    def batch_input(batch: Any) -> Any:
+        if isinstance(batch, Mapping):
+            for key in ("inputs", "features"):
+                if key in batch:
+                    return batch[key]
+            raise ValueError("mapping batches require an 'inputs' or 'features' entry")
+        if isinstance(batch, (tuple, list)) and len(batch) >= 1:
+            return batch[0]
+        return batch
+
+    if torch.is_tensor(inputs) or hasattr(inputs, "shape"):
+        total = int(inputs.shape[0])
+        batches = (inputs[start:start + batch_size] for start in range(0, total, batch_size))
+    else:
+        batches = (batch_input(batch) for batch in inputs)
+
+    pieces: List[torch.Tensor] = []
+    for batch in batches:
+        scores = classifier.decision_function(batch)
+        if scores.ndim != 2 or scores.shape[1] != len(classifier.class_ids):
+            raise RuntimeError("classifier scores must have shape [B,C]")
+        pieces.append(scores.detach().to(cache_device))
+        del scores
+    if not pieces:
+        raise ValueError("classifier score input yielded no samples")
+    return torch.cat(pieces, dim=0)
+
+
+@torch.inference_mode()
 def run_filter_sequences(
     terrain_filter: BayesianTerrainFilter,
     classifier_probabilities: torch.Tensor | Sequence,
@@ -2000,6 +2368,7 @@ def run_filter_sequences(
     sequence_ids: Optional[Sequence[Any]] = None,
     observation_quality: Optional[torch.Tensor | Sequence[float]] = None,
     prior: Optional[torch.Tensor | Sequence[float] | Mapping[Hashable, float]] = None,
+    return_traces: bool = True,
 ) -> Tuple[List[Hashable], torch.Tensor, torch.Tensor]:
     probabilities = torch.as_tensor(classifier_probabilities, dtype=torch.float32)
     n = probabilities.shape[0]
@@ -2013,9 +2382,12 @@ def run_filter_sequences(
         previous = sequence_ids[i]
         step = terrain_filter.update(probabilities[i], observation_quality=float(qualities[i]))
         predicted.append(step.label)
-        posteriors.append(step.posterior.cpu())
-        powers.append(step.evidence_power)
-    return predicted, torch.stack(posteriors), torch.tensor(powers)
+        if return_traces:
+            posteriors.append(step.posterior.cpu())
+            powers.append(step.evidence_power)
+    if return_traces:
+        return predicted, torch.stack(posteriors), torch.tensor(powers)
+    return predicted, torch.empty(0), torch.empty(0)
 
 
 def evaluate_predictions(
@@ -2070,29 +2442,70 @@ def search_rbf_svm_hyperparameters(
     scoring: str = "validation_accuracy",
     fit_best: bool = True,
     verbose: bool = False,
-) -> Tuple[PCAWhitenedRBFSVM, List[SVMSearchResult]]:
-    """Grid-search SVM/PCA structural parameters.
+) -> Tuple[RBFSVM, List[SVMSearchResult]]:
+    """Grid-search direct-feature RBF-SVM structural parameters.
 
-    Typical searchable parameters are ``pca_dim``, ``gamma``,
-    ``max_kernel_samples``, ``weight_decay``, ``learning_rate``,
+    Typical searchable parameters are ``gamma``, ``max_kernel_samples``,
+    ``weight_decay``, ``learning_rate``,
     ``squared_hinge``, and ``class_balance``. Prediction temperature is omitted
     deliberately; calibrate it afterward or tune it jointly with the Bayes filter.
     """
     if scoring not in {"validation_accuracy", "validation_nll", "validation_brier"}:
         raise ValueError("unsupported scoring")
     keys = list(search_space)
+    if "pca_dim" in base_config or "pca_dim" in search_space:
+        raise ValueError("RBFSVM has no pca_dim; standardize features before search")
     results: List[SVMSearchResult] = []
     best_model, best_key = None, None
+    train = torch.as_tensor(train_features)
+    validation = torch.as_tensor(validation_features)
+    labels_list = list(train_labels.detach().cpu().tolist() if torch.is_tensor(train_labels) else train_labels)
+    class_ids = list(dict.fromkeys(labels_list))
+    class_index = {label: i for i, label in enumerate(class_ids)}
+    encoded = torch.tensor([class_index[label] for label in labels_list], dtype=torch.long)
+    distance_cache: Dict[Tuple[Any, ...], Dict[str, torch.Tensor]] = {}
+
+    def cached_distances(config: Mapping[str, Any]) -> Dict[str, torch.Tensor]:
+        maximum = config.get("max_kernel_samples", 512)
+        seed = int(config.get("random_seed", 0))
+        cache_key = (
+            maximum, seed, str(config.get("device", "cpu")), config.get("dtype", torch.float32)
+        )
+        if cache_key in distance_cache:
+            return distance_cache[cache_key]
+        helper = RBFSVM(**config)
+        helper.set_class_ids(class_ids)
+        x = train.to(helper.device, helper.dtype)
+        y = encoded.to(helper.device)
+        torch.manual_seed(seed)
+        if maximum is not None and x.shape[0] > maximum:
+            basis = x[helper._stratified_basis_indices(y, maximum)]
+        else:
+            basis = x
+        val = validation.to(helper.device, helper.dtype)
+        squared = lambda a, b: (
+            a.square().sum(1, keepdim=True) + b.square().sum(1).unsqueeze(0) - 2 * a @ b.T
+        ).clamp_min(0).cpu()
+        cached = {
+            "basis": basis.detach().cpu(),
+            "train_distances": squared(x, basis),
+            "basis_distances": squared(basis, basis),
+            "validation_distances": squared(val, basis),
+        }
+        distance_cache[cache_key] = cached
+        return cached
+
     for values in itertools.product(*(search_space[k] for k in keys)):
         params = dict(zip(keys, values))
         config = dict(base_config)
         config.update(params)
-        model = PCAWhitenedRBFSVM(**config)
+        model = RBFSVM(**config)
         model.fit(
             train_features,
             train_labels,
             validation_inputs=validation_features,
             validation_labels=validation_labels,
+            _kernel_cache=cached_distances(config),
         )
         probabilities, _ = model.predict_class_distribution(validation_features, temperature=1.0)
         y = model._encode_labels(validation_labels)
@@ -2115,8 +2528,8 @@ def search_rbf_svm_hyperparameters(
         results.sort(key=lambda r: r.validation_brier)
     if best_model is None:
         raise RuntimeError("no SVM search trials")
-    if fit_best:
-        return best_model, results
+    # Trials are released as the loop advances; only the selected fitted model is
+    # retained. ``fit_best`` remains accepted for API compatibility.
     return best_model, results
 
 
@@ -2149,20 +2562,35 @@ def search_prototype_rbf_hyperparameters(
     results: List[PrototypeRBFSearchResult] = []
     best_model: Optional[PCAWhitenedRBFPrototypeClassifier] = None
     best_key: Optional[Tuple[float, ...]] = None
+    pca_cache: Dict[Tuple[Any, ...], Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]] = {}
 
     for values in itertools.product(*(search_space[k] for k in keys)):
         params = dict(zip(keys, values))
         config = dict(base_config)
         config.update(params)
         model = PCAWhitenedRBFPrototypeClassifier(**config)
-        model.fit(train_features, train_labels)
-        if calibrate_temperature:
-            model.fit_temperature(
-                validation_features,
-                validation_labels,
-                objective=calibration_objective,
+        X = model._validate_input(train_features)
+        pca_key = (model.pca_dim, model.feature_dim, str(model.device), model.dtype, model.eps)
+        if pca_key not in pca_cache:
+            model.fit_initial_pca(X)
+            pca_cache[pca_key] = (
+                model.global_mean.detach().clone(), model.pca_components.detach().clone(),
+                model.pca_eigenvalues.detach().clone(), model.transform(X).detach(),
+                model.transform(validation_features).detach(),
             )
-        probabilities, _ = model.predict_class_distribution(validation_features)
+        mean, components, eigenvalues, Z_train, Z_validation = pca_cache[pca_key]
+        model.global_mean = mean.detach().clone()
+        model.pca_components = components.detach().clone()
+        model.pca_eigenvalues = eigenvalues.detach().clone()
+        model.pca_fitted = True
+        y_labels = model._normalize_labels(train_labels)
+        model._fit_from_transformed(X, y_labels, Z_train)
+        if calibrate_temperature:
+            # Calibration still uses the public API; structural searches normally
+            # leave this disabled and tune temperature with the Bayes filter.
+            model.fit_temperature(validation_features, validation_labels, objective=calibration_objective)
+        scores = model._decision_function_transformed(Z_validation)
+        probabilities = F.softmax(scores / model.temperature, dim=1)
         y = model._encode_labels(validation_labels)
         acc = float((probabilities.argmax(1) == y).float().mean())
         nll = float(F.nll_loss(probabilities.clamp_min(model.eps).log(), y))
@@ -2221,6 +2649,8 @@ def search_prototype_rbf_hyperparameters_dataloader(
     results: List[PrototypeRBFSearchResult] = []
     best_model: Optional[PCAWhitenedRBFPrototypeClassifier] = None
     best_key: Optional[Tuple[float, ...]] = None
+    pca_cache: Dict[Tuple[Any, ...], Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = {}
+    validation_cache: Dict[Tuple[Any, ...], List[Tuple[torch.Tensor, List[Hashable]]]] = {}
 
     for values in itertools.product(*(search_space[k] for k in keys)):
         params = dict(zip(keys, values))
@@ -2232,14 +2662,35 @@ def search_prototype_rbf_hyperparameters_dataloader(
                 "DataLoader search requires kmeans_fit_mode='mini_batch'"
             )
         model = PCAWhitenedRBFPrototypeClassifier(**config)
-        model.fit_dataloader(train_loader_factory())
+        pca_key = (
+            model.pca_dim, model.feature_dim, str(model.device), model.dtype, model.eps
+        )
+        if pca_key not in pca_cache:
+            model._fit_pca_from_dataloader(train_loader_factory())
+            pca_cache[pca_key] = (
+                model.global_mean.detach().clone(),
+                model.pca_components.detach().clone(),
+                model.pca_eigenvalues.detach().clone(),
+            )
+        else:
+            model.global_mean, model.pca_components, model.pca_eigenvalues = (
+                value.detach().clone().to(model.device) for value in pca_cache[pca_key]
+            )
+            model.pca_fitted = True
+        model.fit_dataloader(train_loader_factory(), fit_pca=False)
+
+        if pca_key not in validation_cache:
+            validation_cache[pca_key] = [
+                (model.transform(x).detach(), list(labels))
+                for x, labels in model._iterate_loader(validation_loader_factory())
+            ]
 
         correct = 0
         total = 0
         nll_sum = 0.0
         brier_sum = 0.0
-        for X_batch, labels in model._iterate_loader(validation_loader_factory()):
-            probabilities, _ = model.predict_class_distribution(X_batch)
+        for Z_batch, labels in validation_cache[pca_key]:
+            probabilities = F.softmax(model._decision_function_transformed(Z_batch), dim=1)
             y = model._encode_labels(labels)
             correct += int((probabilities.argmax(1) == y).sum())
             total += y.numel()
@@ -2291,8 +2742,17 @@ def search_bayes_filter_hyperparameters(
     sequence_ids: Optional[Sequence[Any]] = None,
     observation_calibration_inputs: Optional[Any] = None,
     observation_calibration_labels: Optional[Sequence[Hashable]] = None,
+    filter_scores: Optional[torch.Tensor | Sequence] = None,
+    observation_calibration_scores: Optional[torch.Tensor | Sequence] = None,
+    score_batch_size: int = 512,
+    score_cache_device: str | torch.device = "cpu",
     temperatures: Sequence[float] = (0.5, 0.75, 1.0, 1.5, 2.0, 3.0),
     stay_probabilities: Sequence[float] = (0.90, 0.94, 0.97),
+    transition_alphas: Sequence[float] = (0.0, 0.25, 0.5, 0.75, 1.0),
+    transition_pseudocount: float = 1.0,
+    transition_training_labels: Optional[Sequence[Hashable] | torch.Tensor] = None,
+    transition_training_sequence_ids: Optional[Sequence[Any]] = None,
+    transition_cache: Optional[HybridTransitionCache] = None,
     evidence_powers: Sequence[float] = (0.50, 0.75, 1.0),
     min_evidence_powers: Sequence[float] = (0.10, 0.25),
     confidence_gammas: Sequence[float] = (1.0, 2.0),
@@ -2307,13 +2767,26 @@ def search_bayes_filter_hyperparameters(
 ) -> List[Dict[str, Any]]:
     """Tune a Bayes filter around an already-trained classifier.
 
-    The trained classifier weights remain fixed. For efficiency, classifier scores
-    are computed once, and every candidate temperature is applied to those scores.
-    Temperature is therefore treated as part of the downstream observation model.
+    The trained classifier weights remain fixed. Classifier inference is performed
+    once in bounded batches and only compact ``[N,C]`` scores are cached (on CPU by
+    default). Callers that need to release large source tensors before the search
+    can precompute them with :func:`collect_classifier_scores_batched` and supply
+    ``filter_scores``/``observation_calibration_scores``. Only one temperature's
+    ``[N,C]`` probability matrices exist at a time.
 
     If separate observation-calibration data are supplied, an observation matrix
     is estimated independently for every candidate temperature. Otherwise the
     filter-validation data are reused, which can yield optimistic scores.
+
+    The empirical transition matrix is estimated once from
+    ``transition_training_labels`` and combined with each persistent matrix using
+    ``transition_alpha``. If separate transition data are omitted, the ordered
+    filter-validation truth is reused and a warning is emitted because transition
+    selection can then be optimistic. A :class:`HybridTransitionCache` can be
+    shared by searches for multiple classifiers with the same class order.
+
+    ``transition_matrix`` is retained only for old callers. Supplying it bypasses
+    hybrid generation and emits a deprecation warning.
 
     ``scoring`` selects accuracy, balanced_accuracy, or macro_f1. Optional penalties
     can favor lower transition delay and fewer false state changes:
@@ -2323,80 +2796,171 @@ def search_bayes_filter_hyperparameters(
     if scoring not in {"accuracy", "balanced_accuracy", "macro_f1"}:
         raise ValueError("unsupported scoring")
     labels = list(classifier.class_ids)
-    scores_filter = classifier.decision_function(filter_inputs).detach()
+    true_labels = classifier._normalize_labels(true_labels)
+    if filter_scores is None and filter_inputs is None:
+        raise ValueError("provide filter_inputs or precomputed filter_scores")
+    scores_filter = (
+        collect_classifier_scores_batched(
+            classifier, filter_inputs, batch_size=score_batch_size,
+            cache_device=score_cache_device,
+        )
+        if filter_scores is None
+        else torch.as_tensor(filter_scores).detach().to(score_cache_device)
+    )
     if scores_filter.shape[0] != len(true_labels):
         raise ValueError("filter input and label counts differ")
-    if observation_calibration_inputs is not None:
+    if observation_calibration_inputs is not None or observation_calibration_scores is not None:
         if observation_calibration_labels is None:
             raise ValueError("observation_calibration_labels are required")
-        scores_cal = classifier.decision_function(observation_calibration_inputs).detach()
+        observation_calibration_labels = classifier._normalize_labels(observation_calibration_labels)
+        if observation_calibration_scores is None and observation_calibration_inputs is None:
+            raise ValueError("provide observation calibration inputs or scores")
+        scores_cal = (
+            collect_classifier_scores_batched(
+                classifier, observation_calibration_inputs, batch_size=score_batch_size,
+                cache_device=score_cache_device,
+            )
+            if observation_calibration_scores is None
+            else torch.as_tensor(observation_calibration_scores).detach().to(score_cache_device)
+        )
     else:
         scores_cal = scores_filter
         observation_calibration_labels = true_labels
+    if scores_cal.shape[0] != len(observation_calibration_labels):
+        raise ValueError("observation-calibration score and label counts differ")
+
+    if transition_matrix is not None:
+        warnings.warn(
+            "transition_matrix is a legacy fixed-matrix path; use transition training "
+            "labels and transition_alphas for hybrid search",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        fixed_matrix = _validate_row_stochastic_matrix(
+            transition_matrix, len(labels), "transition_matrix", torch.device(device), 1e-8
+        )
+        transition_candidates = [{
+            "stay_probability": None,
+            "transition_alpha": None,
+            "transition_matrix": fixed_matrix,
+            "transition_matrix_cpu": fixed_matrix.cpu(),
+            "transition_source": "fixed",
+        }]
+    else:
+        if transition_cache is None:
+            if transition_training_labels is None:
+                warnings.warn(
+                    "Estimating empirical transitions from filter-validation labels; "
+                    "transition selection may be optimistic. Supply separate "
+                    "transition_training_labels/sequence_ids when available.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                transition_training_labels = true_labels
+                transition_training_sequence_ids = sequence_ids
+            transition_cache = build_hybrid_transition_cache(
+                labels, transition_training_labels,
+                transition_training_sequence_ids=transition_training_sequence_ids,
+                stay_probabilities=stay_probabilities,
+                transition_alphas=transition_alphas,
+                transition_pseudocount=transition_pseudocount,
+                device=device,
+            )
+        elif list(transition_cache.labels) != labels:
+            raise ValueError("transition_cache label ordering differs from classifier.class_ids")
+        transition_candidates = [
+            {
+                **candidate,
+                "transition_matrix": candidate["transition_matrix"].to(device),
+                "transition_matrix_cpu": candidate["transition_matrix"].cpu(),
+                "transition_source": "hybrid",
+            }
+            for candidate in transition_cache.unique_candidates
+        ]
 
     results: List[Dict[str, Any]] = []
+    observation_cache: Dict[Tuple[float, str, float], torch.Tensor] = {}
+    calibration_index = {label: i for i, label in enumerate(labels)}
+    encoded_calibration_labels = torch.tensor(
+        [calibration_index[label] for label in observation_calibration_labels],
+        dtype=torch.long,
+        device=device,
+    )
+    evidence_candidates = [
+        (max_power, min_power, gamma)
+        for max_power, min_power, gamma in itertools.product(
+            evidence_powers, min_evidence_powers, confidence_gammas
+        )
+        if min_power <= max_power
+    ]
     for temperature in temperatures:
         if temperature <= 0:
             continue
+        temperature = float(temperature)
+        # Keep only the current temperature's probabilities. This preserves reuse
+        # across its trials without retaining one [N,C] tensor per temperature.
         probs_filter = F.softmax(scores_filter / temperature, dim=1)
         probs_filter = probs_filter.clamp_min(probability_floor)
         probs_filter = probs_filter / probs_filter.sum(1, keepdim=True)
-        probs_cal = F.softmax(scores_cal / temperature, dim=1)
+        probs_cal = (
+            probs_filter
+            if scores_cal is scores_filter
+            else F.softmax(scores_cal / temperature, dim=1)
+        )
 
         for mode, pseudocount in itertools.product(observation_modes, observation_pseudocounts):
-            observation = estimate_observation_matrix_from_probabilities(
-                probs_cal,
-                observation_calibration_labels,
-                labels,
-                mode=mode,
-                pseudocount=pseudocount,
-                device=device,
-            )
-            for stay, max_power, min_power, gamma in itertools.product(
-                stay_probabilities, evidence_powers, min_evidence_powers, confidence_gammas
-            ):
-                if min_power > max_power:
-                    continue
-                transition = (
-                    torch.as_tensor(transition_matrix, dtype=torch.float32, device=device)
-                    if transition_matrix is not None
-                    else make_persistent_transition_matrix(labels, stay, device=device)
+            observation_key = (temperature, mode, float(pseudocount))
+            if observation_key not in observation_cache:
+                observation_cache[observation_key] = estimate_observation_matrix_from_probabilities(
+                    probs_cal, observation_calibration_labels, labels, mode=mode,
+                    pseudocount=pseudocount, device=device,
+                    encoded_true_labels=encoded_calibration_labels,
                 )
-                filt = BayesianTerrainFilter(
-                    labels,
-                    manual_prior,
-                    transition,
-                    observation,
-                    evidence_power=max_power,
-                    adaptive_evidence=True,
-                    min_evidence_power=min_power,
-                    confidence_gamma=gamma,
-                    device=device,
-                )
-                predictions, posteriors, powers = run_filter_sequences(
-                    filt, probs_filter, sequence_ids=sequence_ids
-                )
-                metrics = evaluate_predictions(
-                    true_labels, predictions, labels, sequence_ids=sequence_ids
-                )
-                base_score = getattr(metrics, scoring)
-                delay = 0.0 if math.isnan(metrics.mean_transition_delay) else metrics.mean_transition_delay
-                false_rate = 0.0 if math.isnan(metrics.false_transition_rate) else metrics.false_transition_rate
-                objective = base_score - transition_delay_weight * delay - false_transition_weight * false_rate
-                results.append({
-                    "temperature": float(temperature),
-                    "stay_probability": float(stay),
-                    "evidence_power": float(max_power),
-                    "min_evidence_power": float(min_power),
-                    "confidence_gamma": float(gamma),
-                    "observation_mode": mode,
-                    "observation_pseudocount": float(pseudocount),
-                    "objective": float(objective),
-                    "observation_matrix": observation.cpu(),
-                    "posterior_trace": posteriors,
-                    "effective_evidence_powers": powers,
-                    **metrics.as_dict(),
-                })
+            observation = observation_cache[observation_key]
+            for transition_candidate in transition_candidates:
+                transition = transition_candidate["transition_matrix"]
+                for max_power, min_power, gamma in evidence_candidates:
+                    filt = BayesianTerrainFilter(
+                        labels,
+                        manual_prior,
+                        transition,
+                        observation,
+                        evidence_power=max_power,
+                        adaptive_evidence=True,
+                        min_evidence_power=min_power,
+                        confidence_gamma=gamma,
+                        transition_alpha=transition_candidate["transition_alpha"],
+                        stay_probability=transition_candidate["stay_probability"],
+                        transition_source=transition_candidate["transition_source"],
+                        device=device,
+                    )
+                    predictions, _, _ = run_filter_sequences(
+                        filt, probs_filter, sequence_ids=sequence_ids,
+                        return_traces=False,
+                    )
+                    metrics = evaluate_predictions(
+                        true_labels, predictions, labels, sequence_ids=sequence_ids
+                    )
+                    base_score = getattr(metrics, scoring)
+                    delay = 0.0 if math.isnan(metrics.mean_transition_delay) else metrics.mean_transition_delay
+                    false_rate = 0.0 if math.isnan(metrics.false_transition_rate) else metrics.false_transition_rate
+                    objective = base_score - transition_delay_weight * delay - false_transition_weight * false_rate
+                    results.append({
+                        "temperature": float(temperature),
+                        "stay_probability": transition_candidate["stay_probability"],
+                        "transition_alpha": transition_candidate["transition_alpha"],
+                        "transition_source": transition_candidate["transition_source"],
+                        "transition_matrix": transition_candidate["transition_matrix_cpu"],
+                        "evidence_power": float(max_power),
+                        "min_evidence_power": float(min_power),
+                        "confidence_gamma": float(gamma),
+                        "observation_mode": mode,
+                        "observation_pseudocount": float(pseudocount),
+                        "objective": float(objective),
+                        "observation_matrix": observation.cpu(),
+                        **metrics.as_dict(),
+                    })
+        del probs_filter, probs_cal
     return sorted(results, key=lambda r: r["objective"], reverse=True)
 
 
@@ -2407,11 +2971,15 @@ def build_filter_from_search_result(
     *,
     device: str | torch.device = "cpu",
 ) -> Tuple[BayesianTerrainFilter, float]:
-    """Construct a deployment filter and return its selected temperature."""
+    """Construct the selected filter using its stored transition matrix directly."""
     labels = list(classifier.class_ids)
-    transition = make_persistent_transition_matrix(
-        labels, result["stay_probability"], device=device
-    )
+    if "transition_matrix" in result:
+        transition = result["transition_matrix"]
+    else:
+        # Compatibility with search results created before hybrid transitions.
+        transition = make_persistent_transition_matrix(
+            labels, result["stay_probability"], device=device
+        )
     filt = BayesianTerrainFilter(
         labels,
         manual_prior,
@@ -2421,6 +2989,9 @@ def build_filter_from_search_result(
         min_evidence_power=result["min_evidence_power"],
         confidence_gamma=result["confidence_gamma"],
         adaptive_evidence=True,
+        transition_alpha=result.get("transition_alpha", 0.0),
+        stay_probability=result.get("stay_probability"),
+        transition_source=result.get("transition_source", "persistent_legacy"),
         device=device,
     )
     return filt, float(result["temperature"])
@@ -2504,13 +3075,17 @@ def _false_transition_rate(
 
 __all__ = [
     "ProbabilisticClassifier",
+    "FeatureStandardizer",
+    "RBFSVM",
     "PCAWhitenedRBFSVM",
     "PCAWhitenedRBFPrototypeClassifier",
     "PCAWhitenedPrototypeRBFNetwork",
     "NeuralClassifierAdapter",
+    "fit_nn",
     "ClassifierPrediction",
     "SVMSearchResult",
     "PrototypeRBFSearchResult",
+    "HybridTransitionCache",
     "BayesianTerrainFilter",
     "BayesianFilteredClassifier",
     "BayesianFilterStep",
@@ -2518,8 +3093,10 @@ __all__ = [
     "make_manual_prior",
     "make_persistent_transition_matrix",
     "estimate_transition_matrix_from_sequences",
+    "build_hybrid_transition_cache",
     "estimate_observation_matrix_from_probabilities",
     "collect_classifier_probabilities",
+    "collect_classifier_scores_batched",
     "run_filter_sequences",
     "evaluate_predictions",
     "search_rbf_svm_hyperparameters",

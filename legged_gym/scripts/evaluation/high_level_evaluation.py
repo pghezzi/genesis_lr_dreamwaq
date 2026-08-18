@@ -172,7 +172,14 @@ def get_ground_truth_labels(env):
 def build_classifier(args):
     from legged_gym.scripts.depth_data_pipeline.train_feature_nn import TerrainDepthFeatureClassifierNN
     from legged_gym.scripts.depth_data_pipeline.train_raw_depth_nn import TerrainDepthClassifierNN
-    from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import *
+    from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
+        BayesianTerrainFilter,
+        FeatureStandardizer,
+        NeuralClassifierAdapter,
+        PCAWhitenedRBFPrototypeClassifier,
+        RBFSVM,
+        run_filter_sequences,
+    )
     from legged_gym.utils.depth_terrain_classifier.depth_terrain_classifier import SobelDepthTerrainFeatureExtractor
     from pathlib import Path 
     all_data_files = Path(args.baysian_filter)
@@ -180,25 +187,45 @@ def build_classifier(args):
     bayes_filter_file = all_data_files / "bayes_filter.pt"
     assert classifier_file.is_file() and bayes_filter_file.is_file()
     extractor_file = all_data_files / "extractor.pt"
+    standardizer_file = all_data_files / "standardizer.pt"
     nn_model_args_file = all_data_files / "nn_model_args.pt"
+    results_file = all_data_files / "results.json"
+    run_method = None
+    if results_file.is_file():
+        with results_file.open(encoding="utf-8") as stream:
+            run_method = json.load(stream).get("method")
 
     if nn_model_args_file.is_file():
-        nn_model_args = torch.load(nn_model_args_file)
+        nn_model_args = torch.load(nn_model_args_file, map_location="cpu", weights_only=False)
         class_name = nn_model_args.pop("cls")
         model = eval(class_name)(**nn_model_args)
-        classifier = NeuralClassifierAdapter.load(classifier_file, model)
-        extractor = lambda x, y, z : x
+        classifier = NeuralClassifierAdapter.load(classifier_file, model, device=args.gpu)
+        if extractor_file.is_file():
+            extractor_base = SobelDepthTerrainFeatureExtractor.load(extractor_file)
+            extractor = lambda x, y, z: extractor_base.extract_batch(x, y, z)
+        else:
+            extractor = lambda x, y, z: x
     else:
-        classifier = PCAWhitenedRBFPrototypeClassifier.load(classifier_file)
+        classifier = (
+            RBFSVM.load(classifier_file, map_location=args.gpu)
+            if run_method == "RBF SVM"
+            else PCAWhitenedRBFPrototypeClassifier.load(classifier_file, map_location=args.gpu)
+        )
         extractor_base = SobelDepthTerrainFeatureExtractor.load(extractor_file)
         extractor = lambda x, y, z : extractor_base.extract_batch(x, y, z)
+
+    standardizer = FeatureStandardizer.load(standardizer_file) if standardizer_file.is_file() else None
 
     bayesian_terrain_filter = BayesianTerrainFilter.load(bayes_filter_file)
 
     def predict_fn(_depth, _euler, _angve):
         inputs = extractor(_depth, _euler, _angve)
+        if standardizer is not None:
+            inputs = standardizer.transform(inputs)
         classifier_probabilities, _ = classifier.predict_class_distribution(inputs)
-        predicted, _, _ = run_filter_sequences(bayesian_terrain_filter, classifier_probabilities)
+        predicted, _, _ = run_filter_sequences(
+            bayesian_terrain_filter, classifier_probabilities, return_traces=False
+        )
         return predicted
 
     def reset_fn():
