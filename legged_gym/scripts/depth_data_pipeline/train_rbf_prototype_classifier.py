@@ -72,7 +72,7 @@ def main() -> None:
             "pca_dim": [16, 24, 32], "prototypes_per_class": [4, 8, 12],
             "gamma": ["scale", 0.25, 0.5, 1.0],
             "metric_type": ["euclidean", "diag_mahalanobis"],
-            "aggregation": ["logsumexp", "max"], "prototype_init": ["kmeans++", "farthest"],
+            "aggregation": ["logsumexp"], "prototype_init": ["kmeans++"],
             "prototype_epochs": [5, 10], "initialization_sample_size": [1024, 2048],
             "reset_counts_each_epoch": [True], "variance_shrinkage": [0.1, 0.3],
         },
