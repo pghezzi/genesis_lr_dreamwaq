@@ -44,7 +44,7 @@ import torch
 DEFAULT_COMMANDS = {"rough": 0.8, "leap": 1.5, "climb": 1.2, "stairs": 1.2}
 DIFFICULTY_RANGES = {
     "leap": (0.30, 1.00, "gap_size"),
-    "climb": (0.25, 0.60, "pit_depth"),
+    "climb": (0.25, 0.50, "pit_depth"),
     "stairs": (0.10, 0.40, "step_height"),
 }
 

@@ -1,52 +1,14 @@
-"""
-eval_classifier_multiterrain.py
+"""Evaluate terrain classification, skill selection, and multi-terrain navigation."""
 
-High-level evaluation harness for a JIT-swap policy driven by an online
-terrain classifier, run on a `multiterrain` environment.
-
-It reports three headline metrics:
-  1. Success rate      - fraction of episodes that end via time-out
-                          (i.e. the robot did NOT fall / get terminated early).
-  2. Distance covered   - per-episode straight-line displacement (start -> end),
-                          reported as mean/median/std across completed episodes.
-  3. Classification accy - fraction of classifier predictions that match the
-                          *ground-truth* terrain patch the robot is currently
-                          standing/looking at (derived from env terrain labels),
-                          plus a per-class confusion breakdown.
-
-Assumptions (matches the `depth_waq`-style branch in play.py):
-  - The task exposes a depth camera: env.depth_sensor_output (B, 1, H, W) or similar.
-  - `env.get_observations()` / `env.step()` follow the depth_waq signature:
-        obs_buf, priv_obs, obs_history, explicit_labels, next_states, depth = env.get_observations()
-        obs_buf, priv_obs, obs_history, explicit_labels, next_states, rews, dones, infos, depth = env.step(actions)
-  - The JIT policy exposes `.swap(idx)` to switch between loaded sub-policies
-    ("loras"), the same convention used by play.py's --jit flag.
-  - Ground-truth terrain per patch is available at env.simulator._terrain.labels
-    (row, col) -> int label, decodable via legged_gym.utils.terrain_vars.TERRAIN_KEYS.
-
-If your task/env differs, adjust `get_observations_depth_waq` / `step_depth_waq`
-and `get_ground_truth_label` accordingly - they're isolated on purpose.
-
-Usage:
-    python eval_classifier_multiterrain.py \
-        --task go2_depth_waq \
-        --jit /path/to/swap_policy.jit.pt \
-        --terrain_detector_jit /path/to/classifier.jit.pt \
-        --num_envs 200 --num_episodes 20 --headless
-
-    # Bayesian-filtered classifier instead of a raw jit classifier:
-    python eval_classifier_multiterrain.py \
-        --task go2_depth_waq \
-        --jit /path/to/swap_policy.jit.pt \
-        --baysian_filter /path/to/bayes_ckpt_dir --num_envs 200 --headless
-"""
-
-import os
-import json
 import argparse
+import copy
+import csv
+import json
+import os
 import random
-from datetime import datetime
 from collections import defaultdict
+from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -54,426 +16,918 @@ import torch
 from legged_gym import *
 from legged_gym.envs import *
 from legged_gym.utils import *
-from legged_gym.utils.terrain_vars import TERRAIN_INDEX, TERRAIN_KEYS
-
-try:
-    from legged_gym.scripts.play import configure_runtime_device, init_genesis
-except Exception:
-    configure_runtime_device = None
-    init_genesis = None
+from legged_gym.utils.terrain_vars import TERRAIN_KEYS
 
 
-# --------------------------------------------------------------------------- #
-# Terrain -> lora index map, mirrors the swap logic used in play.py
-# --------------------------------------------------------------------------- #
-def label_to_lora(label: str) -> int:
-    if label == "random_uniform":
-        return -1
-    if "stairs" in label:
-        return 1
-    if label == "gap":
-        return 0
-    if label in ("pit", "center_platform"):
-        return 2
-    return -1
+CANONICAL_CLASSES = ["rough", "gap", "pit", "stairs"]
+SKILL_SPEEDS = {"rough": 0.8, "gap": 1.5, "pit": 1.2, "stairs": 1.2}
+SKILL_LORA = {"rough": -1, "gap": 0, "stairs": 1, "pit": 2}
+METHOD_TO_APPROACH = {
+    "RBF Prototype": "rbf_prototype",
+    "RBF SVM": "rbf_svm",
+    "feature NN": "feature_nn",
+    "raw-depth NN": "raw_depth_nn",
+}
+
+# Keep evaluation randomization identical to low_level_evaluation.py.
+EVAL_DOMAIN_RANDOMIZATION_RANGES = {
+    "friction_range": [1.0, 1.0],
+    "com_pos_x_range": [-0.0, 0.0],
+    "com_pos_y_range": [-0.0, 0.0],
+    "com_pos_z_range": [-0.0, 0.0],
+    "kp_range": [1.0, 1.0],
+    "kd_range": [1.0, 1.0],
+    "motor_strength_range": [1.0, 1.0],
+    "ctrl_delay_step_range": [0, 0],
+    "joint_armature_range": [0.020, 0.020],
+    "joint_friction_range": [0.015, 0.015],
+    "joint_damping_range": [0.275, 0.275],
+    "camera_com_displacement_range": [0.0, 0.0, 0.0],
+    "camera_euler_offset_range": [0.0, 0.0, 0.0],
+}
+EVAL_DOMAIN_RANDOMIZATION_ENABLED = {
+    "randomize_friction": True,
+    "randomize_restitution": False,
+    "randomize_base_mass": False,
+    "randomize_com_displacement": False,
+    "randomize_ctrl_delay": False,
+    "randomize_pd_gain": False,
+    "randomize_motor_strength": False,
+    "randomize_joint_armature": True,
+    "randomize_joint_friction": True,
+    "randomize_joint_damping": True,
+    "push_robots": False,
+    "push_links": False,
+    "randomize_camera_pos": False,
+    "randomize_camera_euler": False,
+}
 
 
-# Every distinct lora id label_to_lora can produce - one JIT policy copy gets
-# loaded and pre-swapped to each of these so per-env dispatch is a pure lookup.
-LORA_IDS = sorted({-1, 0, 1, 2})
+def configure_runtime_device(args):
+    """Normalize the evaluator device while retaining physical-GPU masking."""
+    if args.cpu:
+        args.gpu = "cpu"
+        args.device = "cpu"
+        return args
+    requested = str(args.gpu).lower()
+    if requested.isdigit():
+        requested = f"cuda:{requested}"
+    if requested == "cuda":
+        requested = "cuda:0"
+    if not requested.startswith("cuda:") or not requested.split(":", 1)[1].isdigit():
+        raise ValueError("--gpu must be cuda, cuda:N, or a numeric GPU index")
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if visible:
+        visible_ids = [value.strip() for value in visible.split(",") if value.strip()]
+        index = int(requested.split(":", 1)[1])
+        if index < len(visible_ids):
+            requested = f"cuda:{index}"
+        elif str(index) in visible_ids:
+            requested = f"cuda:{visible_ids.index(str(index))}"
+        else:
+            raise ValueError(f"GPU {index} is unavailable under CUDA_VISIBLE_DEVICES={visible}")
+    else:
+        os.environ["CUDA_VISIBLE_DEVICES"] = requested.split(":", 1)[1]
+        requested = "cuda:0"
+    args.gpu = requested
+    args.device = requested
+    return args
+
+
+def init_genesis(args, gs):
+    configure_runtime_device(args)
+    gs.init(backend=gs.cpu if args.cpu else gs.gpu, logging_level="warning")
+    if not args.cpu:
+        torch.cuda.set_device(torch.device(args.gpu))
+
+
+def canonicalize_label(label):
+    if torch.is_tensor(label):
+        label = label.item()
+    if isinstance(label, (int, np.integer)):
+        if not 0 <= int(label) < len(TERRAIN_KEYS):
+            raise ValueError(f"Unknown terrain label id {label}")
+        label = TERRAIN_KEYS[int(label)]
+    value = str(label).lower()
+    if value in ("random_uniform", "pyramid_sloped", "rough", "baseline"):
+        return "rough"
+    if value in ("stairs", "upwards_stairs"):
+        return "stairs"
+    if value in ("pit", "center_platform", "climb"):
+        return "pit"
+    if value in ("gap", "leap"):
+        return "gap"
+    raise ValueError(f"Cannot map terrain label {label!r} to a skill class")
+
+
+def label_to_lora(label):
+    return SKILL_LORA[canonicalize_label(label)]
 
 
 class PerTerrainPolicySet:
-    """Holds one independently-swapped JIT policy copy per terrain lora id, so
-    each env's action is computed by the sub-policy matching *that env's own*
-    classifier prediction, instead of swapping a single shared policy off a
-    global (e.g. majority-vote) decision.
-    """
+    """Preload one independently swapped policy per skill for batched dispatch."""
 
-    def __init__(self, jit_path, device, lora_ids=LORA_IDS):
-        self.device = device
+    def __init__(self, jit_path, device):
         self.policies = {}
-        for lora_id in lora_ids:
-            p = torch.jit.load(jit_path, map_location=device)
-            p.swap(lora_id)
-            self.policies[lora_id] = p
+        for lora_id in sorted(set(SKILL_LORA.values())):
+            policy = torch.jit.load(jit_path, map_location=device)
+            policy.swap(lora_id)
+            self.policies[lora_id] = policy
 
     def act(self, obs_buf, obs_history, depth, assigned_lora):
-        """assigned_lora: (num_envs,) LongTensor of per-env lora ids.
-
-        Runs each loaded sub-policy only on the subset of envs assigned to it,
-        and scatters the results back into a single (num_envs, action_dim)
-        tensor.
-        """
-        assigned_lora = assigned_lora.to(obs_buf.device)
         actions = None
-        for lora_id, p in self.policies.items():
-            idx = (assigned_lora == lora_id).nonzero(as_tuple=False).squeeze(-1)
-            if idx.numel() == 0:
+        for lora_id, policy in self.policies.items():
+            indices = (assigned_lora == lora_id).nonzero(as_tuple=False).flatten()
+            if indices.numel() == 0:
                 continue
-            sub_actions = p(obs_buf[idx].detach(), obs_history[idx].detach(), depth[idx].detach())
+            sub_actions = policy(
+                obs_buf[indices].detach(), obs_history[indices].detach(), depth[indices].detach()
+            )
             if actions is None:
                 actions = torch.zeros(
                     obs_buf.shape[0], sub_actions.shape[-1],
                     device=sub_actions.device, dtype=sub_actions.dtype,
                 )
-            actions[idx] = sub_actions
+            actions[indices] = sub_actions
+        if actions is None:
+            raise RuntimeError("No environments were assigned to a known skill policy")
         return actions
 
 
-# --------------------------------------------------------------------------- #
-# Ground-truth terrain lookup (reused from play.py's get_viewed_terrain_idx)
-# --------------------------------------------------------------------------- #
-def get_viewed_terrain_idx(env, look_ahead_frac: float = 0.75):
-    far_plane = 4.0
-    look_ahead_dist = far_plane * look_ahead_frac
-
+def get_viewed_terrain_idx(env, look_ahead_frac=0.75):
+    """Return the existing look-ahead terrain-cell lookup used by the oracle."""
+    look_ahead_dist = 4.0 * look_ahead_frac
     base_pos = env.simulator.base_pos
-    base_pos_xy = base_pos[..., :2]
-    heading = env.heading
-
-    single = base_pos.dim() == 1
-    if single:
-        base_pos = base_pos.unsqueeze(0)
-        heading = heading.unsqueeze(0) if torch.is_tensor(heading) else torch.tensor([heading])
-
-    device = base_pos.device
-    heading = heading.to(device)
-
+    heading = env.heading.to(base_pos.device)
     look_dir = torch.stack([torch.cos(heading), torch.sin(heading)], dim=-1)
     look_point = base_pos[:, :2] + look_dir * look_ahead_dist
-    query_point = torch.where((base_pos[:, 2] < 0.25).unsqueeze(-1), base_pos_xy, look_point)
-
-    origins = env.simulator._terrain_origins.to(device)
-    num_rows, num_cols = origins.shape[0], origins.shape[1]
-    origins_xy = origins[..., :2].reshape(-1, 2)
-
-    dists = torch.cdist(query_point, origins_xy)
-    idx = torch.argmin(dists, dim=-1)
-    row_col = torch.stack([idx // num_cols, idx % num_cols], dim=-1)
-
-    if single:
-        idx = idx.squeeze(0)
-        row_col = row_col.squeeze(0)
-    return idx, row_col
+    query_point = torch.where(
+        (base_pos[:, 2] < 0.25).unsqueeze(-1), base_pos[:, :2], look_point
+    )
+    origins = env.simulator._terrain_origins.to(base_pos.device)
+    num_cols = origins.shape[1]
+    distances = torch.cdist(query_point, origins[..., :2].reshape(-1, 2))
+    indices = torch.argmin(distances, dim=-1)
+    row_col = torch.stack([indices // num_cols, indices % num_cols], dim=-1)
+    return indices, row_col
 
 
-def get_ground_truth_labels(env):
-    """Returns a (num_envs,) LongTensor of ground-truth terrain label ids."""
-    _, row_col = get_viewed_terrain_idx(env)
-    row_col = row_col.cpu()
-    return env.simulator._terrain.labels[row_col[:, 0], row_col[:, 1]]
+def get_ground_truth_labels(env, look_ahead_frac=0.75):
+    """Decode raw labels solely from the environment terrain-label grid."""
+    _, row_col = get_viewed_terrain_idx(env, look_ahead_frac)
+    row_col = row_col.detach().cpu()
+    label_ids = env.simulator._terrain.labels[row_col[:, 0], row_col[:, 1]]
+    raw = [TERRAIN_KEYS[int(label_id)] for label_id in label_ids]
+    return raw, [canonicalize_label(label) for label in raw]
 
 
-# --------------------------------------------------------------------------- #
-# Classifier loading
-# --------------------------------------------------------------------------- #
+class RuntimeClassifier:
+    def __init__(self, classifier, approach, extractor=None, standardizer=None):
+        self.classifier = classifier
+        self.approach = approach
+        self.extractor = extractor
+        self.standardizer = standardizer
+        self.class_ids = list(classifier.class_ids)
 
-def build_classifier(args):
+    def predict(self, depth, euler, angular_velocity):
+        if self.approach == "raw_depth_nn":
+            inputs = depth
+        else:
+            inputs = self.extractor.extract_batch(depth, euler, angular_velocity)
+            if self.standardizer is not None:
+                inputs = self.standardizer.transform(inputs)
+        probabilities, class_ids = self.classifier.predict_class_distribution(inputs)
+        if list(class_ids) != self.class_ids:
+            raise RuntimeError("Classifier returned a class ordering different from classifier.class_ids")
+        if probabilities.ndim != 2 or probabilities.shape[1] != len(self.class_ids):
+            raise RuntimeError(
+                f"Classifier must return [B,{len(self.class_ids)}], got {tuple(probabilities.shape)}"
+            )
+        return probabilities.detach()
+
+
+def _classifier_artifacts(classifier_dir):
+    root = Path(classifier_dir)
+    classifier_file = root / "classifier.pt"
+    if not classifier_file.is_file():
+        raise FileNotFoundError(f"Missing classifier checkpoint: {classifier_file}")
+    return root, classifier_file
+
+
+def _feature_parts(root, device):
+    from legged_gym.utils.depth_terrain_classifier.depth_terrain_classifier import (
+        SobelDepthTerrainFeatureExtractor,
+    )
+    from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
+        FeatureStandardizer,
+    )
+
+    extractor_file = root / "extractor.pt"
+    if not extractor_file.is_file():
+        raise FileNotFoundError(f"Missing engineered-feature extractor: {extractor_file}")
+    extractor = SobelDepthTerrainFeatureExtractor.load(extractor_file, device=device)
+    standardizer_file = root / "standardizer.pt"
+    standardizer = (
+        FeatureStandardizer.load(standardizer_file) if standardizer_file.is_file() else None
+    )
+    return extractor, standardizer
+
+
+def load_rbf_prototype(classifier_dir, device):
+    from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
+        PCAWhitenedRBFPrototypeClassifier,
+    )
+    root, checkpoint = _classifier_artifacts(classifier_dir)
+    extractor, standardizer = _feature_parts(root, device)
+    classifier = PCAWhitenedRBFPrototypeClassifier.load(checkpoint, map_location=device)
+    return RuntimeClassifier(classifier, "rbf_prototype", extractor, standardizer)
+
+
+def load_rbf_svm(classifier_dir, device):
+    from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import RBFSVM
+    root, checkpoint = _classifier_artifacts(classifier_dir)
+    extractor, standardizer = _feature_parts(root, device)
+    classifier = RBFSVM.load(checkpoint, map_location=device)
+    return RuntimeClassifier(classifier, "rbf_svm", extractor, standardizer)
+
+
+def _load_neural(classifier_dir, device, raw_depth):
     from legged_gym.scripts.depth_data_pipeline.train_feature_nn import TerrainDepthFeatureClassifierNN
     from legged_gym.scripts.depth_data_pipeline.train_raw_depth_nn import TerrainDepthClassifierNN
     from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
-        BayesianTerrainFilter,
-        FeatureStandardizer,
         NeuralClassifierAdapter,
-        PCAWhitenedRBFPrototypeClassifier,
-        RBFSVM,
-        run_filter_sequences,
     )
-    from legged_gym.utils.depth_terrain_classifier.depth_terrain_classifier import SobelDepthTerrainFeatureExtractor
-    from pathlib import Path 
-    all_data_files = Path(args.baysian_filter)
-    classifier_file = all_data_files / "classifier.pt"
-    bayes_filter_file = all_data_files / "bayes_filter.pt"
-    assert classifier_file.is_file() and bayes_filter_file.is_file()
-    extractor_file = all_data_files / "extractor.pt"
-    standardizer_file = all_data_files / "standardizer.pt"
-    nn_model_args_file = all_data_files / "nn_model_args.pt"
-    results_file = all_data_files / "results.json"
-    run_method = None
+    root, checkpoint = _classifier_artifacts(classifier_dir)
+    args_file = root / "nn_model_args.pt"
+    if not args_file.is_file():
+        raise FileNotFoundError(f"Missing neural model arguments: {args_file}")
+    model_args = dict(torch.load(args_file, map_location="cpu", weights_only=False))
+    class_name = model_args.pop("cls")
+    model_types = {
+        "TerrainDepthFeatureClassifierNN": TerrainDepthFeatureClassifierNN,
+        "TerrainDepthClassifierNN": TerrainDepthClassifierNN,
+    }
+    expected = "TerrainDepthClassifierNN" if raw_depth else "TerrainDepthFeatureClassifierNN"
+    if class_name != expected:
+        raise ValueError(f"Expected {expected} model arguments, found {class_name}")
+    model = model_types[class_name](**model_args)
+    classifier = NeuralClassifierAdapter.load(checkpoint, model, device=device)
+    if raw_depth:
+        return RuntimeClassifier(classifier, "raw_depth_nn")
+    extractor, standardizer = _feature_parts(root, device)
+    return RuntimeClassifier(classifier, "feature_nn", extractor, standardizer)
+
+
+def load_feature_nn(classifier_dir, device):
+    return _load_neural(classifier_dir, device, raw_depth=False)
+
+
+def load_raw_depth_nn(classifier_dir, device):
+    return _load_neural(classifier_dir, device, raw_depth=True)
+
+
+CLASSIFIER_LOADERS = {
+    "rbf_prototype": load_rbf_prototype,
+    "rbf_svm": load_rbf_svm,
+    "feature_nn": load_feature_nn,
+    "raw_depth_nn": load_raw_depth_nn,
+}
+
+
+def resolve_classifier_approach(args):
+    if args.classifier_approach != "auto":
+        return args.classifier_approach
+    root = Path(args.classifier_dir)
+    results_file = root / "results.json"
     if results_file.is_file():
         with results_file.open(encoding="utf-8") as stream:
-            run_method = json.load(stream).get("method")
+            method = json.load(stream).get("method")
+        if method in METHOD_TO_APPROACH:
+            return METHOD_TO_APPROACH[method]
+    model_args_file = root / "nn_model_args.pt"
+    if model_args_file.is_file():
+        model_args = torch.load(model_args_file, map_location="cpu", weights_only=False)
+        neural_types = {
+            "TerrainDepthFeatureClassifierNN": "feature_nn",
+            "TerrainDepthClassifierNN": "raw_depth_nn",
+        }
+        if model_args.get("cls") in neural_types:
+            return neural_types[model_args["cls"]]
+    checkpoint_file = root / "classifier.pt"
+    if checkpoint_file.is_file():
+        state = torch.load(checkpoint_file, map_location="cpu", weights_only=False)
+        if "kernel_basis" in state:
+            return "rbf_svm"
+        if "prototypes" in state and "pca_components" in state:
+            return "rbf_prototype"
+    raise ValueError("Could not infer classifier approach from results.json or saved artifacts")
 
-    if nn_model_args_file.is_file():
-        nn_model_args = torch.load(nn_model_args_file, map_location="cpu", weights_only=False)
-        class_name = nn_model_args.pop("cls")
-        model = eval(class_name)(**nn_model_args)
-        classifier = NeuralClassifierAdapter.load(classifier_file, model, device=args.gpu)
-        if extractor_file.is_file():
-            extractor_base = SobelDepthTerrainFeatureExtractor.load(extractor_file)
-            extractor = lambda x, y, z: extractor_base.extract_batch(x, y, z)
-        else:
-            extractor = lambda x, y, z: x
-    else:
-        classifier = (
-            RBFSVM.load(classifier_file, map_location=args.gpu)
-            if run_method == "RBF SVM"
-            else PCAWhitenedRBFPrototypeClassifier.load(classifier_file, map_location=args.gpu)
-        )
-        extractor_base = SobelDepthTerrainFeatureExtractor.load(extractor_file)
-        extractor = lambda x, y, z : extractor_base.extract_batch(x, y, z)
 
-    standardizer = FeatureStandardizer.load(standardizer_file) if standardizer_file.is_file() else None
+def load_paired_bayes_filter(args, device):
+    path = Path(args.classifier_dir) / "bayes_filter.pt"
+    return _load_bayes_template(path, device), path
 
-    bayesian_terrain_filter = BayesianTerrainFilter.load(bayes_filter_file)
 
-    def predict_fn(_depth, _euler, _angve):
-        inputs = extractor(_depth, _euler, _angve)
-        if standardizer is not None:
-            inputs = standardizer.transform(inputs)
-        classifier_probabilities, _ = classifier.predict_class_distribution(inputs)
-        predicted, _, _ = run_filter_sequences(
-            bayesian_terrain_filter, classifier_probabilities, return_traces=False
-        )
-        return predicted
+def load_checkpoint_bayes_filter(args, device):
+    if not args.bayes_filter_path:
+        raise ValueError("--bayes_filter_path is required for checkpoint filters")
+    path = Path(args.bayes_filter_path)
+    return _load_bayes_template(path, device), path
 
-    def reset_fn():
-        bayesian_terrain_filter.reset()
-    
-    return predict_fn, reset_fn
 
-# --------------------------------------------------------------------------- #
-# Args
-# --------------------------------------------------------------------------- #
+def _load_bayes_template(path, device):
+    from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
+        BayesianTerrainFilter,
+    )
+    if not path.is_file():
+        raise FileNotFoundError(f"Missing Bayes filter checkpoint: {path}")
+    result = BayesianTerrainFilter.load(path, device=device)
+    result.reset()
+    return result
+
+
+BAYES_FILTER_LOADERS = {
+    "paired": load_paired_bayes_filter,
+    "checkpoint": load_checkpoint_bayes_filter,
+}
+
+
 def get_args():
-    parser = argparse.ArgumentParser(description="Eval JIT-swap policy + terrain classifier on multiterrain")
-    parser.add_argument("--task", type=str, default="go2", help="task name (should be a depth_waq-style task)")
-    parser.add_argument("--gpu", type=str, default="cuda:0")
-    parser.add_argument("--cpu", action="store_true", default=False)
-    parser.add_argument("--headless", action="store_true", default=False)
-    parser.add_argument("--num_envs", type=int, default=200)
-    parser.add_argument("--num_episodes", type=int, default=20,
-                         help="approx. number of episode lengths to run for (per env)")
-
-    parser.add_argument("--jit", type=str, required=True, help="path to jit-scripted swap policy")
-    parser.add_argument("--baysian_filter", type=str, default="", help="path to a bayesian-filtered classifier checkpoint dir")
-    parser.add_argument("--classify_every", type=int, default=5,
-                         help="run classifier + swap every N sim steps (matches depth cam rate)")
-    parser.add_argument("--out_dir", type=str, default=None, help="where to write results (json/csv)")
+    parser = argparse.ArgumentParser(
+        description="Evaluate JIT skill selection and terrain classification on fixed tracks"
+    )
+    parser.add_argument("--task", default="go2_depth_waq_lora")
+    parser.add_argument("--gpu", default="cuda:0")
+    parser.add_argument("--cpu", action="store_true")
+    parser.add_argument("--headless", action="store_true")
+    parser.add_argument("--num_envs", type=int, default=10)
+    parser.add_argument("--episodes_per_track", type=int, default=1)
+    parser.add_argument("--num_steps", type=int, default=100000, help="safety cap only")
     parser.add_argument("--seed", type=int, default=42)
-
+    parser.add_argument("--difficulty", type=float, default=0.5)
+    parser.add_argument("--finish_margin", type=float, default=0.25)
+    parser.add_argument("--look_ahead_frac", type=float, default=0.75)
+    parser.add_argument("--classify_every", type=int, default=5)
+    parser.add_argument(
+        "--selector_mode", choices=("oracle", "instantaneous", "bayes", "baseline"),
+        default="bayes",
+    )
+    parser.add_argument(
+        "--classifier_approach", choices=("auto",) + tuple(CLASSIFIER_LOADERS), default="auto"
+    )
+    parser.add_argument("--classifier_dir", required=True)
+    parser.add_argument(
+        "--bayes_filter_approach", choices=tuple(BAYES_FILTER_LOADERS), default="paired"
+    )
+    parser.add_argument("--bayes_filter_path", default=None)
+    parser.add_argument("--jit", "--policy_jit", dest="jit", required=True)
+    parser.add_argument("--fixed_forward_command", type=float, default=None)
+    parser.add_argument("--out_dir", default=None)
     args = parser.parse_args()
-
-    if not args.baysian_filter:
-        parser.error("Must supply --baysian_filter")
-
     if args.cpu:
         args.gpu = "cpu"
+    if args.num_envs < 10 or args.num_envs % 10:
+        parser.error("--num_envs must be 10 or a balanced multiple of 10")
+    if args.episodes_per_track < 1 or args.num_steps < 1 or args.classify_every < 1:
+        parser.error("episode quota, step cap, and classify interval must be positive")
+    if not 0.0 <= args.difficulty <= 1.0:
+        parser.error("--difficulty must be in [0,1]")
+    if not 0.0 <= args.look_ahead_frac <= 1.0:
+        parser.error("--look_ahead_frac must be in [0,1]")
     return args
 
 
-# --------------------------------------------------------------------------- #
-# Env config overrides: force a multiterrain layout
-# --------------------------------------------------------------------------- #
+def _eval_terrain_value(value, difficulty):
+    return float(eval(str(value), {"__builtins__": {}}, {"np": np, "difficulty": difficulty}))
+
+
+def make_track_layout(env_cfg, args):
+    difficulty = args.difficulty
+    gap_size = 0.30 + 0.70 * difficulty
+    pit_depth = 0.25 + 0.25 * difficulty
+    stair_height = 0.10 + 0.30 * difficulty
+    rough_cfg = env_cfg.terrain.terrain_curriculum_difficulty["random_uniform_params"]
+    rough_values = {
+        key: _eval_terrain_value(value, difficulty) for key, value in rough_cfg.items()
+    }
+    definitions = {
+        "random_uniform": {
+            "type": "terrain_utils.random_uniform_terrain", **rough_values,
+        },
+        "gap": {
+            "type": "terrain_utils.gap_terrain", "gap_size": gap_size,
+            "platform_size": env_cfg.terrain.platform_size,
+        },
+        "pit": {
+            "type": "terrain_utils.pit_terrain", "depth": pit_depth,
+            "platform_size": env_cfg.terrain.platform_size,
+        },
+        "upwards_stairs": {
+            "type": "terrain_utils.pyramid_stairs_terrain", "step_width": 0.4,
+            "step_height": stair_height, "platform_size": env_cfg.terrain.platform_size,
+        },
+        "stairs": {
+            "type": "terrain_utils.pyramid_stairs_terrain", "step_width": 0.4,
+            "step_height": -stair_height, "platform_size": env_cfg.terrain.platform_size,
+        },
+    }
+    rng = random.Random(args.seed)
+    columns = []
+    for column in range(10):
+        sequence = list(definitions)
+        rng.shuffle(sequence)
+        columns.append(sequence)
+    terrain_map = [copy.deepcopy(definitions[columns[col][row]]) for row in range(5) for col in range(10)]
+    logged = []
+    for column, sequence in enumerate(columns):
+        logged.append({
+            "track_id": column,
+            "sequence": sequence,
+            "cells": [
+                {"row": row, "raw_label": name,
+                 "parameters": {k: v for k, v in definitions[name].items() if k != "type"}}
+                for row, name in enumerate(sequence)
+            ],
+        })
+    return terrain_map, logged
+
+
 def override_configs_multiterrain(env_cfg, args):
+    env_cfg.seed = args.seed
     env_cfg.env.num_envs = args.num_envs
-    env_cfg.asset.terminate_after_contacts_on = []
-    env_cfg.init_state.yaw_random_scale = 0
     if hasattr(env_cfg.env, "num_camera_envs"):
-        env_cfg.env.num_camera_envs = env_cfg.env.num_envs
+        env_cfg.env.num_camera_envs = args.num_envs
+    if hasattr(env_cfg.viewer, "rendered_envs_idx"):
+        env_cfg.viewer.rendered_envs_idx = list(range(min(args.num_envs, 10)))
+    env_cfg.init_state.yaw_random_scale = 0.0
+    env_cfg.commands.curriculum = False
+    if hasattr(env_cfg.commands, "custom_command_curriculum"):
+        env_cfg.commands.custom_command_curriculum = False
+    env_cfg.commands.heading_command = False
+    env_cfg.commands.zero_cmd_prob = 0.0
+    env_cfg.commands.resampling_time = 1.0e9
+    env_cfg.commands.ranges.lin_vel_x = [0.8, 1.5]
+    env_cfg.commands.ranges.lin_vel_y = [0.0, 0.0]
+    env_cfg.commands.ranges.ang_vel_yaw = [0.0, 0.0]
+    env_cfg.commands.ranges.heading = [0.0, 0.0]
 
-    env_cfg.commands.custom_command_curriculum = False
-    env_cfg.viewer.rendered_envs_idx = list(range(min(env_cfg.env.num_envs, args.num_envs)))
-    env_cfg.terrain.max_init_terrain_level = env_cfg.terrain.num_rows - 1
+    for name, value in EVAL_DOMAIN_RANDOMIZATION_RANGES.items():
+        setattr(env_cfg.domain_rand, name, list(value))
+    # The mixed tracks include the obstacle skills, matching the low-level
+    # evaluator's non-rough branch. These are inert when their flags are off.
+    env_cfg.domain_rand.added_mass_range = [-1.0, 2.0]
+    env_cfg.domain_rand.push_interval_s = 3
+    env_cfg.domain_rand.max_push_vel_xy = 0.5
+    for name, enabled in EVAL_DOMAIN_RANDOMIZATION_ENABLED.items():
+        setattr(env_cfg.domain_rand, name, enabled)
 
-    # update this as needed
-    env_cfg.terrain.num_rows = 10
-    env_cfg.terrain.num_cols = 4
-    env_cfg.terrain.border_size = 5.0
-    env_cfg.terrain.platform_size = 3.0
+    env_cfg.terrain.num_rows = 5
+    env_cfg.terrain.num_cols = 10
+    env_cfg.terrain.max_init_terrain_level = 0
     env_cfg.terrain.curriculum = False
     env_cfg.terrain.selected = False
     env_cfg.terrain.custom_selected = True
-
-    terrain_types = [
-        {"type": "terrain_utils.random_uniform_terrain", "min_height": -0.05,
-         "max_height": 0.05, "step": 0.005, "downsampled_scale": 0.2},
-        {"type": "terrain_utils.gap_terrain", "gap_size": 0.5, "platform_size": 3.0},
-        {"type": "terrain_utils.pyramid_stairs_terrain", "step_width": 0.4,
-         "step_height": -0.2, "platform_size": 3.0},
-        {"type": "terrain_utils.pyramid_stairs_terrain", "step_width": 0.4,
-         "step_height": 0.2, "platform_size": 3.0},
-        {"type": "terrain_utils.pit_terrain", "depth": 0.2, "platform_size": 3.0},
-    ]
-    rng = random.Random(args.seed)
-    env_cfg.terrain.terrain_map = [
-        rng.choice(terrain_types).copy()
-        for _ in range(env_cfg.terrain.num_rows * env_cfg.terrain.num_cols)
-    ]
-
-    env_cfg.noise.add_noise = True
-    env_cfg.domain_rand.randomize_motor_strength = False
-    env_cfg.domain_rand.randomize_com_displacement = False
-    env_cfg.domain_rand.randomize_pd_gain = False
-    env_cfg.domain_rand.push_robots = False
-    env_cfg.domain_rand.randomize_base_mass = True
-    env_cfg.asset.fix_base_link = False
+    terrain_map, args.track_layout = make_track_layout(env_cfg, args)
+    env_cfg.terrain.terrain_map = terrain_map
+    if not 0.0 <= args.finish_margin < env_cfg.terrain.terrain_length:
+        raise ValueError("finish margin must be smaller than one sub-terrain length")
 
 
-# --------------------------------------------------------------------------- #
-# Episode bookkeeping
-# --------------------------------------------------------------------------- #
-class EpisodeStats:
-    def __init__(self, num_envs, device):
-        self.num_envs = num_envs
-        self.device = device
-        self.start_pos = None
-        self.successes = 0
-        self.failures = 0
-        self.completed_distance = []
+def assign_tracks_and_reset(env, track_ids):
+    env_ids = torch.arange(env.num_envs, device=env.device, dtype=torch.long)
+    env.simulator.terrain_levels[:] = 0
+    env.simulator.terrain_types[:] = track_ids
+    unchanged = torch.zeros(env.num_envs, device=env.device, dtype=torch.bool)
+    env.simulator.update_terrain_curriculum(env_ids, unchanged, unchanged)
+    env.reset_idx(env_ids)
+    env.compute_observations()
+    return env_ids
 
-    def on_step_start_positions(self, base_pos):
-        if self.start_pos is None:
-            self.start_pos = base_pos[:, :2].clone()
 
-    def on_done(self, base_pos, dones, infos):
-        done_ids = dones.nonzero(as_tuple=False).squeeze(-1)
-        if done_ids.numel() == 0:
-            return
+def unpack_observations(value, expected):
+    if not isinstance(value, (tuple, list)) or len(value) != expected:
+        raise RuntimeError(
+            f"Task must provide the depth-WaQ {'observation' if expected == 6 else 'step'} "
+            f"signature with {expected} entries; received {type(value).__name__}"
+        )
+    return value
 
-        distance = torch.norm(base_pos[done_ids, :2] - self.start_pos[done_ids], dim=-1)
-        self.completed_distance.extend(distance.cpu().tolist())
 
-        time_out = infos.get("time_out", None)
-        if time_out is not None:
-            time_out = time_out.to(self.device)
-            succ = time_out[done_ids].sum().item()
-            fail = done_ids.numel() - succ
-        else:
-            # Fallback: no time_out signal available -> treat all resets as failures
-            # unless caller marks otherwise.
-            succ = 0
-            fail = done_ids.numel()
+class TerminalCapture:
+    def __init__(self, env):
+        self.env = env
+        self.enabled = False
+        self.states = {}
+        original = env.reset_idx
 
-        self.successes += int(succ)
-        self.failures += int(fail)
+        def reset_idx(env_ids):
+            if self.enabled:
+                for env_id in env_ids.detach().cpu().tolist():
+                    self.states[env_id] = {
+                        "position": env.simulator.base_pos[env_id].detach().clone(),
+                        "timeout": bool(env.time_out_buf[env_id].item()),
+                        "episode_steps": int(env.episode_length_buf[env_id].item()),
+                    }
+            return original(env_ids)
 
-        # reset start positions for envs that just finished an episode
-        self.start_pos[done_ids] = base_pos[done_ids, :2].clone()
+        env.reset_idx = reset_idx
 
-    def summary(self):
-        total = self.successes + self.failures
-        dist = np.array(self.completed_distance) if self.completed_distance else np.array([0.0])
-        return {
-            "num_completed_episodes": total,
-            "success_rate": self.successes / total if total > 0 else float("nan"),
-            "distance_mean": float(dist.mean()),
-            "distance_median": float(np.median(dist)),
-            "distance_std": float(dist.std()),
-        }
+    def begin(self):
+        self.states.clear()
+        self.enabled = True
+
+    def end(self):
+        self.enabled = False
 
 
 class ClassificationStats:
     def __init__(self):
-        self.correct = 0
-        self.total = 0
-        self.confusion = defaultdict(lambda: defaultdict(int))  # gt -> pred -> count
+        self.matrices = {
+            "instantaneous": np.zeros((4, 4), dtype=np.int64),
+            "bayes": np.zeros((4, 4), dtype=np.int64),
+        }
+        self.selected_correct = 0
+        self.selected_total = 0
+        self.switch_count = 0
+        self.delays = []
+        self.ticks = []
 
-    def update(self, gt_labels, pred_labels):
-        for gt, pred in zip(gt_labels, pred_labels):
-            self.total += 1
-            self.confusion[gt][pred] += 1
-            if gt == pred:
-                self.correct += 1
+    def update(self, truth, instantaneous, bayes, selected, record):
+        truth_index = CANONICAL_CLASSES.index(truth)
+        self.matrices["instantaneous"][truth_index, CANONICAL_CLASSES.index(instantaneous)] += 1
+        self.matrices["bayes"][truth_index, CANONICAL_CLASSES.index(bayes)] += 1
+        self.selected_correct += int(selected == truth)
+        self.selected_total += 1
+        self.ticks.append(record)
 
     def summary(self):
-        per_class = {}
-        for gt, preds in self.confusion.items():
-            n = sum(preds.values())
-            per_class[gt] = {
-                "support": n,
-                "accuracy": preds.get(gt, 0) / n if n > 0 else float("nan"),
+        result = {}
+        for name, matrix in self.matrices.items():
+            support = matrix.sum(axis=1)
+            correct = np.diag(matrix)
+            result[name] = {
+                "accuracy": float(correct.sum() / matrix.sum()) if matrix.sum() else float("nan"),
+                "per_class_accuracy": {
+                    label: float(correct[i] / support[i]) if support[i] else float("nan")
+                    for i, label in enumerate(CANONICAL_CLASSES)
+                },
+                "support": {label: int(support[i]) for i, label in enumerate(CANONICAL_CLASSES)},
+                "confusion_matrix": matrix.tolist(),
+                "class_order": CANONICAL_CLASSES,
             }
-        return {
-            "overall_accuracy": self.correct / self.total if self.total > 0 else float("nan"),
-            "total_predictions": self.total,
-            "per_class": per_class,
-        }
+        result.update({
+            "selected_skill_accuracy": (
+                self.selected_correct / self.selected_total if self.selected_total else float("nan")
+            ),
+            "selected_skill_total": self.selected_total,
+            "switch_count": self.switch_count,
+            "terrain_transition_detection_delay_steps": (
+                float(np.mean(self.delays)) if self.delays else None
+            ),
+            "terrain_transition_detection_delays": self.delays,
+        })
+        return result
 
 
-# --------------------------------------------------------------------------- #
-# Main eval loop
-# --------------------------------------------------------------------------- #
+def _force_commands(env, selected_skills, fixed_command):
+    if fixed_command is None:
+        speeds = torch.tensor(
+            [SKILL_SPEEDS[skill] for skill in selected_skills],
+            device=env.device, dtype=env.commands.dtype,
+        )
+    else:
+        speeds = torch.full(
+            (env.num_envs,), fixed_command, device=env.device, dtype=env.commands.dtype
+        )
+    env.commands[:, 0] = speeds
+    env.commands[:, 1:3] = 0.0
+    if env.commands.shape[1] > 3:
+        env.commands[:, 3] = 0.0
+
+
+def _depth_valid(depth):
+    flattened = depth.reshape(depth.shape[0], -1)
+    return torch.isfinite(flattened).all(dim=1) & (flattened.abs().sum(dim=1) > 0)
+
+
+def _summary_rows(rows, track_id=None):
+    subset = rows if track_id is None else [row for row in rows if row["track_id"] == track_id]
+    count = len(subset)
+    return {
+        "track_id": track_id,
+        "completed_episodes": count,
+        "success_rate": float(np.mean([r["success"] for r in subset])) if count else float("nan"),
+        "mean_forward_distance_m": (
+            float(np.mean([r["max_forward_distance_m"] for r in subset])) if count else float("nan")
+        ),
+        "course_completion_count": sum(r["termination_reason"] == "course_complete" for r in subset),
+        "timeout_success_count": sum(r["termination_reason"] == "timeout" for r in subset),
+        "instantaneous_correct": sum(r["instantaneous_correct"] for r in subset),
+        "instantaneous_total": sum(r["instantaneous_total"] for r in subset),
+        "bayes_correct": sum(r["bayes_correct"] for r in subset),
+        "bayes_total": sum(r["bayes_total"] for r in subset),
+    }
+
+
 def run_eval(args):
-    if configure_runtime_device is not None:
-        configure_runtime_device(args)
-    if init_genesis is not None and "genesis" in globals().get("SIMULATOR", ""):
+    if "genesis" in globals().get("SIMULATOR", ""):
         init_genesis(args, gs)
+    else:
+        configure_runtime_device(args)
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
 
-    env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
+    env_cfg, _ = task_registry.get_cfgs(name=args.task)
     override_configs_multiterrain(env_cfg, args)
-
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
+    device = env.device
+    track_ids = torch.arange(env.num_envs, device=device, dtype=torch.long) % 10
+    assign_tracks_and_reset(env, track_ids)
+    obs_buf, _, obs_history, _, _, depth = unpack_observations(env.get_observations(), 6)
 
-    policy_set = PerTerrainPolicySet(args.jit, device=args.gpu if not args.cpu else "cpu")
+    approach = resolve_classifier_approach(args)
+    runtime_classifier = CLASSIFIER_LOADERS[approach](args.classifier_dir, device)
+    bayes_template, bayes_path = BAYES_FILTER_LOADERS[args.bayes_filter_approach](args, device)
+    if runtime_classifier.class_ids != list(bayes_template.labels):
+        raise ValueError(
+            "Classifier class_ids and Bayes filter labels/order must agree exactly: "
+            f"{runtime_classifier.class_ids!r} != {list(bayes_template.labels)!r}"
+        )
+    filters = [copy.deepcopy(bayes_template) for _ in range(env.num_envs)]
+    for filt in filters:
+        filt.reset()
+    policy_set = PerTerrainPolicySet(args.jit, device)
+    terminal_capture = TerminalCapture(env)
 
-    predict_fn, reset_fn = build_classifier(args)
+    selected_skills = ["rough"] * env.num_envs
+    selection_initialized = [False] * env.num_envs
+    if args.selector_mode == "oracle":
+        _, selected_skills = get_ground_truth_labels(env, args.look_ahead_frac)
+    assigned_lora = torch.tensor(
+        [label_to_lora(label) for label in selected_skills], device=device, dtype=torch.long
+    )
 
-    ep_stats = EpisodeStats(env.num_envs, env.device)
-    cls_stats = ClassificationStats()
+    start_x = env.simulator.base_pos[:, 0].clone()
+    max_progress = torch.zeros(env.num_envs, device=device)
+    episode_steps = torch.zeros(env.num_envs, device=device, dtype=torch.long)
+    inst_correct = torch.zeros(env.num_envs, device=device, dtype=torch.long)
+    inst_total = torch.zeros_like(inst_correct)
+    bayes_correct = torch.zeros_like(inst_correct)
+    bayes_total = torch.zeros_like(inst_correct)
+    completed_by_track = [0] * 10
+    episode_rows = []
+    classification = ClassificationStats()
+    previous_truth = [None] * env.num_envs
+    pending_transition = [None] * env.num_envs
+    finish_x = 5 * env_cfg.terrain.terrain_length - args.finish_margin
+    width = env_cfg.terrain.terrain_width
+    steps_run = 0
 
-    obs_buf, privileged_obs_buf, obs_history, explicit_labels, next_states, depth = env.get_observations()
-    ep_stats.on_step_start_positions(env.simulator.base_pos)
+    while steps_run < args.num_steps and min(completed_by_track) < args.episodes_per_track:
+        _force_commands(env, selected_skills, args.fixed_forward_command)
+        with torch.inference_mode():
+            actions = policy_set.act(obs_buf, obs_history, depth, assigned_lora)
+        terminal_capture.begin()
+        try:
+            step_value = env.step(actions.detach())
+        finally:
+            terminal_capture.end()
+        obs_buf, _, obs_history, _, _, _, dones, infos, depth = unpack_observations(step_value, 9)
+        steps_run += 1
+        episode_steps += 1
+        timeout_flags = infos.get("time_outs") if isinstance(infos, dict) else None
 
-    # Per-env lora assignment, updated at each classification tick and held
-    # fixed for the steps in between. Starts on the baseline/random_uniform
-    # policy for every env until the first classification pass runs.
-    assigned_lora = torch.full((env.num_envs,), -1, dtype=torch.long, device=env.device)
+        step_positions = env.simulator.base_pos.clone()
+        for env_id, state in terminal_capture.states.items():
+            step_positions[env_id] = state["position"]
+        finish_distance = (finish_x - start_x).clamp_min(0.0)
+        progress = (step_positions[:, 0] - start_x).clamp_min(0.0)
+        max_progress = torch.maximum(max_progress, torch.minimum(progress, finish_distance))
 
-    total_steps = int(args.num_episodes * env.max_episode_length)
-    for i in range(total_steps):
-        actions = policy_set.act(obs_buf.detach(), obs_history.detach(), depth.detach(), assigned_lora.detach())
-        obs_buf, privileged_obs_buf, obs_history, explicit_labels, next_states, rews, dones, infos, depth = \
-            env.step(actions.detach())
+        done_ids = set(dones.nonzero(as_tuple=False).flatten().detach().cpu().tolist())
+        course_ids = set((step_positions[:, 0] >= finish_x).nonzero(as_tuple=False).flatten().cpu().tolist())
+        columns = track_ids.to(step_positions.device)
+        lateral_failure = (
+            (step_positions[:, 1] < columns * width)
+            | (step_positions[:, 1] >= (columns + 1) * width)
+        )
+        lateral_ids = set(lateral_failure.nonzero(as_tuple=False).flatten().cpu().tolist())
 
-        if i % args.classify_every == 0:
-            gt_labels_id = get_ground_truth_labels(env)
-            gt_labels = [TERRAIN_KEYS[int(l)].lower() for l in gt_labels_id]
-            pred_labels = []
-            _depth = env.depth_sensor_output.squeeze().detach().cpu().clone()
-            _euler = env.simulator._base_euler.detach().cpu().clone()
-            _angve = env.simulator.base_ang_vel.detach().cpu().clone()
-            pred_labels.append(predict_fn(_depth, _euler, _angve))
-            cls_stats.update(gt_labels, pred_labels)
-            # Each env is routed to the sub-policy matching *its own*
-            # classifier prediction - no global/majority swap.
-            assigned_lora = torch.tensor(
-                [label_to_lora(l) for l in gt_labels], dtype=torch.long, device=env.device
+        if (steps_run - 1) % args.classify_every == 0:
+            raw_truth, canonical_truth = get_ground_truth_labels(env, args.look_ahead_frac)
+            valid = _depth_valid(depth)
+            if done_ids:
+                valid[list(done_ids)] = False
+            valid_ids = valid.nonzero(as_tuple=False).flatten()
+            if valid_ids.numel():
+                sensor_depth = depth[valid_ids].detach()
+                euler = env.simulator._base_euler[valid_ids].detach()
+                angular_velocity = env.simulator.base_ang_vel[valid_ids].detach()
+                probabilities = runtime_classifier.predict(sensor_depth, euler, angular_velocity)
+                probabilities = probabilities.to(device)
+                if probabilities.shape[0] != valid_ids.numel():
+                    raise RuntimeError("Classifier batch size does not match valid environment count")
+                for batch_index, env_id in enumerate(valid_ids.detach().cpu().tolist()):
+                    truth = canonical_truth[env_id]
+                    probability = probabilities[batch_index]
+                    instant_id = runtime_classifier.class_ids[int(probability.argmax().item())]
+                    instant_label = canonicalize_label(instant_id)
+                    bayes_step = filters[env_id].update(probability)
+                    bayes_label = canonicalize_label(bayes_step.label)
+                    posterior = bayes_step.posterior
+                    if args.selector_mode == "oracle":
+                        selected = truth
+                    elif args.selector_mode == "instantaneous":
+                        selected = instant_label
+                    elif args.selector_mode == "bayes":
+                        selected = bayes_label
+                    else:
+                        selected = "rough"
+                    if selection_initialized[env_id] and selected != selected_skills[env_id]:
+                        classification.switch_count += 1
+                    selection_initialized[env_id] = True
+                    selected_skills[env_id] = selected
+                    assigned_lora[env_id] = label_to_lora(selected)
+                    inst_correct[env_id] += int(instant_label == truth)
+                    inst_total[env_id] += 1
+                    bayes_correct[env_id] += int(bayes_label == truth)
+                    bayes_total[env_id] += 1
+
+                    if previous_truth[env_id] is not None and truth != previous_truth[env_id]:
+                        pending_transition[env_id] = (truth, steps_run)
+                    previous_truth[env_id] = truth
+                    pending = pending_transition[env_id]
+                    if pending is not None and bayes_label == pending[0]:
+                        classification.delays.append(steps_run - pending[1])
+                        pending_transition[env_id] = None
+                    record = {
+                        "step": steps_run, "env_id": env_id,
+                        "track_id": int(track_ids[env_id].item()),
+                        "raw_ground_truth": raw_truth[env_id],
+                        "canonical_ground_truth": truth,
+                        "class_ids": [str(value) for value in runtime_classifier.class_ids],
+                        "instantaneous_probabilities": probability.detach().cpu().tolist(),
+                        "instantaneous_label": instant_label,
+                        "bayes_posterior": posterior.detach().cpu().tolist(),
+                        "bayes_label": bayes_label,
+                        "selected_skill": selected,
+                    }
+                    classification.update(truth, instant_label, bayes_label, selected, record)
+
+        completed_ids = sorted(done_ids | course_ids | lateral_ids)
+        manual_reset_ids = []
+        for env_id in completed_ids:
+            track_id = int(track_ids[env_id].item())
+            timeout = (
+                bool(timeout_flags[env_id].item()) if timeout_flags is not None
+                else terminal_capture.states.get(env_id, {}).get("timeout", False)
             )
+            if env_id in course_ids:
+                success, reason = True, "course_complete"
+            elif timeout:
+                success, reason = True, "timeout"
+            elif env_id in lateral_ids:
+                success, reason = False, "left_column"
+            else:
+                success, reason = False, "termination"
+            if completed_by_track[track_id] < args.episodes_per_track:
+                episode_rows.append({
+                    "selector_mode": args.selector_mode,
+                    "classifier_approach": approach,
+                    "bayes_filter_approach": args.bayes_filter_approach,
+                    "bayes_filter_path": str(bayes_path),
+                    "seed": args.seed, "difficulty": args.difficulty,
+                    "track_id": track_id,
+                    "terrain_sequence": args.track_layout[track_id]["sequence"],
+                    "success": success, "termination_reason": reason,
+                    "max_forward_distance_m": float(max_progress[env_id].item()),
+                    "episode_steps": terminal_capture.states.get(env_id, {}).get(
+                        "episode_steps", int(episode_steps[env_id].item())
+                    ),
+                    "instantaneous_correct": int(inst_correct[env_id].item()),
+                    "instantaneous_total": int(inst_total[env_id].item()),
+                    "bayes_correct": int(bayes_correct[env_id].item()),
+                    "bayes_total": int(bayes_total[env_id].item()),
+                })
+                completed_by_track[track_id] += 1
+            if env_id not in done_ids:
+                manual_reset_ids.append(env_id)
 
-        ep_stats.on_done(env.simulator.base_pos, dones, infos)
+        if completed_ids:
+            for env_id in completed_ids:
+                filters[env_id].reset()
+                selected_skills[env_id] = "rough"
+                selection_initialized[env_id] = False
+                previous_truth[env_id] = None
+                pending_transition[env_id] = None
+            if manual_reset_ids:
+                reset_tensor = torch.tensor(manual_reset_ids, device=device, dtype=torch.long)
+                env.reset_idx(reset_tensor)
+                env.compute_observations()
+                obs_buf, _, obs_history, _, _, depth = unpack_observations(env.get_observations(), 6)
+            if args.selector_mode == "oracle":
+                _, oracle_labels = get_ground_truth_labels(env, args.look_ahead_frac)
+                for env_id in completed_ids:
+                    selected_skills[env_id] = oracle_labels[env_id]
+            assigned_lora = torch.tensor(
+                [label_to_lora(label) for label in selected_skills], device=device, dtype=torch.long
+            )
+            reset_tensor = torch.tensor(completed_ids, device=device, dtype=torch.long)
+            start_x[reset_tensor] = env.simulator.base_pos[reset_tensor, 0]
+            max_progress[reset_tensor] = 0.0
+            episode_steps[reset_tensor] = 0
+            inst_correct[reset_tensor] = 0
+            inst_total[reset_tensor] = 0
+            bayes_correct[reset_tensor] = 0
+            bayes_total[reset_tensor] = 0
 
-        if dones[0]:
-            reset_fn()
+    classification_summary = classification.summary()
+    overall = _summary_rows(episode_rows)
+    overall.update({
+        "quotas_complete": all(value == args.episodes_per_track for value in completed_by_track),
+        "completed_by_track": completed_by_track,
+        "simulation_steps": steps_run,
+        "instantaneous_classification_accuracy": classification_summary["instantaneous"]["accuracy"],
+        "bayes_classification_accuracy": classification_summary["bayes"]["accuracy"],
+    })
+    return {
+        "metadata": {
+            "task": args.task, "policy_jit": args.jit,
+            "selector_mode": args.selector_mode,
+            "classifier_approach": approach, "classifier_dir": args.classifier_dir,
+            "bayes_filter_approach": args.bayes_filter_approach,
+            "bayes_filter_path": str(bayes_path), "seed": args.seed,
+            "difficulty": args.difficulty, "look_ahead_frac": args.look_ahead_frac,
+            "disabled_randomizations": sorted(
+                name for name, enabled in EVAL_DOMAIN_RANDOMIZATION_ENABLED.items()
+                if not enabled
+            ),
+            "track_layout": args.track_layout,
+        },
+        "headline": {
+            "episodic_success_rate": overall["success_rate"],
+            "episodic_forward_distance_m": overall["mean_forward_distance_m"],
+            "instantaneous_classification_accuracy": overall["instantaneous_classification_accuracy"],
+            "bayes_classification_accuracy": overall["bayes_classification_accuracy"],
+        },
+        "overall": overall,
+        "per_column": [
+            {
+                **_summary_rows(episode_rows, track),
+                "terrain_sequence": args.track_layout[track]["sequence"],
+                "seed": args.seed,
+                "difficulty": args.difficulty,
+                "selector_mode": args.selector_mode,
+                "classifier_approach": approach,
+                "bayes_filter_approach": args.bayes_filter_approach,
+            }
+            for track in range(10)
+        ],
+        "classification": classification_summary,
+        "classification_ticks": classification.ticks,
+        "episodes": episode_rows,
+    }
 
-    return ep_stats.summary(), cls_stats.summary()
+
+def save_results(payload, out_dir, task):
+    root = Path(out_dir or Path(LEGGED_GYM_ROOT_DIR) / "exp_logs" / "classifier_eval")
+    root.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    json_path = root / f"eval_{task}_{timestamp}.json"
+    csv_path = root / f"eval_{task}_{timestamp}_episodes.csv"
+    with json_path.open("w") as stream:
+        json.dump(payload, stream, indent=2, allow_nan=True)
+    rows = payload["episodes"]
+    with csv_path.open("w", newline="") as stream:
+        if rows:
+            csv_rows = [{**row, "terrain_sequence": "|".join(row["terrain_sequence"])} for row in rows]
+            writer = csv.DictWriter(stream, fieldnames=list(csv_rows[0]))
+            writer.writeheader()
+            writer.writerows(csv_rows)
+    return json_path, csv_path
 
 
 def main():
     args = get_args()
-    ep_summary, cls_summary = run_eval(args)
-
-    print("\n=== Success / Distance ===")
-    print(f"  completed episodes : {ep_summary['num_completed_episodes']}")
-    print(f"  success rate        : {ep_summary['success_rate']:.3f}")
-    print(f"  distance (m) mean   : {ep_summary['distance_mean']:.3f}")
-    print(f"  distance (m) median : {ep_summary['distance_median']:.3f}")
-    print(f"  distance (m) std    : {ep_summary['distance_std']:.3f}")
-
-    print("\n=== Classifier accuracy ===")
-    print(f"  overall accuracy : {cls_summary['overall_accuracy']:.3f} "
-          f"({cls_summary['total_predictions']} predictions)")
-    for gt, stats in cls_summary["per_class"].items():
-        print(f"    {gt:>20s} : acc={stats['accuracy']:.3f}  (n={stats['support']})")
-
-    out_dir = args.out_dir or os.path.join(LEGGED_GYM_ROOT_DIR, "exp_logs", "classifier_eval")
-    os.makedirs(out_dir, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_path = os.path.join(out_dir, f"eval_{args.task}_{timestamp}.json")
-    with open(out_path, "w") as f:
-        json.dump({"args": vars(args), "success_distance": ep_summary, "classification": cls_summary}, f, indent=2)
-    print(f"\nSaved results to: {out_path}")
+    payload = run_eval(args)
+    headline = payload["headline"]
+    print("\n=== Headline results ===")
+    print(f"Episodic success rate:             {headline['episodic_success_rate']:.3f}")
+    print(f"Mean episodic forward distance:    {headline['episodic_forward_distance_m']:.3f} m")
+    print(f"Instantaneous classification acc.: {headline['instantaneous_classification_accuracy']:.3f}")
+    print(f"Bayes classification accuracy:     {headline['bayes_classification_accuracy']:.3f}")
+    if not payload["overall"]["quotas_complete"]:
+        print(f"WARNING: incomplete track quotas: {payload['overall']['completed_by_track']}")
+    for track in payload["metadata"]["track_layout"]:
+        print(f"Track {track['track_id']}: {' -> '.join(track['sequence'])}")
+        for cell in track["cells"]:
+            print(f"  row {cell['row']}: {cell['raw_label']} {cell['parameters']}")
+    json_path, csv_path = save_results(payload, args.out_dir, args.task)
+    print(f"Saved JSON: {json_path}")
+    print(f"Saved episodes CSV: {csv_path}")
 
 
 if __name__ == "__main__":
