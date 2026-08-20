@@ -422,6 +422,8 @@ def override_configs(env_cfg, args):
             env_cfg.terrain.curriculum = False
             env_cfg.terrain.selected   = False
             env_cfg.terrain.custom_selected   = True
+            env_cfg.custom_command_curriculum = False
+            env_cfg.zero_cmd_prob = 0.0
             #env_cfg.commands.custom_command_curriculum = True
             env_cfg.commands.ranges.lin_vel_x = [0.5, 1.0]   # min max [m/s]
             env_cfg.commands.ranges.lin_vel_y = [0.0, 0.0]   # min max [m/s]
@@ -657,53 +659,13 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
 
     # logger = ExpLogger(train_cfg.runner.exp_data_path)
 
-    from legged_gym.utils.depth_terrain_classifier.bayesian_terrain_filter import (
-        BayesianTerrainFilter,
-        BayesianFilteredTerrainClassifier,
-    )
-    from legged_gym.utils.depth_terrain_classifier.depth_terrain_classifier import (
-        DepthTerrainClassifier,
-    )
+    from legged_gym.scripts.evaluation.high_level_evaluation import create_classifier
 
     def make_terrain_detector(ckpt_dir):
-        cfg = torch.load(os.path.join(ckpt_dir, "args.pt"), map_location="cpu")
-
-        fitted_model = DepthTerrainClassifier(
-            pca_dim=cfg["pca_dim"],
-            num_prototypes=cfg["num_prototypes"],
-        )
-        fitted_model.load(os.path.join(ckpt_dir, "fitted_model.pt"))
-        fitted_model.reset_temporal_filter()
-
-        bayesian_filter = BayesianTerrainFilter(
-            cfg["lables"],
-            {
-                "baseline": 0.80,
-                "stairs": 0.10,
-                # "pit": 0.10,
-                "gap": 0.10,
-            },
-            cfg["transition"],
-            cfg.get("observation"),
-        )
-        bayesian_filter.load(os.path.join(ckpt_dir, "bayes_filter.pt"))
-        bayesian_filter.reset()
-
-        return BayesianFilteredTerrainClassifier(
-            fitted_model,
-            bayesian_filter,
-        )
+        return create_classifier(ckpt_dir, env.device)
 
     if args.terrain_detector:
-        from legged_gym.utils.depth_terrain_classifier.depth_terrain_classifier import DepthTerrainClassifier
-        terrain_detector = DepthTerrainClassifier(pca_dim=12, num_prototypes=3)
-        terrain_detector.load(args.terrain_detector)
-        terrain_detector.reset_temporal_filter()
-    if args.terrain_detector_jit:
-        terrain_detector = torch.jit.load(args.terrain_detector_jit)
-    if args.baysian_filter:
-        terrain_detector = make_terrain_detector(args.baysian_filter)
-        terrain_detector_comp = make_terrain_detector(args.baysian_filter)
+        terrain_detector = make_terrain_detector(args.terrain_detector)
 
     if "lora" in train_cfg.runner.experiment_name.lower():
         folder = "go2_lora_seq_terrain_tests"
@@ -814,13 +776,27 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
     #    base_lin_vel,
     #    base_ang_vel
     #)
-    env._resample_commands(torch.arange(env.num_envs))
+    #env._resample_commands(torch.arange(env.num_envs))
+    if args.multiterrain:
+        commands = torch.zeros_like(env.commands)
+        from legged_gym.utils.math_utils import torch_rand_float
+        commands[:, 0] = torch_rand_float(0.5, 1.0, (env.num_envs,1), env.device).squeeze(1)
+        commands[:, 1] = 0
+        commands[:, 2] = 0
+        commands[:, 3] = torch_rand_float(-3.14, 3.14, (env.num_envs,1), env.device).squeeze(1)
     for i in range(int(10.00*env.max_episode_length)):
         if not args.headless and args.follow_robot:
             pos = env.simulator.base_pos[0].cpu().numpy() + np.array(env.cfg.viewer.pos)
             lookat = env.simulator.base_pos[0].cpu().numpy() + np.array(env.cfg.viewer.lookat)
             env.set_viewer_camera(pos, lookat)
         
+        #if args.multiterrain:
+        #    env.commands[:, :] = commands
+        #    if i % env.max_episode_length == 0:
+        #        env.commands[:, 0] = torch_rand_float(0.5, 1.0, (env.num_envs,1), env.device).squeeze(1)
+        #        env.commands[:, 1] = 0
+        #        env.commands[:, 2] = 0
+        #        env.commands[:, 3] = torch_rand_float(-3.14, 3.14, (env.num_envs,1), env.device).squeeze(1)
         if args.command_test_suite:
             current = i // env.max_episode_length
             factor = (((i % env.max_episode_length) // (env.max_episode_length // 2)) * (-2) + 1)
@@ -847,6 +823,8 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
             env.commands[:, 2] = -joystick.rx
         elif i % env.max_episode_length == 0:
             env._resample_commands(torch.arange(env.num_envs))
+
+        #print(env.commands)
         #print(env.commands)
         #if args.multiterrain:
         #    dx = env.simulator.base_pos[:, 0] - env.simulator.base_pos[:, 0]
@@ -914,25 +892,22 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
                     depth_images_log.append(env.depth_sensor_output.detach().cpu().clone())
                     base_rpy_log.append(env.simulator._base_euler.detach().cpu().clone())
                     base_ang_vel_log.append(env.simulator.base_ang_vel.detach().cpu().clone())
-                if args.terrain_detector or args.baysian_filter:
-                    quality = 0.25
-                    _depth = env.depth_sensor_output[0].squeeze().detach().cpu().clone()
-                    _euler = env.simulator._base_euler[0].detach().cpu().clone()
-                    _angve = env.simulator.base_ang_vel[0].detach().cpu().clone()
-                    predicted = terrain_detector.predict_depth(_depth, _euler, _angve)
-                    if args.terrain_detector:
-                        print(predicted.label, predicted.instantaneous_label)
-                    if args.baysian_filter:
-                        print(predicted.label)
-                if args.terrain_detector_jit:
-                    _depth = env.depth_sensor_output[0].unsqueeze(0).detach().cpu()
-                    label = terrain_detector.predict_depth(_depth).lower()
-                    print(label)
+                if args.terrain_detector:
+                    _depth = env.depth_sensor_output
+                    _euler = env.simulator._base_euler.detach()
+                    _angve = env.simulator.base_ang_vel.detach()
+                    predicted = terrain_detector.predict(_depth, _euler, _angve)
+                    print(terrain_detector.class_ids[torch.argmax(predicted[0])])
                 if args.hard_terrain_detector:
                     look_ahead_frac = 0 if args.multiterrain else 0.2
                     _, row_col = get_viewed_terrain_idx(env, look_ahead_frac=look_ahead_frac)
                     row_col = row_col.cpu()
-                    labels = env.simulator._terrain.labels[row_col[:, 0], row_col[:, 1]]
+                    labels = np.atleast_1d(
+                        env.simulator._terrain.labels[
+                            row_col[:, 0],
+                            row_col[:, 1]
+                        ]
+                    )
                     if args.save_depth_classifier_data:
                         terrain_name_log.append(labels)
                     if args.jit:
@@ -976,11 +951,11 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
         if i % 5 == 0 and args.save_depth_classifier_data and args.filter_depth_classifier_data:
             resets_log.append(dones)
 
-        if dones[0] == True:
-            if args.terrain_detector:
-                terrain_detector.reset_temporal_filter()
-            if args.baysian_filter:
-                terrain_detector.reset()
+        #if dones[0] == True:
+        #    if args.terrain_detector:
+        #        terrain_detector.reset_temporal_filter()
+        #    if args.baysian_filter:
+        #        terrain_detector.reset()
         
         #print(env.commands[0, :])
         # print debug info
@@ -1243,6 +1218,7 @@ class multi_jit:
         policy_envs = {}
 
         for env_id in range(num_envs):
+            #print("HERE", env_id, labels)
             x = labels[env_id]
             policy_idx = self._get_policy_index(labels[env_id])
 
@@ -1253,9 +1229,6 @@ class multi_jit:
 
         # Run each policy only on the environments that need it
         for policy_idx, env_ids in policy_envs.items():
-
-            
-
             env_ids = torch.tensor(
                 env_ids,
                 device=obs_buf.device,
