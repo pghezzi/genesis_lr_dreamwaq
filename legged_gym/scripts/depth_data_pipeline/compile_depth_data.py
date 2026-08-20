@@ -49,15 +49,16 @@ def get_data_raw(load_file, frac=0.1, seed=42):
     return depth_images, base_rpy, base_ang_vel, terrain_labels
 
 def calibration_data(*args, **kwargs):
-    calibration_depth, calibration_rpy, _, _  = get_data_raw(*args, **kwargs)
+    calibration_depth, calibration_rpy, calibration_ang_vel, _  = get_data_raw(*args, **kwargs)
     return {
         "depth_images": data_flattening(calibration_depth),
         "orientation_rpy": data_flattening(calibration_rpy),
+        "angular_velocity": data_flattening(calibration_ang_vel)
     }
 
 def train_val_test_data(*args, **kwargs):
     depth_images, base_rpy, base_ang_vel, terrain_labels = get_data_raw(*args, **kwargs)
-    episode_length = int(depth_images.shape(0))
+    episode_length = int(depth_images.shape[0])
 
     def _split_flat(t):
         train_split = int(t.shape[0] * 0.6)
@@ -115,7 +116,10 @@ def merge_sets(*datasets):
     for key in datasets[0]:
         if key == "labels":
             merged[key] = sum((d[key] for d in datasets), [])
+        elif key == "per_eps":
+            merged[key] = datasets[0][key]
         else:
+            
             merged[key] = torch.cat([d[key] for d in datasets], dim=0)
     return merged
 
@@ -134,6 +138,9 @@ if __name__ == "__main__":
                         help="amount of envs used from total(optional)")
     parser.add_argument("--seed", type=int, default=42,
                         help="random seed for random events(optional)")
+    parser.add_argument("--calibration_label", type=str, default="random_uniform",
+                        help="label for calibration")
+    
 
     args = parser.parse_args()
 
@@ -144,11 +151,16 @@ if __name__ == "__main__":
 
     if args.calibration:
         calibration = calibration_data(args.calibration, **get_data_args)
+        calibration["labels"] = [args.calibration_label] * calibration["depth_images"].shape[0]   
     
     all_data    = [train_val_test_data(file, **get_data_args) for i, file in enumerate(args.files)]
     train       = merge_sets(*[data[0] for data in all_data])
     val         = merge_sets(*[data[1] for data in all_data])
     test        = merge_sets(*[data[2] for data in all_data])
+
+    print(train["depth_images"].shape)
+    print(val["depth_images"].shape)
+    print(test["depth_images"].shape)
 
     out_dir = f"{LEGGED_GYM_ROOT_DIR}/depth_waq_selector/processed_data/{timestamp}_frac_{str(args.frac).replace('.','_')}"
     os.makedirs(out_dir, exist_ok=True)

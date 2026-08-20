@@ -14,7 +14,7 @@ import argparse
 
 import cv2
 
-def get_viewed_terrain_idx(env, look_ahead_frac: float = 0.75):
+def get_viewed_terrain_idx(env, look_ahead_frac: float = 0.2):
     """
     Determine which terrain patch(es) the robot's depth camera is looking at.
 
@@ -64,6 +64,8 @@ def get_viewed_terrain_idx(env, look_ahead_frac: float = 0.75):
     idx = torch.argmin(dists, dim=-1)                    # (num_envs,)
 
     row_col = torch.stack([idx // num_cols, idx % num_cols], dim=-1)
+
+    actual = base_pos[:, :2]
 
     if single:
         idx = idx.squeeze(0)
@@ -195,7 +197,7 @@ def get_args():
     parser.add_argument('--extreme', action='store_true', default=False, help="use extreme version of test terrain")
 
     parser.add_argument('--save_depth_classifier_data', action='store_true', default=False, help="if with depth cam use to save depth image and rpy of all executed steps")
-    parser.add_argument('--filter_depth_classifier_data', type=str, default='', help="split data based on terminates")
+    parser.add_argument('--filter_depth_classifier_data', action='store_true', default=False, help="split data based on terminates")
     parser.add_argument('--no_depth_cam', action='store_true', default=False, help="disable test cam if available")
 
     parser.add_argument('--terrain_detector', type=str, default='', help="test a terrain detector")
@@ -261,13 +263,13 @@ def override_configs(env_cfg, args):
         "stairs": {
             "type": "terrain_utils.pyramid_stairs_terrain",
             "step_width": 0.4,
-            "step_height": -0.2,
+            "step_height": -0.25,
             "platform_size": 3.0,
         },
         "upwards_stairs": {
             "type": "terrain_utils.pyramid_stairs_terrain",
             "step_width": 0.4,
-            "step_height": 0.2,
+            "step_height": 0.3,
             "platform_size": 3.0,
         },
         "discrete": {
@@ -297,7 +299,7 @@ def override_configs(env_cfg, args):
         },
         "pit": {
             "type": "terrain_utils.pit_terrain",
-            "depth": 0.3,
+            "depth": 0.35,
             "platform_size": 3.0,
         },
         "multiple_high_platforms" : {
@@ -337,11 +339,74 @@ def override_configs(env_cfg, args):
     # adjust parameters according to terrain type
     #env_cfg.terrain.vertical_scale = 0.1
     if env_cfg.terrain.mesh_type in ["heightfield", "trimesh"]:
+        if args.curriculum:
+            env_cfg.terrain.max_init_terrain_level = env_cfg.terrain.num_rows - 1
+            env_cfg.terrain.num_cols = sum(1 for i in env_cfg.terrain.terrain_proportions if i > 0)
+            env_cfg.commands.custom_command_curriculum = False
+
+            def sigfig(x, n=3):
+                if x == 0:
+                    return 0
+                return round(x, n - int(np.floor(np.log10(abs(x)))) - 1)
+            
+            def flatten_dict(d, parent_key=""):
+                """Flatten a nested dictionary into {key.path: value}."""
+                items = {}
+
+                for key, value in d.items():
+                    new_key = f"{parent_key}.{key}" if parent_key else key
+
+                    if isinstance(value, dict):
+                        items.update(flatten_dict(value, new_key))
+                    else:
+                        items[new_key] = value
+
+                return items
+
+
+            def generate_curriculum_values(config, x):
+                """
+                Generate actual values for difficulty levels:
+                    0/x, 1/x, ..., (x-1)/x
+                """
+                flat_config = flatten_dict(config)
+
+                difficulties = [i / x for i in range(x)]
+                result = {}
+
+                for key, expression in flat_config.items():
+                    values = []
+
+                    for difficulty in difficulties:
+                        # Numeric constants such as "0.20"
+                        # and expressions such as "difficulty * 0.4"
+                        # are both handled here.
+                        if isinstance(expression, (int, float)):
+                            value = expression
+                        else:
+                            value = eval(
+                                expression,
+                                {"np": np, "__builtins__": {}},
+                                {"difficulty": difficulty},
+                            )
+
+                        values.append(sigfig(value))
+
+                    result[key] = values
+
+                return result
+
+            generated = generate_curriculum_values(
+                env_cfg.terrain.terrain_curriculum_difficulty,
+                env_cfg.terrain.num_rows,
+            )
+
+            for key, values in generated.items():
+                print(f"{key}: {values}")
+            return
         env_cfg.terrain.num_rows = 10
         env_cfg.terrain.num_cols = 1
         env_cfg.terrain.border_size = 5.0
-        if args.curriculum:
-            return
         #if args.save_depth_classifier_data:
         #    env_cfg.init_state.yaw_random_scale = 3.14 # camera views all terrain possible
         #    env_cfg.commands.heading_command = False
@@ -349,12 +414,22 @@ def override_configs(env_cfg, args):
         #    env_cfg.commands.custom_command_curriculum = True
         #    pass
         if args.multiterrain:
+            env_cfg.terrain.border_size = 0.0
+            env_cfg.env.episode_length_s = 120
             env_cfg.terrain.num_rows = 10
             env_cfg.terrain.num_cols = 4
             env_cfg.terrain.platform_size = 3.0
             env_cfg.terrain.curriculum = False
             env_cfg.terrain.selected   = False
             env_cfg.terrain.custom_selected   = True
+            #env_cfg.commands.custom_command_curriculum = True
+            env_cfg.commands.ranges.lin_vel_x = [0.5, 1.0]   # min max [m/s]
+            env_cfg.commands.ranges.lin_vel_y = [0.0, 0.0]   # min max [m/s]
+            env_cfg.commands.ranges.ang_vel_yaw = [-1, 1]    # min max [rad/s]
+            #env_cfg.commands.ranges.heading = [0.0, 0.0]
+            env_cfg.commands.ranges.heading = [-3.14, 3.14]
+
+            
             terrain_types = [
                 {
                     "type": "terrain_utils.random_uniform_terrain",
@@ -382,7 +457,7 @@ def override_configs(env_cfg, args):
                 },
                 {
                     "type": "terrain_utils.pit_terrain",
-                    "depth": 0.2,
+                    "depth": 0.3,
                     "platform_size": 3.0,
                 },
             ]
@@ -400,7 +475,7 @@ def override_configs(env_cfg, args):
                 if env_cfg.terrain.mesh_type == "heightfield":
                     env_cfg.terrain.curriculum = True
                     env_cfg.terrain.selected   = False
-                    env_cfg.terrain.terrain_proportions = [0] * 10
+                    env_cfg.terrain.terrain_proportions = [0] * 11
                     env_cfg.terrain.terrain_kwargs = {}
                 elif env_cfg.terrain.mesh_type == "trimesh":
                     env_cfg.terrain.curriculum = False
@@ -449,8 +524,18 @@ def override_configs(env_cfg, args):
                 else:
                     if args.test_terrain == "baseline":
                         env_cfg.terrain.terrain_kwargs = TERRAIN_CONFIGS["random_uniform"]
+                    elif args.test_terrain == "all_stairs":
+                        env_cfg.terrain.curriculum = True
+                        env_cfg.terrain.selected   = False
+                        env_cfg.terrain.num_rows = 10
+                        env_cfg.terrain.num_cols = 2
+                        env_cfg.terrain.terrain_curriculum_difficulty["step_height"] = "0.25"
+                        env_cfg.terrain.terrain_proportions = [0] * 11
+                        env_cfg.terrain.terrain_proportions[TERRAIN_INDEX["stairs"]] = 0.5
+                        env_cfg.terrain.terrain_proportions[TERRAIN_INDEX["upwards_stairs"]] = 0.5
                     else:
                         env_cfg.terrain.terrain_kwargs = TERRAIN_CONFIGS[args.test_terrain]
+                    print(env_cfg.terrain.terrain_kwargs)
 
         #env_cfg.terrain.terrain_kwargs = {"type": "terrain_utils.random_uniform_terrain", 
         #                                  "min_height" : -0.05, "max_height": 0.05, 
@@ -729,7 +814,8 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
     #    base_lin_vel,
     #    base_ang_vel
     #)
-    for i in range(int(4.00*env.max_episode_length)):
+    env._resample_commands(torch.arange(env.num_envs))
+    for i in range(int(10.00*env.max_episode_length)):
         if not args.headless and args.follow_robot:
             pos = env.simulator.base_pos[0].cpu().numpy() + np.array(env.cfg.viewer.pos)
             lookat = env.simulator.base_pos[0].cpu().numpy() + np.array(env.cfg.viewer.lookat)
@@ -762,10 +848,6 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
         elif i % env.max_episode_length == 0:
             env._resample_commands(torch.arange(env.num_envs))
         #print(env.commands)
-        #env.commands[:, 0] = 1
-        #env.commands[:, 1] = 0
-        #env.commands[:, 2] = 0
-        #env.commands[:, 3] = 0
         #if args.multiterrain:
         #    dx = env.simulator.base_pos[:, 0] - env.simulator.base_pos[:, 0]
         #    dy = env.simulator.env_origins[:, 1] - env.simulator.base_pos[:, 1]
@@ -847,25 +929,14 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
                     label = terrain_detector.predict_depth(_depth).lower()
                     print(label)
                 if args.hard_terrain_detector:
-                    _, row_col = get_viewed_terrain_idx(env)
+                    look_ahead_frac = 0 if args.multiterrain else 0.2
+                    _, row_col = get_viewed_terrain_idx(env, look_ahead_frac=look_ahead_frac)
                     row_col = row_col.cpu()
                     labels = env.simulator._terrain.labels[row_col[:, 0], row_col[:, 1]]
                     if args.save_depth_classifier_data:
                         terrain_name_log.append(labels)
                     if args.jit:
-                        if labels.ndim == 0:
-                            t = TERRAIN_KEYS[labels]
-                        else:
-                            t = TERRAIN_KEYS[labels[0]]
-                        if t == "random_uniform":
-                            policy.swap(-1)
-                        if "stairs" in t:
-                            policy.swap(1)
-                        if t == "gap":
-                            policy.swap(0)
-                        if t in ("pit", "center_platform"):
-                            policy.swap(2)
-                        print(t)
+                        policy.set_labels(labels)
         elif "waq" in task_name:
             actions = policy(obs_buf, obs_history)
             obs_buf, privileged_obs_buf, obs_history, explicit_labels, next_states, rews, dones, infos = env.step(actions.detach())            
@@ -902,7 +973,7 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
                 env.simulator._terrain_levels[env_ids] = env.simulator._max_terrain_level
                 env.reset_idx(env_ids)
 
-        if args.save_depth_classifier_data and args.filter_depth_classifier_data:
+        if i % 5 == 0 and args.save_depth_classifier_data and args.filter_depth_classifier_data:
             resets_log.append(dones)
 
         if dones[0] == True:
@@ -969,7 +1040,8 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
             splits = torch.nonzero(reset_tensor[:, env]).squeeze(1)
             last_split = 0
             for split in splits:
-                data.append(tensor[last_split:split, env])
+                t = tensor[last_split:split, env]
+                data.append(t)
                 last_split = split
             data.append(tensor[last_split:, env])
         lengths = torch.tensor([t.shape[0] for t in data], dtype=torch.float)
@@ -980,28 +1052,54 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
         final = [t[:target_len] for t in kept]
         return torch.stack(final, dim=1)
     
+    def terrain_keys(label):
+        if "stairs" in label:
+            return "stairs"
+        elif "pit" in label:
+            return "pit"
+        return label
+
     def tensor_to_keys(t):
+        if isinstance(t, torch.Tensor):
+            if t.dim() == 0:
+                return terrain_keys(TERRAIN_KEYS[t.item()])
+            return [tensor_to_keys(x) for x in t] 
         if isinstance(t, list):
             return [tensor_to_keys(x) for x in t]
-        return TERRAIN_KEYS[t]
+        return terrain_keys(TERRAIN_KEYS[t])
+    
+    def get_shape(x):
+        shape = []
+        while isinstance(x, list):
+            shape.append(len(x))
+            x = x[0] if x else []
+        return tuple(shape)
     
     if args.save_depth_classifier_data:
+        print("compiling")
         depth_images_tensor = torch.stack(depth_images_log, dim=0).squeeze(2)
+        del depth_images_log
         base_rpy_tensor = torch.stack(base_rpy_log, dim=0)
+        del base_rpy_log
         base_ang_vel_tensor = torch.stack(base_ang_vel_log, dim=0)
+        del base_ang_vel_log
         if terrain_name_log:
-            labels_tensor = torch.from_numpy(np.stack(arrays)).detach().cpu().clone()
+            labels_tensor = torch.from_numpy(np.stack(terrain_name_log)).detach().cpu()
+            del terrain_name_log
         else:
-            labels_list = None
+            labels_tensor = None
+        print("splitting")
         if args.filter_depth_classifier_data:
             reset_tensor = torch.stack(resets_log, dim=0)
+            print(depth_images_tensor.shape)
             depth_images_tensor = reset_split(depth_images_tensor, reset_tensor)   # [T, num_envs, H, W] (or however depth is shaped)
+            print(depth_images_tensor.shape)
             base_rpy_tensor = reset_split(base_rpy_tensor, reset_tensor)       # [T, num_envs, 4]
             base_ang_vel_tensor = reset_split(base_ang_vel_tensor, reset_tensor)
-            if labels_tensor:
-                labels_tensor = reset_split(base_ang_vel_tensor, reset_tensor)
-        if terrain_name_log:
-            labels_list = tensor_to_keys(labels_tensor)
+            if labels_tensor is not None:
+                labels_tensor = reset_split(labels_tensor, reset_tensor)
+        if labels_tensor is not None:
+            labels_tensor = tensor_to_keys(labels_tensor)
         save_dir = os.path.join(LEGGED_GYM_ROOT_DIR, 'depth_waq_selector', 'depth_data', train_cfg.runner.experiment_name)
         os.makedirs(save_dir, exist_ok=True)
 
@@ -1017,6 +1115,20 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
         )
 
         save_path = os.path.join(save_dir, save_name)
+        if args.test_terrain:
+            if "stairs" in args.test_terrain:
+                test_terrain = "stairs"
+            elif "pit" in args.test_terrain:
+                test_terrain = "pit"
+            else:
+                test_terrain = args.test_terrain
+
+        labels_list = labels_tensor if labels_tensor is not None else [
+                [test_terrain] * depth_images_tensor.shape[1]
+                for _ in range(depth_images_tensor.shape[0])
+            ]
+
+        print("Saving file")
 
         torch.save({
             "depth_images": depth_images_tensor,
@@ -1025,24 +1137,22 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
             "base_rpy_shape": tuple(base_rpy_tensor.shape),
             "base_ang_vel": base_ang_vel_tensor,
             "base_ang_vel_shape": tuple(base_ang_vel_tensor.shape),
-            "terrain_name": labels_list if labels_list else [
-                [args.test_terrain] * depth_images_tensor.shape[1]
-                for _ in range(depth_images_tensor.shape[0])
-            ],
+            "terrain_name": labels_list,
             "filtered": args.filter_depth_classifier_data
         }, save_path)
 
         print(f"Saved depth images {tuple(depth_images_tensor.shape)}, "
           f"base rpy {tuple(base_rpy_tensor.shape)}, "
           f"base ang vel {tuple(base_ang_vel_tensor.shape)}, "
-          f"and terrain name '{terrain_name_log}' to: {save_path}")
-
+          f"terrain name list {get_shape(labels_list)}"
+          f"and terrain name to: {save_path}")
         print(save_path)
 
 def export_policy(alg_runner, path: str, args, env_cfg, train_cfg):
     """export the policy as jit script according to different task types
 
-    Args:
+    Args:\        save_dir = os.path.join(LEGGED_GYM_ROOT_DIR, 'depth_waq_selector', 'depth_data', train_cfg.runner.experiment_name)
+
         alg_runner: algorithm runner
         path (str): path to which the policy is exported
         args: command line arguments
@@ -1073,6 +1183,112 @@ def export_policy(alg_runner, path: str, args, env_cfg, train_cfg):
     if args.export_onnx:
         print('Exported policy as onnx to: ', path)
     
+class multi_jit:
+    def __init__(self, policy, terrain_keys):
+        """
+        policy:
+            Your existing JIT policy containing the different policies.
+
+        terrain_keys:
+            TERRAIN_KEYS, e.g.
+            {
+                0: "gap",
+                1: "stairs",
+                2: "pit",
+                ...
+            }
+        """
+        self.policy = policy
+        self.terrain_keys = terrain_keys
+
+        # Map terrain name -> policy index
+        self.terrain_to_policy = {
+            "random_uniform": -1,
+            "gap": 0,
+            "stairs": 1,
+            "pit": 2,
+            "center_platform": 2,
+        }
+
+    def _get_policy_index(self, label):
+        terrain = self.terrain_keys[label]
+        if terrain == "random_uniform":
+            return -1
+        if terrain == "gap":
+            return 0
+        if "stairs" in terrain:
+            return 1
+        if terrain in ("pit", "center_platform"):
+            return 2
+
+        raise ValueError(f"Unknown terrain: {terrain}")
+
+    def __call__(self, obs_buf, obs_history, depth):
+        """
+        Run the appropriate policy for each environment.
+
+        Returns:
+            Same output shape as policy(obs_buf, obs_history, depth)
+        """
+        num_envs = obs_buf.shape[0]
+
+        # Get terrain labels from wherever you store them.
+        # This assumes they have already been provided to this class.
+        labels = self.labels
+
+        # First environment determines output shape/device/dtype.
+        output = None
+
+        # Group environments by policy
+        policy_envs = {}
+
+        for env_id in range(num_envs):
+            x = labels[env_id]
+            policy_idx = self._get_policy_index(labels[env_id])
+
+            if policy_idx not in policy_envs:
+                policy_envs[policy_idx] = []
+
+            policy_envs[policy_idx].append(env_id)
+
+        # Run each policy only on the environments that need it
+        for policy_idx, env_ids in policy_envs.items():
+
+            
+
+            env_ids = torch.tensor(
+                env_ids,
+                device=obs_buf.device,
+                dtype=torch.long,
+            )
+
+            # Select batch
+            obs = obs_buf[env_ids]
+            history = obs_history[env_ids]
+            d = depth[env_ids]
+
+            # Select policy
+            self.policy.swap(policy_idx)
+
+            actions = self.policy(obs, history, d)
+
+            # Allocate output after seeing policy output
+            if output is None:
+                output = torch.empty(
+                    (num_envs,) + actions.shape[1:],
+                    device=actions.device,
+                    dtype=actions.dtype,
+                )
+
+            output[env_ids] = actions
+
+        return output
+
+    def set_labels(self, labels):
+        self.labels = labels
+    
+    def swap(self, index):
+        pass
 
 def play(args):
     """Main function to run the play script
@@ -1097,11 +1313,11 @@ def play(args):
 
     policy = ppo_runner.get_inference_policy(device=env.device)
     policy1 = None
-
+    
     if args.jit:
         policy1 = policy
-        policy = torch.jit.load(args.jit,  map_location=args.gpu if not args.cpu else 'cpu')
-        policy.swap(-1)
+        policy = multi_jit(torch.jit.load(args.jit,  map_location=args.gpu if not args.cpu else 'cpu'), TERRAIN_KEYS)
+        policy.set_labels(torch.tensor([1]*env.num_envs))
     else:
         log_root = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name)
         path = get_load_path(log_root, load_run=train_cfg.runner.load_run, checkpoint=train_cfg.runner.checkpoint)

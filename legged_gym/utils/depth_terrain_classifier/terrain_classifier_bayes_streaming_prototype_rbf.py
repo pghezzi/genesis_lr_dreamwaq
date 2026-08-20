@@ -2858,6 +2858,8 @@ def search_bayes_filter_hyperparameters(
                 )
                 transition_training_labels = true_labels
                 transition_training_sequence_ids = sequence_ids
+            else:
+                transition_training_labels = classifier._normalize_labels(transition_training_labels)
             transition_cache = build_hybrid_transition_cache(
                 labels, transition_training_labels,
                 transition_training_sequence_ids=transition_training_sequence_ids,
