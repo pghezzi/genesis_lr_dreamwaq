@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
 
 import torch
+from torch import nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 
@@ -225,6 +226,33 @@ def get_files_for_training() -> tuple[Path, ...]:
         "train", "validation", "calibration", "structural_test", "bayes_validation", "ordered_test"
     ))
 
+def get_activation_fn(activation):
+    if isinstance(activation, nn.Module):
+        return activation
+
+    if isinstance(activation, str):
+        activations = {
+            "relu": nn.ReLU,
+            "elu": nn.ELU,
+            "selu": nn.SELU,
+            "gelu": nn.GELU,
+            "tanh": nn.Tanh,
+            "sigmoid": nn.Sigmoid,
+            "leaky_relu": nn.LeakyReLU,
+        }
+
+        name = activation.lower()
+        if name not in activations:
+            raise ValueError(
+                f"Unknown activation '{activation}'. "
+                f"Available: {list(activations.keys())}"
+            )
+
+        return activations[name]()
+
+    raise TypeError(
+        f"activation must be a string or nn.Module, got {type(activation)}"
+    )
 
 __all__ = [
     "classifier_metrics", "classifier_metrics_from_scores", "collect_engineered_scores",

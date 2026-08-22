@@ -8,6 +8,7 @@ from .util_func import (
     fit_nn, json_safe, load_training_files,
     save_results, sequence_ids_for,
     transition_training_kwargs, processing_batch_size,
+    get_activation_fn
 )
 
 import torch
@@ -37,7 +38,7 @@ class TerrainDepthClassifierNN(nn.Module):
         self.cnn_strides = list(cnn_strides)
         self.cnn_fc_layer_dims = list(cnn_fc_layer_dims)
         self.cnn_kernel_sizes = list(cnn_kernel_sizes)
-        self.cnn_activation_fn = cnn_activation_fn
+        self.cnn_activation_fn = get_activation_fn(cnn_activation_fn)
 
         in_channels = cnn_input_channel
         in_height, in_width = depth_image_resolution
@@ -86,10 +87,6 @@ class TerrainDepthClassifierNN(nn.Module):
     def get_args(self) -> dict:
         """Return constructor kwargs sufficient to rebuild an equivalent (untrained)
         instance via `TerrainDepthClassifierNN(**model.get_args())`.
-
-        Note: `cnn_activation_fn` is returned as the live module instance actually used
-        (reused across all conv/fc layers already, so this matches original construction).
-        For a JSON-serializable summary instead, use `cnn_activation_fn.__class__.__name__`.
         """
         return {
             "cls": self.__class__.__name__,
@@ -99,7 +96,7 @@ class TerrainDepthClassifierNN(nn.Module):
             "cnn_strides": list(self.cnn_strides),
             "cnn_fc_layer_dims": list(self.cnn_fc_layer_dims),
             "cnn_kernel_sizes": list(self.cnn_kernel_sizes),
-            "cnn_activation_fn": self.cnn_activation_fn,
+            "cnn_activation_fn": self.cnn_activation_fn.__class__.__name__,
         }
 
 def main():
@@ -203,7 +200,7 @@ def main():
         observation_modes=["soft"],
         observation_pseudocounts=[0.5],
         scoring="balanced_accuracy",
-        device="cpu",
+        device=device,
         **transition_kwargs,
     )
     bayes_runtime = time.perf_counter() - bayes_start

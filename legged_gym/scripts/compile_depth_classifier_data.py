@@ -1,7 +1,7 @@
+from legged_gym import LEGGED_GYM_ROOT_DIR
+
 import torch
 import os
-
-from legged_gym import LEGGED_GYM_ROOT_DIR
 
 
 SEED = 42

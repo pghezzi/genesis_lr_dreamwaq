@@ -294,12 +294,12 @@ def override_configs(env_cfg, args):
         },
         "gap": {
             "type": "terrain_utils.gap_terrain",
-            "gap_size": 0.5,
-            "platform_size": 3.0,
+            "gap_size": 0.6,
+            "platform_size": 5.0,
         },
         "pit": {
             "type": "terrain_utils.pit_terrain",
-            "depth": 0.35,
+            "depth": 0.3,
             "platform_size": 3.0,
         },
         "multiple_high_platforms" : {
@@ -424,6 +424,7 @@ def override_configs(env_cfg, args):
             env_cfg.terrain.custom_selected   = True
             env_cfg.custom_command_curriculum = False
             env_cfg.zero_cmd_prob = 0.0
+            env_cfg.init_state.yaw_random_scale = 3.14
             #env_cfg.commands.custom_command_curriculum = True
             env_cfg.commands.ranges.lin_vel_x = [0.5, 1.0]   # min max [m/s]
             env_cfg.commands.ranges.lin_vel_y = [0.0, 0.0]   # min max [m/s]
@@ -448,13 +449,13 @@ def override_configs(env_cfg, args):
                 {
                     "type": "terrain_utils.pyramid_stairs_terrain",
                     "step_width": 0.4,
-                    "step_height": -0.2,
+                    "step_height": -0.25,
                     "platform_size": 3.0,
                 },
                 {
                     "type": "terrain_utils.pyramid_stairs_terrain",
                     "step_width": 0.4,
-                    "step_height": 0.2,   # stairs up
+                    "step_height": 0.3,   # stairs up
                     "platform_size": 3.0,
                 },
                 {
@@ -473,6 +474,15 @@ def override_configs(env_cfg, args):
                 for _ in range(env_cfg.terrain.num_rows * env_cfg.terrain.num_cols)
             ]
         elif args.test_terrain:
+            if args.save_depth_classifier_data:
+                env_cfg.zero_cmd_prob = 0.0
+                env_cfg.init_state.yaw_random_scale = 3.14
+                #env_cfg.commands.custom_command_curriculum = True
+                env_cfg.commands.ranges.lin_vel_x = [0.5, 1.0]   # min max [m/s]
+                env_cfg.commands.ranges.lin_vel_y = [0.0, 0.0]   # min max [m/s]
+                env_cfg.commands.ranges.ang_vel_yaw = [-1, 1]    # min max [rad/s]
+                #env_cfg.commands.ranges.heading = [0.0, 0.0]
+                env_cfg.commands.ranges.heading = [-3.14, 3.14]
             if args.test_terrain == "plane":
                 if env_cfg.terrain.mesh_type == "heightfield":
                     env_cfg.terrain.curriculum = True
@@ -657,15 +667,21 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
     stop_state_log = 300 # number of steps before plotting states
     stop_rew_log = env.max_episode_length + 1 # number of steps before print average episode rewards
 
+    env.reset()
+
     # logger = ExpLogger(train_cfg.runner.exp_data_path)
 
-    from legged_gym.scripts.evaluation.high_level_evaluation import create_classifier
+    from legged_gym.scripts.evaluation.high_level_evaluation import create_classifier, auto_load_checkpoint_bayes_filter, RuntimeClassifier
+    import copy
 
     def make_terrain_detector(ckpt_dir):
-        return create_classifier(ckpt_dir, env.device)
+        classifier = create_classifier(ckpt_dir, env.device)
+        bayes_template = auto_load_checkpoint_bayes_filter(ckpt_dir, env.device)
+        filters = [copy.deepcopy(bayes_template) for _ in range(env.num_envs)]
+        return classifier, filters
 
     if args.terrain_detector:
-        terrain_detector = make_terrain_detector(args.terrain_detector)
+        terrain_detector, bayes_filters = make_terrain_detector(args.terrain_detector)
 
     if "lora" in train_cfg.runner.experiment_name.lower():
         folder = "go2_lora_seq_terrain_tests"
@@ -777,26 +793,17 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
     #    base_ang_vel
     #)
     #env._resample_commands(torch.arange(env.num_envs))
-    if args.multiterrain:
-        commands = torch.zeros_like(env.commands)
-        from legged_gym.utils.math_utils import torch_rand_float
-        commands[:, 0] = torch_rand_float(0.5, 1.0, (env.num_envs,1), env.device).squeeze(1)
-        commands[:, 1] = 0
-        commands[:, 2] = 0
-        commands[:, 3] = torch_rand_float(-3.14, 3.14, (env.num_envs,1), env.device).squeeze(1)
+    cho = torch.tensor([0, 3.14/2, 3.14, -3.14/2, -3.14])
+    commands = torch.zeros_like(env.commands)
+    commands[:, 0] = 1
+    commands[:, 1] = 0
+    commands[:, 2] = 0
+    commands[:, 3] = cho[torch.randint(0, cho.shape[0], (env.num_envs,))]
     for i in range(int(10.00*env.max_episode_length)):
         if not args.headless and args.follow_robot:
             pos = env.simulator.base_pos[0].cpu().numpy() + np.array(env.cfg.viewer.pos)
             lookat = env.simulator.base_pos[0].cpu().numpy() + np.array(env.cfg.viewer.lookat)
             env.set_viewer_camera(pos, lookat)
-        
-        #if args.multiterrain:
-        #    env.commands[:, :] = commands
-        #    if i % env.max_episode_length == 0:
-        #        env.commands[:, 0] = torch_rand_float(0.5, 1.0, (env.num_envs,1), env.device).squeeze(1)
-        #        env.commands[:, 1] = 0
-        #        env.commands[:, 2] = 0
-        #        env.commands[:, 3] = torch_rand_float(-3.14, 3.14, (env.num_envs,1), env.device).squeeze(1)
         if args.command_test_suite:
             current = i // env.max_episode_length
             factor = (((i % env.max_episode_length) // (env.max_episode_length // 2)) * (-2) + 1)
@@ -823,6 +830,14 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
             env.commands[:, 2] = -joystick.rx
         elif i % env.max_episode_length == 0:
             env._resample_commands(torch.arange(env.num_envs))
+
+        if args.multiterrain:
+            env.commands[:, :] = commands
+            if i % env.max_episode_length == 0:
+                commands[:, 0] = 1
+                commands[:, 1] = 0
+                commands[:, 2] = 0
+                commands[:, 3] = env.heading
 
         #print(env.commands)
         #print(env.commands)
@@ -896,8 +911,12 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
                     _depth = env.depth_sensor_output
                     _euler = env.simulator._base_euler.detach()
                     _angve = env.simulator.base_ang_vel.detach()
-                    predicted = terrain_detector.predict(_depth, _euler, _angve)
-                    print(terrain_detector.class_ids[torch.argmax(predicted[0])])
+                    probabilities = terrain_detector.predict(_depth, _euler, _angve)
+                    for idx in range(env.num_envs):
+                        probability = probabilities[idx]
+                        bayes_step = bayes_filters[idx].update(probability)
+                        if idx == 0:
+                            print(bayes_step.label)
                 if args.hard_terrain_detector:
                     look_ahead_frac = 0 if args.multiterrain else 0.2
                     _, row_col = get_viewed_terrain_idx(env, look_ahead_frac=look_ahead_frac)

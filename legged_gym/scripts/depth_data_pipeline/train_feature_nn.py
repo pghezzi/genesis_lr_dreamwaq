@@ -8,6 +8,7 @@ from .util_func import (
     extract_dataset_features, fit_nn, fit_standardizer,
     json_safe, load_training_files, make_terrain_extractor, save_results, sequence_ids_for,
     transition_training_kwargs, processing_batch_size,
+    get_activation_fn
 )
 
 import torch
@@ -27,7 +28,7 @@ class TerrainDepthFeatureClassifierNN(nn.Module):
         super().__init__()
         self.feature_input_dim = feature_input_dim
         self.mlp_layer_dims = list(mlp_layer_dims)
-        self.activation_fn = activation_fn
+        self.activation_fn = get_activation_fn(activation_fn)
 
         mlp_layers = []
 
@@ -49,17 +50,12 @@ class TerrainDepthFeatureClassifierNN(nn.Module):
     def get_args(self) -> dict:
         """Return constructor kwargs sufficient to rebuild an equivalent (untrained)
         instance via `TerrainDepthFeatureClassifierNN(**model.get_args())`.
-
-        Note: `activation_fn` is returned as the live module instance actually used
-        (the same object stored on `self`), not a fresh copy, since activation modules
-        like `nn.ReLU()` are stateless and safe to reuse. If you need a JSON-serializable
-        summary instead (e.g. for metadata.json), use `activation_fn.__class__.__name__`.
         """
         return {
             "cls": self.__class__.__name__,
             "feature_input_dim": self.feature_input_dim,
             "mlp_layer_dims": list(self.mlp_layer_dims),
-            "activation_fn": self.activation_fn,
+            "activation_fn": self.activation_fn.__class__.__name__,
         }
 
 def main():
@@ -131,7 +127,7 @@ def main():
     )
     del validation
     transition_kwargs = transition_training_kwargs(files)
-    classifier.to("cpu")
+    classifier.to(device)
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     bayes_start = time.perf_counter()
@@ -153,7 +149,7 @@ def main():
         observation_modes=["soft"],
         observation_pseudocounts=[0.5],
         scoring="balanced_accuracy",
-        device="cpu",
+        device=device,
         **transition_kwargs,
     )
     bayes_runtime = time.perf_counter() - bayes_start

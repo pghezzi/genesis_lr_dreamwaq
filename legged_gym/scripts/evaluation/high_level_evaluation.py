@@ -323,6 +323,41 @@ def resolve_classifier_approach(args):
     raise ValueError("Could not infer classifier approach from results.json or saved artifacts")
 
 
+def resolve_classifier_approach_auto(classifier_dir):
+    root = Path(classifier_dir)
+    results_file = root / "results.json"
+    if results_file.is_file():
+        with results_file.open(encoding="utf-8") as stream:
+            method = json.load(stream).get("method")
+        if method in METHOD_TO_APPROACH:
+            return METHOD_TO_APPROACH[method]
+    model_args_file = root / "nn_model_args.pt"
+    if model_args_file.is_file():
+        model_args = torch.load(model_args_file, map_location="cpu", weights_only=False)
+        neural_types = {
+            "TerrainDepthFeatureClassifierNN": "feature_nn",
+            "TerrainDepthClassifierNN": "raw_depth_nn",
+        }
+        if model_args.get("cls") in neural_types:
+            return neural_types[model_args["cls"]]
+    checkpoint_file = root / "classifier.pt"
+    if checkpoint_file.is_file():
+        state = torch.load(checkpoint_file, map_location="cpu", weights_only=False)
+        if "kernel_basis" in state:
+            return "rbf_svm"
+        if "prototypes" in state and "pca_components" in state:
+            return "rbf_prototype"
+    raise ValueError("Could not infer classifier approach from results.json or saved artifacts")
+
+def create_classifier(classifier_dir, device):
+    approach = resolve_classifier_approach_auto(classifier_dir)
+    return CLASSIFIER_LOADERS[approach](classifier_dir, device)
+    
+def auto_load_checkpoint_bayes_filter(classifier_dir, device):
+    path = Path(classifier_dir) / "bayes_filter.pt"
+    return _load_bayes_template(path, device)
+
+
 def load_paired_bayes_filter(args, device):
     path = Path(args.classifier_dir) / "bayes_filter.pt"
     return _load_bayes_template(path, device), path
@@ -656,7 +691,7 @@ def run_eval(args):
             "Classifier class_ids and Bayes filter labels/order must agree exactly: "
             f"{runtime_classifier.class_ids!r} != {list(bayes_template.labels)!r}"
         )
-    filters = [copy.deepcopy(bayes_template) for _ in range(env.num_envs)]
+    probabilities
     for filt in filters:
         filt.reset()
     policy_set = PerTerrainPolicySet(args.jit, device)

@@ -117,7 +117,7 @@ def main() -> None:
         transition_alphas=[0.0, 0.25, 0.5, 0.75, 1.0],
         evidence_powers=[0.50, 0.75, 1.0], min_evidence_powers=[0.10, 0.25],
         confidence_gammas=[1.0, 2.0], observation_modes=["soft"],
-        observation_pseudocounts=[0.5], scoring="balanced_accuracy", device="cpu",
+        observation_pseudocounts=[0.5], scoring="balanced_accuracy", device=device,
         **transition_kwargs,
     )
     bayes_runtime = time.perf_counter() - bayes_start
