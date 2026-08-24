@@ -778,7 +778,7 @@ class LeggedRobot(BaseTask):
 
     def _reward_torque_limits(self) -> Reward:
         # penalize torques too close to the limit
-        return torch.sum((torch.abs(self.simulator.torques) - self.torque_limits*self.cfg.rewards.soft_torque_limit).clip(min=0.), dim=1)
+        return torch.sum((torch.abs(self.simulator.torques) - self.simulator.torque_limits*self.cfg.rewards.soft_torque_limit).clip(min=0.), dim=1)
 
     def _reward_tracking_lin_vel(self) -> Reward:
         # Tracking of linear velocity commands (xy axes)
