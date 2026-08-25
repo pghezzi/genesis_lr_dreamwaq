@@ -1,4 +1,8 @@
 """Evaluate terrain classification, skill selection, and multi-terrain navigation."""
+from legged_gym import *
+from legged_gym.envs import *
+from legged_gym.utils import *
+from legged_gym.utils.terrain_vars import TERRAIN_KEYS
 
 import argparse
 import copy
@@ -13,10 +17,6 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from legged_gym import *
-from legged_gym.envs import *
-from legged_gym.utils import *
-from legged_gym.utils.terrain_vars import TERRAIN_KEYS
 
 
 CANONICAL_CLASSES = ["rough", "gap", "pit", "stairs"]
@@ -396,12 +396,12 @@ def get_args():
     parser.add_argument("--cpu", action="store_true")
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--num_envs", type=int, default=10)
-    parser.add_argument("--episodes_per_track", type=int, default=1)
+    parser.add_argument("--episodes_per_track", type=int, default=100)
     parser.add_argument("--num_steps", type=int, default=100000, help="safety cap only")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--difficulty", type=float, default=0.5)
     parser.add_argument("--finish_margin", type=float, default=0.25)
-    parser.add_argument("--look_ahead_frac", type=float, default=0.75)
+    parser.add_argument("--look_ahead_frac", type=float, default=0)
     parser.add_argument("--classify_every", type=int, default=5)
     parser.add_argument(
         "--selector_mode", choices=("oracle", "instantaneous", "bayes", "baseline"),
@@ -418,6 +418,25 @@ def get_args():
     parser.add_argument("--jit", "--policy_jit", dest="jit", required=True)
     parser.add_argument("--fixed_forward_command", type=float, default=None)
     parser.add_argument("--out_dir", default=None)
+    
+    #not used args
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug mode",
+    )
+    parser.add_argument(
+        "--motion_file",
+        type=str,
+        default=None,
+        help="Optional motion file",
+    )
+    parser.add_argument(
+        "--num_student",
+        type=int,
+        default=None,
+        help="Number of student environments/agents",
+    )
     args = parser.parse_args()
     if args.cpu:
         args.gpu = "cpu"
@@ -450,20 +469,20 @@ def make_track_layout(env_cfg, args):
             "type": "terrain_utils.random_uniform_terrain", **rough_values,
         },
         "gap": {
-            "type": "terrain_utils.gap_terrain", "gap_size": gap_size,
+            "type": "terrain_utils.gap_terrain", "gap_size": 0.5,
             "platform_size": env_cfg.terrain.platform_size,
         },
         "pit": {
-            "type": "terrain_utils.pit_terrain", "depth": pit_depth,
+            "type": "terrain_utils.pit_terrain", "depth": 0.3,
             "platform_size": env_cfg.terrain.platform_size,
         },
         "upwards_stairs": {
             "type": "terrain_utils.pyramid_stairs_terrain", "step_width": 0.4,
-            "step_height": stair_height, "platform_size": env_cfg.terrain.platform_size,
+            "step_height": 0.25, "platform_size": env_cfg.terrain.platform_size,
         },
         "stairs": {
             "type": "terrain_utils.pyramid_stairs_terrain", "step_width": 0.4,
-            "step_height": -stair_height, "platform_size": env_cfg.terrain.platform_size,
+            "step_height": -0.25, "platform_size": env_cfg.terrain.platform_size,
         },
     }
     rng = random.Random(args.seed)
@@ -505,6 +524,8 @@ def override_configs_multiterrain(env_cfg, args):
     env_cfg.commands.ranges.lin_vel_y = [0.0, 0.0]
     env_cfg.commands.ranges.ang_vel_yaw = [0.0, 0.0]
     env_cfg.commands.ranges.heading = [0.0, 0.0]
+    
+    env_cfg.asset.terminate_after_contacts_on = []
 
     for name, value in EVAL_DOMAIN_RANDOMIZATION_RANGES.items():
         setattr(env_cfg.domain_rand, name, list(value))
@@ -624,7 +645,7 @@ class ClassificationStats:
         return result
 
 
-def _force_commands(env, selected_skills, fixed_command):
+def _force_commands(env, selected_skills, fixed_command, heading_gain=0.4, max_yaw_rate=1, lookahead=5.0):
     if fixed_command is None:
         speeds = torch.tensor(
             [SKILL_SPEEDS[skill] for skill in selected_skills],
@@ -635,9 +656,25 @@ def _force_commands(env, selected_skills, fixed_command):
             (env.num_envs,), fixed_command, device=env.device, dtype=env.commands.dtype
         )
     env.commands[:, 0] = speeds
-    env.commands[:, 1:3] = 0.0
+    env.commands[:, 1] = 0.0
+
+    # Lateral offset from track center (y only) -- never reference center_x directly
+    center_y = env.simulator.env_origins[:, 1].to(env.commands.dtype)
+    current_y = env.simulator.base_pos[:, 1].to(env.commands.dtype)
+    lateral_error = center_y - current_y  # +y means center is to the left
+
+    # Bearing to a lookahead point straight ahead + laterally corrected,
+    # expressed relative to current heading (small-angle style, no backward flips)
+    target_heading_offset = torch.atan2(lateral_error, torch.full_like(lateral_error, lookahead))
+
+    heading_error = wrap_to_pi(target_heading_offset)
+    yaw_rate_cmd = (heading_gain * heading_error).clamp(-max_yaw_rate, max_yaw_rate)
+    env.commands[:, 2] = yaw_rate_cmd
+
     if env.commands.shape[1] > 3:
         env.commands[:, 3] = 0.0
+
+    return lateral_error
 
 
 def _depth_valid(depth):
@@ -691,7 +728,7 @@ def run_eval(args):
             "Classifier class_ids and Bayes filter labels/order must agree exactly: "
             f"{runtime_classifier.class_ids!r} != {list(bayes_template.labels)!r}"
         )
-    probabilities
+    filters = [copy.deepcopy(bayes_template) for _ in range(env.num_envs)]
     for filt in filters:
         filt.reset()
     policy_set = PerTerrainPolicySet(args.jit, device)
@@ -699,6 +736,11 @@ def run_eval(args):
 
     selected_skills = ["rough"] * env.num_envs
     selection_initialized = [False] * env.num_envs
+
+    from legged_gym.utils.math_utils import wrap_to_pi, torch_rand_float, quat_apply, quat_from_euler_xyz
+    forward = quat_apply(env.simulator.base_quat, env.forward_vec)
+    env.heading = torch.atan2(forward[:, 1], forward[:, 0]) 
+
     if args.selector_mode == "oracle":
         _, selected_skills = get_ground_truth_labels(env, args.look_ahead_frac)
     assigned_lora = torch.tensor(
@@ -753,6 +795,7 @@ def run_eval(args):
 
         if (steps_run - 1) % args.classify_every == 0:
             raw_truth, canonical_truth = get_ground_truth_labels(env, args.look_ahead_frac)
+            print(canonical_truth)
             valid = _depth_valid(depth)
             if done_ids:
                 valid[list(done_ids)] = False

@@ -30,26 +30,30 @@ from legged_gym.envs.go2.go2_depth_waq.go2_depth_waq_config import (
 # override=False means values already exported in the shell take priority
 # over values written in the .env file.
 load_dotenv(
-    dotenv_path=LEGGED_GYM_ROOT_DIR / ".env",
+    dotenv_path= Path(LEGGED_GYM_ROOT_DIR) / ".env",
     override=False,
 )
 
+import warnings
 
 def required_env(name: str) -> str:
     """Read a required environment variable.
 
-    Raises a clear error during configuration loading when the variable has not
-    been provided through the shell or the repository's local .env file.
+    Warns when the variable has not been provided through the shell or the
+    repository's local .env file.
     """
     value = os.getenv(name)
 
     if value is None or not value.strip():
-        raise RuntimeError(
+        warnings.warn(
             f"Required environment variable {name!r} is not set.\n"
             f"Create the local file:\n"
-            f"  {LEGGED_GYM_ROOT_DIR / '.env'}\n"
-            f"using the committed .env.example file."
+            f"  {Path(LEGGED_GYM_ROOT_DIR) / '.env'}\n"
+            f"using the committed .env.example file.",
+            RuntimeWarning,
+            stacklevel=2,
         )
+        return ""
 
     return value.strip()
 
@@ -63,11 +67,14 @@ def optional_int_env(name: str, default: int) -> int:
 
     try:
         return int(raw_value)
-    except ValueError as exc:
-        raise RuntimeError(
+    except ValueError:
+        warnings.warn(
             f"Environment variable {name!r} must be an integer, "
-            f"but received {raw_value!r}."
-        ) from exc
+            f"but received {raw_value!r}. Using default {default!r}.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return int(default)
 
 
 
@@ -83,18 +90,19 @@ class Go2DepthWaqDistillCfg(Go2DepthWaqCfg):
         # Keep the ten curriculum columns used by Go2DepthWaqCfg, but dedicate
         # the first half to stairs and the second half to gaps. The indices
         # here follow TERRAIN_KEYS in legged_gym.utils.terrain_vars.
-        num_cols = 10
+        num_cols = 20
         terrain_proportions = [
             0.0,  # slope
             0.0,  # random_uniform
-            0.5,  # stairs
-            0.0,  # upwards_stairs
+            0.25,  # stairs
+            0.25,  # upwards_stairs
             0.0,  # discrete_obstacles
             0.0,  # stepping_stones
-            0.5,  # gap
-            0.0,  # pit
+            0.25,  # gap
+            0.25,  # pit
             0.0,  # multiple_high_platforms
             0.0,  # high_platform_gaps
+            0.0,
         ]
 
     class rewards(Go2DepthWaqCfg.rewards):
@@ -120,6 +128,7 @@ class Go2DepthWaqDistillCfg(Go2DepthWaqCfg):
             feet_air_time = 0.6
 
     class distillation:
+        teacher_actor_critic = "ActorCriticDreamWaQDepthLora"
         # ------------------------------------------------------------------
         # Shared LoRA teacher defaults
         # ------------------------------------------------------------------
@@ -159,6 +168,12 @@ class Go2DepthWaqDistillCfg(Go2DepthWaqCfg):
                     "DISTILL_STAIRS_CHECKPOINT"
                 ),
             },
+            {
+                "name": "pit",
+                "checkpoint": required_env(
+                    "DISTILL_PIT_CHECKPOINT"
+                ),
+            },
         ]
 
         # ------------------------------------------------------------------
@@ -174,7 +189,7 @@ class Go2DepthWaqDistillCfg(Go2DepthWaqCfg):
         # Curriculum generation assigns the lower-numbered columns to stairs
         # and the higher-numbered columns to gaps. Teacher 1 is stairs and
         # teacher 0 is gap, matching the teachers list above.
-        terrain_type_to_teacher = [1] * 5 + [0] * 5
+        terrain_type_to_teacher = [1] * 10 + [0] * 5 + [2] * 5
 
         # ------------------------------------------------------------------
         # Pure imitation-learning settings
@@ -270,6 +285,6 @@ class Go2DepthWaqDistillCfgPPO(Go2DepthWaqCfgPPO):
         # existing generalist checkpoint. The LoRA teacher checkpoints are
         # configured separately above.
         pre_trained = None
-        resume = True
-        load_run = "Aug03_17-52-31_pure_imitation"
+        #resume = True
+        #load_run = "Aug03_17-52-31_pure_imitation"
         checkpoint = -1

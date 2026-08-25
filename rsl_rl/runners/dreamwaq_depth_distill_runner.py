@@ -46,33 +46,31 @@ class DreamWaQDepthDistillRunner(OnPolicyRunner):
     def _checkpoint_state(checkpoint):
         return checkpoint.get("model_state_dict", checkpoint)
 
-    def _make_lora_teacher(self, teacher_cfg):
+    def _make_teacher(self, teacher_cfg):
         rank = int(teacher_cfg.get("rank", 8))
+        teacher_actor_critic = teacher_cfg.get("teacher_actor_critic", "ActorCriticDreamWaQDepthLora")
         kwargs = dict(self.policy_cfg)
-        kwargs.update(
-
-            base_model=teacher_cfg.get("base_model",self.distillation_cfg.base_model),
-
-            actor_ranks= int(teacher_cfg.get("rank",self.distillation_cfg.lora_rank)),
-
-
-            encoder_ranks=teacher_cfg.get("encoder_ranks", rank),
-            decoder_ranks=teacher_cfg.get("decoder_ranks", rank),
-            latent_mu_rank=teacher_cfg.get("latent_mu_rank", rank),
-            vel_mu_rank=teacher_cfg.get("vel_mu_rank", rank),
-            latent_var_ranks=teacher_cfg.get(
-                "latent_var_ranks", rank
-            ),
-            vel_var_ranks=teacher_cfg.get("vel_var_ranks", rank),
-            visual_encoder_ranks=teacher_cfg.get(
-                "visual_encoder_ranks", rank
-            ),
-        )
+        if "lora" in teacher_actor_critic.lower():
+            kwargs.update(
+                base_model=teacher_cfg.get("base_model",self.distillation_cfg.base_model),
+                actor_ranks= int(teacher_cfg.get("rank",self.distillation_cfg.lora_rank)),
+                encoder_ranks=teacher_cfg.get("encoder_ranks", rank),
+                decoder_ranks=teacher_cfg.get("decoder_ranks", rank),
+                latent_mu_rank=teacher_cfg.get("latent_mu_rank", rank),
+                vel_mu_rank=teacher_cfg.get("vel_mu_rank", rank),
+                latent_var_ranks=teacher_cfg.get(
+                    "latent_var_ranks", rank
+                ),
+                vel_var_ranks=teacher_cfg.get("vel_var_ranks", rank),
+                visual_encoder_ranks=teacher_cfg.get(
+                    "visual_encoder_ranks", rank
+                ),
+            )
 
         # Reuses the repo's existing LoRA class. Its constructor first loads
         # the configured baseline into the LoRA-wrapped network.
         teacher = self._make_policy(
-            ActorCriticDreamWaQDepthLora,
+            eval(teacher_actor_critic),
             kwargs,
         )
 
@@ -87,7 +85,7 @@ class DreamWaQDepthDistillRunner(OnPolicyRunner):
         teacher.eval()
         teacher.requires_grad_(False)
         print(
-            "Loaded LoRA teacher "
+            "Loaded teacher "
             f"{teacher_cfg.get('name', '<unnamed>')}: "
             f"{teacher_cfg['checkpoint']}"
         )
@@ -102,7 +100,7 @@ class DreamWaQDepthDistillRunner(OnPolicyRunner):
         )
 
         teachers = [
-            self._make_lora_teacher(teacher_cfg)
+            self._make_teacher(teacher_cfg)
             for teacher_cfg in self.distillation_cfg.teachers
         ]
 

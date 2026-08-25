@@ -57,7 +57,7 @@ class Go2DepthWaqDistill(Go2DepthWaq):
         )
         for teacher_id, teacher_cfg in enumerate(teachers):
             count = int(teacher_counts[teacher_id].item())
-            percentage = 100.0 * count / max(self._num_envs, 1)
+            percentage = 100.0 * count / max(self.num_envs, 1)
             name = teacher_cfg.get("name", f"teacher_{teacher_id}")
             print(
                 f"  teacher {teacher_id} ({name}) total: {count} "
@@ -108,7 +108,7 @@ class Go2DepthWaqDistill(Go2DepthWaq):
 
         num_teachers = len(self.cfg.distillation.teachers)
         if num_teachers == 0:
-            raise ValueError("At least one LoRA teacher must be configured.")
+            raise ValueError("At least one teacher must be configured.")
         if torch.any(teacher_ids < 0) or torch.any(
             teacher_ids >= num_teachers
         ):
@@ -117,7 +117,7 @@ class Go2DepthWaqDistill(Go2DepthWaq):
             )
 
         # Required shape from the PI: [num_envs, 1].
-        return teacher_ids.view(self._num_envs, 1).contiguous()    
+        return teacher_ids.view(self.num_envs, 1).contiguous()    
 
     def get_teacher_ids(self) -> torch.Tensor:
         teacher_ids = self.teacher_ids
