@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
-    NeuralClassifierAdapter, build_filter_from_search_result, search_bayes_filter_hyperparameters,
+    NeuralClassifierAdapter,
 )
 from .util_func import (
-    classifier_metrics_from_scores, collect_engineered_scores, evaluate_bayes_from_scores,
+    classifier_metrics_from_scores, collect_engineered_scores,
     extract_dataset_features, fit_nn, fit_standardizer,
     json_safe, load_training_files, make_terrain_extractor, save_results, sequence_ids_for,
     transition_training_kwargs, processing_batch_size,
@@ -106,11 +106,6 @@ def main():
     instantaneous = classifier_metrics_from_scores(classifier, test_scores, test["labels"])
     del train, validation, train_features, validation_features, test, test_scores
 
-    manual_prior = {
-        label: 1.0 / len(classifier.class_ids)
-        for label in classifier.class_ids
-    }
-
     calibration = torch.load(files["calibration"], map_location="cpu", weights_only=False)
     calibration_labels = classifier._normalize_labels(calibration["labels"])
     calibration_scores = collect_engineered_scores(
@@ -126,77 +121,48 @@ def main():
         chunk_size=processing_batch_size(args, len(filter_validation_labels)),
     )
     del validation
-    transition_kwargs = transition_training_kwargs(files)
-    classifier.to(device)
+    classifier.to("cpu")
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     bayes_start = time.perf_counter()
-    filter_results = search_bayes_filter_hyperparameters(
-        classifier=classifier,
-        filter_inputs=None,
-        filter_scores=filter_validation_scores,
-        true_labels=filter_validation_labels,
-        manual_prior=manual_prior,
-        sequence_ids=filter_validation_ids,
-        observation_calibration_scores=calibration_scores,
-        observation_calibration_labels=calibration_labels,
-        temperatures=[0.5, 0.75, 1.0, 1.5, 2.0],
-        stay_probabilities=[0.90, 0.94, 0.97],
-        transition_alphas=[0.0, 0.25, 0.5, 0.75, 1.0],
-        evidence_powers=[0.50, 0.75, 1.0],
-        min_evidence_powers=[0.10, 0.25],
-        confidence_gammas=[1.0, 2.0],
-        observation_modes=["soft"],
-        observation_pseudocounts=[0.5],
-        scoring="balanced_accuracy",
-        device=device,
-        **transition_kwargs,
-    )
-    bayes_runtime = time.perf_counter() - bayes_start
-    del filter_validation_scores, calibration_scores, transition_kwargs
-
-    best_filter = filter_results[0]
-    bayes_filter, selected_temperature = build_filter_from_search_result(
-        classifier,
-        best_filter,
-        manual_prior,
-        device=device,
-    )
-    classifier.temperature = selected_temperature
     ordered = torch.load(files["ordered_test"], map_location="cpu", weights_only=False)
     ordered_scores = collect_engineered_scores(
         classifier, extractor, standardizer, ordered,
         chunk_size=processing_batch_size(args, len(ordered["labels"])),
     )
-    ordered_instantaneous = classifier_metrics_from_scores(
-        classifier, ordered_scores, ordered["labels"], selected_temperature
+    sequential_search, filter_results, legacy_bayes = run_staged_sequential_pipeline(
+        classifier, calibration_scores, calibration_labels,
+        filter_validation_scores, filter_validation_labels, filter_validation_ids,
+        ordered_scores, ordered["labels"], sequence_ids_for(ordered), output,
     )
-    bayesian = evaluate_bayes_from_scores(
-        classifier, bayes_filter, ordered_scores, ordered["labels"],
-        sequence_ids_for(ordered), selected_temperature,
-    )
+    bayes_runtime = time.perf_counter() - bayes_start
+    selected_temperature = legacy_bayes["selected_temperature"]
+    classifier.temperature = selected_temperature
+    ordered_instantaneous, bayesian = legacy_bayes["unfiltered_metrics"], legacy_bayes["metrics"]
     extractor.save(output / "extractor.pt")
     standardizer.save(output / "standardizer.pt")
-    bayes_filter.save(output / "bayes_filter.pt")
     classifier.save(output / "classifier.pt")
     torch.save(nn_feature_model.get_args(), output / "nn_model_args.pt")
-    torch.save(filter_results, output / "bayes_search.pt")
     best_validation = max(classifier.training_history.get("validation_accuracy", [float("nan")]))
+    classifier_search_stages = {
+        "base": {"best_params": {"epochs": 20, "batch_size": train_batch, "optimizer": "adam", "lr": 1e-3},
+                 "validation_metrics": {"accuracy": best_validation},
+                 "structural_test_metrics": instantaneous,
+                 "model_metadata": {"parameter_count": sum(p.numel() for p in nn_feature_model.parameters())}},
+        "selected_stage": "base", "selected_params": {"epochs": 20, "batch_size": train_batch,
+        "optimizer": "adam", "lr": 1e-3}, "selected_validation_score": best_validation,
+        "selected_structural_test_metrics": instantaneous,
+    }
     results = {
         "schema_version": 1, "method": "feature NN", "require_feature": True,
         "best_hyperparameters": {"epochs": 20, "batch_size": train_batch, "optimizer": "adam", "lr": 1e-3},
         "validation_score": best_validation, "instantaneous": instantaneous,
+        "classifier_search_stages": classifier_search_stages,
         "model": {"parameter_count": sum(p.numel() for p in nn_feature_model.parameters()),
                   "model_size_bytes": (output / "classifier.pt").stat().st_size},
         "runtime_seconds": {"search_or_training": training_runtime, "bayes_search": bayes_runtime},
         "training_history": classifier.training_history,
-        "bayes": {"selected_temperature": selected_temperature,
-                  "filter_parameters": {k: best_filter[k] for k in (
-                      "stay_probability", "evidence_power", "min_evidence_power", "confidence_gamma",
-                      "transition_alpha", "transition_matrix", "transition_source",
-                      "observation_mode", "observation_pseudocount")},
-                  "validation_score": best_filter["objective"],
-                  "unfiltered_metrics": ordered_instantaneous, "metrics": bayesian},
+        "bayes": legacy_bayes, "sequential_search": sequential_search,
         "data_files": files,
     }
     save_results(output / "results.json", results)

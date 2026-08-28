@@ -17,8 +17,9 @@ from torch.utils.data import DataLoader, TensorDataset
 from legged_gym.utils.depth_terrain_classifier.depth_terrain_classifier import SobelDepthTerrainFeatureExtractor
 from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
     FeatureStandardizer, collect_classifier_scores_batched, evaluate_predictions,
-    fit_nn, run_filter_sequences,
+    fit_nn, make_persistent_transition_matrix, run_filter_sequences,
 )
+from .sequential_terrain_filter_extensions import staged_sequential_search
 
 
 def make_terrain_extractor(calibration_file: str | Path) -> SobelDepthTerrainFeatureExtractor:
@@ -219,6 +220,51 @@ def transition_training_kwargs(files: Mapping[str, Path]) -> dict[str, Any]:
     }
 
 
+def run_staged_sequential_pipeline(
+    classifier: Any, calibration_scores: torch.Tensor, calibration_labels: Sequence[Any],
+    validation_scores: torch.Tensor, validation_labels: Sequence[Any],
+    validation_sequence_ids: Sequence[Any], test_scores: torch.Tensor,
+    test_labels: Sequence[Any], test_sequence_ids: Sequence[Any], output: Path,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Run the common validation-only temporal search and return new + legacy views."""
+    sequential, trials = staged_sequential_search(
+        classifier, calibration_scores, calibration_labels,
+        validation_scores, validation_labels, validation_sequence_ids,
+        test_scores, test_labels, test_sequence_ids, output,
+    )
+    torch.save(trials, output / "sequential_search.pt")
+    torch.save(trials, output / "bayes_search.pt")
+    best = sequential["best_bayes"]
+    best_stage = sequential["best_bayes_stage"]
+    stage = sequential["stages"][best_stage]
+    filter_parameters = dict(stage["parameters"])
+    stable_stay = filter_parameters["stable_stay"]
+    filter_parameters.update({
+        # Historical aliases retained for readers of schema_version=1.
+        "stay_probability": stable_stay,
+        "evidence_power": 1.0,
+        "min_evidence_power": 1.0,
+        "confidence_gamma": 1.0,
+        "transition_alpha": 0.0,
+        "transition_matrix": make_persistent_transition_matrix(
+            classifier.class_ids, stable_stay, device="cpu"
+        ),
+        "transition_source": "persistent",
+        "observation_mode": "mixed_soft",
+        "observation_pseudocount": 0.5,
+    })
+    legacy_bayes = {
+        "selected_temperature": best["temperature"],
+        "filter_parameters": filter_parameters,
+        "validation_score": best["selection_score"],
+        "unfiltered_metrics": classifier_metrics_from_scores(
+            classifier, test_scores, test_labels, best["temperature"]
+        ),
+        "metrics": stage["test_metrics"],
+    }
+    return sequential, trials, legacy_bayes
+
+
 def get_files_for_training() -> tuple[Path, ...]:
     """Compatibility wrapper returning paths in the historical order."""
     _, files = load_training_files()
@@ -261,4 +307,5 @@ __all__ = [
     "FeatureStandardizer", "fit_nn", "fit_standardizer", "json_safe", "load_training_files",
     "make_terrain_extractor", "save_results", "sequence_ids_for",
     "transition_training_kwargs", "processing_batch_size",
+    "run_staged_sequential_pipeline",
 ]

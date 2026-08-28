@@ -12,14 +12,13 @@ from torch.utils.data import DataLoader, Dataset
 
 from legged_gym import LEGGED_GYM_ROOT_DIR
 from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
-    build_filter_from_search_result, search_bayes_filter_hyperparameters,
     search_prototype_rbf_hyperparameters_dataloader,
 )
 from .util_func import (
-    classifier_metrics_from_scores, collect_engineered_scores, evaluate_bayes_from_scores,
+    classifier_metrics_from_scores, collect_engineered_scores,
     extract_dataset_features, fit_standardizer,
     json_safe, load_training_files, make_terrain_extractor, save_results, sequence_ids_for,
-    transition_training_kwargs, processing_batch_size,
+    processing_batch_size, run_staged_sequential_pipeline,
 )
 
 
@@ -60,32 +59,63 @@ def main() -> None:
     validation_features = standardizer.transform(validation_features)
 
     search_start = time.perf_counter()
-    classifier, search_results = search_prototype_rbf_hyperparameters_dataloader(
+    base_config = {
+        "feature_dim": train_features.shape[1], "device": device,
+        "dtype": torch.float32, "kmeans_fit_mode": "mini_batch",
+        "store_training_data": False, "random_seed": 0,
+    }
+    stage1_classifier, stage1_results = search_prototype_rbf_hyperparameters_dataloader(
         lambda: _loader(train_features, train["labels"], train_batch, True),
         lambda: _loader(validation_features, validation["labels"], validation_batch, False),
-        base_config={
-            "feature_dim": train_features.shape[1], "device": device,
-            "dtype": torch.float32, "kmeans_fit_mode": "mini_batch",
-            "store_training_data": False, "random_seed": 0,
-        },
+        base_config=base_config,
         search_space={
-            "pca_dim": [16, 24, 32], "prototypes_per_class": [4, 8, 12],
-            "gamma": ["scale", 0.25, 0.5, 1.0],
-            "metric_type": ["euclidean", "diag_mahalanobis"],
+            "pca_dim": [8, 12, 16], "prototypes_per_class": [12, 16, 24, 32],
+            "gamma": [0.75, 1.0, 1.5, 2.0, 4.0], "metric_type": ["euclidean"],
             "aggregation": ["logsumexp"], "prototype_init": ["kmeans++"],
-            "prototype_epochs": [5, 10], "initialization_sample_size": [1024, 2048],
-            "reset_counts_each_epoch": [True], "variance_shrinkage": [0.1, 0.3],
+            "prototype_epochs": [10], "initialization_sample_size": [2048],
+            "reset_counts_each_epoch": [True],
         },
+    )
+    stage2_results, stage2_candidates = [], []
+    for seed in stage1_results[:3]:
+        fixed = dict(seed.params)
+        for key in ("prototype_epochs", "initialization_sample_size"):
+            fixed.pop(key, None)
+        candidate, trials = search_prototype_rbf_hyperparameters_dataloader(
+            lambda: _loader(train_features, train["labels"], train_batch, True),
+            lambda: _loader(validation_features, validation["labels"], validation_batch, False),
+            base_config={**base_config, **fixed},
+            search_space={"prototype_epochs": [10, 20],
+                          "initialization_sample_size": [2048, 4096]},
+        )
+        merged = [{"params": {**fixed, **r.params}, "validation_accuracy": r.validation_accuracy,
+                   "validation_nll": r.validation_nll, "validation_brier": r.validation_brier,
+                   "num_prototypes": r.num_prototypes} for r in trials]
+        stage2_results.extend(merged)
+        best = min(merged, key=lambda r: (-r["validation_accuracy"], r["validation_nll"], r["validation_brier"]))
+        stage2_candidates.append((best, candidate))
+    stage2_results.sort(key=lambda r: (-r["validation_accuracy"], r["validation_nll"], r["validation_brier"]))
+    stage1_best = {"params": stage1_results[0].params,
+                   "validation_accuracy": stage1_results[0].validation_accuracy,
+                   "validation_nll": stage1_results[0].validation_nll,
+                   "validation_brier": stage1_results[0].validation_brier,
+                   "num_prototypes": stage1_results[0].num_prototypes}
+    stage2_best, stage2_classifier = min(
+        stage2_candidates, key=lambda item: (-item[0]["validation_accuracy"], item[0]["validation_nll"], item[0]["validation_brier"]))
+    selected_stage, selected_record, classifier = min(
+        [("stage1", stage1_best, stage1_classifier), ("stage2", stage2_best, stage2_classifier)],
+        key=lambda item: (-item[1]["validation_accuracy"], item[1]["validation_nll"], item[1]["validation_brier"]),
     )
     search_runtime = time.perf_counter() - search_start
     structural_test = torch.load(files["structural_test"], map_location="cpu", weights_only=False)
-    test_scores = collect_engineered_scores(
-        classifier, extractor, standardizer, structural_test,
-        chunk_size=processing_batch_size(args, len(structural_test["labels"])),
-    )
-    instantaneous = classifier_metrics_from_scores(classifier, test_scores, structural_test["labels"])
+    structural_batch = processing_batch_size(args, len(structural_test["labels"]))
+    stage1_test = classifier_metrics_from_scores(stage1_classifier, collect_engineered_scores(
+        stage1_classifier, extractor, standardizer, structural_test, chunk_size=structural_batch), structural_test["labels"])
+    stage2_test = classifier_metrics_from_scores(stage2_classifier, collect_engineered_scores(
+        stage2_classifier, extractor, standardizer, structural_test, chunk_size=structural_batch), structural_test["labels"])
+    instantaneous = stage1_test if selected_stage == "stage1" else stage2_test
     del train, validation, train_features, validation_features
-    del structural_test, test_scores
+    del structural_test
 
     calibration = torch.load(files["calibration"], map_location="cpu", weights_only=False)
     calibration_labels = classifier._normalize_labels(calibration["labels"])
@@ -102,65 +132,54 @@ def main() -> None:
         chunk_size=processing_batch_size(args, len(bayes_labels)),
     )
     del bayes_validation
-    prior = {label: 1 / len(classifier.class_ids) for label in classifier.class_ids}
-    transition_kwargs = transition_training_kwargs(files)
     classifier.to("cpu")
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     bayes_start = time.perf_counter()
-    filter_results = search_bayes_filter_hyperparameters(
-        classifier, None, bayes_labels, prior,
-        sequence_ids=bayes_ids, filter_scores=bayes_scores,
-        observation_calibration_scores=calibration_scores,
-        observation_calibration_labels=calibration_labels,
-        temperatures=[0.5, 0.75, 1.0, 1.5, 2.0], stay_probabilities=[0.90, 0.94, 0.97],
-        transition_alphas=[0.0, 0.25, 0.5, 0.75, 1.0],
-        evidence_powers=[0.50, 0.75, 1.0], min_evidence_powers=[0.10, 0.25],
-        confidence_gammas=[1.0, 2.0], observation_modes=["soft"],
-        observation_pseudocounts=[0.5], scoring="balanced_accuracy", device=device,
-        **transition_kwargs,
-    )
-    bayes_runtime = time.perf_counter() - bayes_start
-    del bayes_scores, calibration_scores, transition_kwargs
-    selected = filter_results[0]
-    bayes_filter, temperature = build_filter_from_search_result(classifier, selected, prior, device=device)
-    classifier.temperature = temperature
     ordered_test = torch.load(files["ordered_test"], map_location="cpu", weights_only=False)
     ordered_scores = collect_engineered_scores(
         classifier, extractor, standardizer, ordered_test,
         chunk_size=processing_batch_size(args, len(ordered_test["labels"])),
     )
-    ordered_instantaneous = classifier_metrics_from_scores(
-        classifier, ordered_scores, ordered_test["labels"], temperature
+    sequential_search, filter_results, legacy_bayes = run_staged_sequential_pipeline(
+        classifier, calibration_scores, calibration_labels, bayes_scores, bayes_labels, bayes_ids,
+        ordered_scores, ordered_test["labels"], sequence_ids_for(ordered_test), output,
     )
-    bayesian = evaluate_bayes_from_scores(
-        classifier, bayes_filter, ordered_scores, ordered_test["labels"],
-        sequence_ids_for(ordered_test), temperature,
-    )
+    bayes_runtime = time.perf_counter() - bayes_start
+    temperature = legacy_bayes["selected_temperature"]
+    classifier.temperature = temperature
+    ordered_instantaneous = legacy_bayes["unfiltered_metrics"]
+    bayesian = legacy_bayes["metrics"]
 
     extractor.save(output / "extractor.pt")
     standardizer.save(output / "standardizer.pt")
     classifier.save(output / "classifier.pt")
-    bayes_filter.save(output / "bayes_filter.pt")
-    torch.save(search_results, output / "classifier_search.pt")
-    torch.save(filter_results, output / "bayes_search.pt")
+    stage1_classifier.save(output / "classifier_stage1.pt")
+    stage2_classifier.save(output / "classifier_stage2.pt")
+    torch.save({"stage1": stage1_results, "stage2": stage2_results}, output / "classifier_search.pt")
+    classifier_search_stages = {
+        "stage1": {"best_params": stage1_best["params"], "validation_metrics": {
+            "accuracy": stage1_best["validation_accuracy"], "nll": stage1_best["validation_nll"],
+            "brier": stage1_best["validation_brier"]}, "structural_test_metrics": stage1_test,
+            "model_metadata": {"prototype_count": stage1_best["num_prototypes"]}},
+        "stage2": {"best_params": stage2_best["params"], "validation_metrics": {
+            "accuracy": stage2_best["validation_accuracy"], "nll": stage2_best["validation_nll"],
+            "brier": stage2_best["validation_brier"]}, "structural_test_metrics": stage2_test,
+            "model_metadata": {"prototype_count": stage2_best["num_prototypes"]}},
+        "selected_stage": selected_stage, "selected_params": selected_record["params"],
+        "selected_validation_score": selected_record["validation_accuracy"],
+        "selected_structural_test_metrics": instantaneous,
+    }
     results = {
         "schema_version": 1, "method": "RBF Prototype", "require_feature": True,
-        "best_hyperparameters": search_results[0].params,
-        "validation_score": search_results[0].validation_accuracy,
+        "best_hyperparameters": selected_record["params"],
+        "validation_score": selected_record["validation_accuracy"],
         "instantaneous": instantaneous,
-        "model": {"prototype_count": search_results[0].num_prototypes,
+        "classifier_search_stages": classifier_search_stages,
+        "model": {"prototype_count": selected_record["num_prototypes"],
                   "model_size_bytes": (output / "classifier.pt").stat().st_size},
         "runtime_seconds": {"search_or_training": search_runtime, "bayes_search": bayes_runtime},
-        "bayes": {
-            "selected_temperature": temperature,
-            "filter_parameters": {k: selected[k] for k in (
-                "stay_probability", "evidence_power", "min_evidence_power", "confidence_gamma",
-                "transition_alpha", "transition_matrix", "transition_source",
-                "observation_mode", "observation_pseudocount")},
-            "validation_score": selected["objective"],
-            "unfiltered_metrics": ordered_instantaneous, "metrics": bayesian,
-        }, "data_files": files,
+        "bayes": legacy_bayes, "sequential_search": sequential_search, "data_files": files,
     }
     save_results(output / "results.json", results)
     save_results(output / "params.json", {

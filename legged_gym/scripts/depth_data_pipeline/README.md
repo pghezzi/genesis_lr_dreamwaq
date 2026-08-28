@@ -70,8 +70,9 @@ python -m legged_gym.scripts.depth_data_pipeline.train_terrain_classifiers \
   --no-batch-processing
 ```
 
-Full-split processing can require substantially more RAM and VRAM. Bayesian search
-still retains only compact CPU class scores and one temperature's probabilities.
+Full-split processing can require substantially more RAM and VRAM. Sequential
+search caches only compact CPU classifier scores/probabilities, not images or
+engineered-feature tensors.
 
 If `--output` is omitted, a timestamped suite directory is created under
 `depth_waq_selector/full_models/`. If `--dataset` is omitted, the script checks
@@ -82,6 +83,14 @@ parameters, metrics, and standardized `results.json`. The suite root contains
 `suite_manifest.json` and, by default, comparison CSV/JSON files. Use
 `--skip-comparison` to omit automatic comparison or `--continue-on-error` to run
 remaining approaches after one fails.
+
+RBF Prototype and RBF SVM instantaneous tuning now use structural Stage 1 and
+Stage 2 searches; their final classifier is selected only on structural
+validation. Every classifier then runs the same ordered-validation search for
+fixed-persistence Bayes, event-conditioned Bayes, ambiguity-aware Bayes, and an
+EMA-logit + patience baseline. Ordered test data is reporting-only. The selected
+Bayes artifact remains `bayes_filter.pt`; stage-specific filters and
+`best_temporal_filter.pt` are saved alongside it.
 
 ## Comparing saved results
 
@@ -105,6 +114,10 @@ The command prints separate instantaneous and Bayesian rankings and writes:
 
 - `<output>_instantaneous.csv`
 - `<output>_bayesian.csv`
+- `<output>_instantaneous_stages.csv`
+- `<output>_sequential_stages.csv`
+- `<output>_per_classifier_best.csv`
+- `<output>_staged.json`
 - `<output>.json`
 
 Bayesian output includes the filtering accuracy delta on the same ordered test
