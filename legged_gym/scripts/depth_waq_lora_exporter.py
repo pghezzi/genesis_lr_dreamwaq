@@ -277,16 +277,17 @@ if __name__ == "__main__":
     from rsl_rl.modules import ActorCriticDreamWaQDepth, ActorCriticDreamWaQDepthLora
 
 
-
+    
     base_model = loader(
         ActorCriticDreamWaQDepth, 
-        (f"{LEGGED_GYM_ROOT_DIR}/logs/go2_depth_waq_baseline_final_version_with_better_headings/Jul28_21-00-55_dreamwaq_genesis/model_5000.pt",f"{LEGGED_GYM_ROOT_DIR}/logs/go2_depth_waq_baseline_final_version_with_better_headings/Jul28_21-00-55_dreamwaq_genesis/current_actor_args.pt")
+        (f"/home/pablo/Documents/Legged_Gym_EX/logs/go2_depth_waq_baseline/Aug09_02-33-11_dreamwaq_isaacgym/model_7000.pt",f"/home/pablo/Documents/Legged_Gym_EX/logs/go2_depth_waq_baseline/Aug09_02-33-11_dreamwaq_isaacgym/current_actor_args.pt")
         
     )
 
     lora_raw = [
-        (f"{LEGGED_GYM_ROOT_DIR}/logs/go2_depth_waq_lora_8_gap_experiment1_better_headings/Aug01_08-38-05_dreamwaq_isaacgym", 30000),
-        (f"{LEGGED_GYM_ROOT_DIR}/logs/go2_depth_waq_lora_8_stairs_experiment1_better_headings/Jul30_23-25-59_dreamwaq_isaacgym", 30000),
+        (f"{LEGGED_GYM_ROOT_DIR}/logs/go2_depth_waq_lora_8_gap/Aug10_18-19-15_dreamwaq_isaacgym", 40000),
+        (f"{LEGGED_GYM_ROOT_DIR}/logs/go2_depth_waq_lora_8_all_stairs/Aug10_22-06-45_dreamwaq_isaacgym", 40000),
+        (f"{LEGGED_GYM_ROOT_DIR}/logs/go2_depth_waq_lora_8_pit/Aug17_13-44-54_dreamwaq_isaacgym", 60000)
         #(f"{LEGGED_GYM_ROOT_DIR}/logs/go2_depth_waq_lora_8_pit_experiment1_better_headings/Aug04_23-58-15_dreamwaq_isaacgym", 25000),
     ]
 
@@ -321,6 +322,8 @@ if __name__ == "__main__":
     #test_swap_eager_and_exported(exporter, tmp_export_dir="/tmp/lora_export_test")
 
     path = os.path.join(LEGGED_GYM_ROOT_DIR, "exported")
+    os.makedirs(path, exist_ok=True)
+    path = os.path.join(path, timestamp)
     os.makedirs(path, exist_ok=True)
     file = os.path.join(path, f"compiled_lora_{timestamp}.pt")
     exporter.export(file)

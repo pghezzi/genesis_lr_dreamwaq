@@ -528,7 +528,7 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
             actions = policy(estimator_features.detach())
             estimator_features, estimator_labels, _, rews, dones, infos = env.step(actions.detach())
         elif "depth_waq" in task_name:
-            actions = policy(obs_buf, obs_history, depth)
+            actions = policy(obs_buf.detach(), obs_history.detach(), depth.detach())
             if policy1 is not None:
                 print(f"Models diff: {torch.sum(torch.abs(actions - policy1(obs_buf, obs_history, depth)))}")
             obs_buf, privileged_obs_buf, obs_history, explicit_labels, next_states, rews, dones, infos, depth = env.step(actions.detach())

@@ -53,7 +53,7 @@ Thumbs.db
 # VS Code
 .vscode
 # logs
-logs*/
+*logs*/
 exp_logs/
 depth_waq_selector/
 runs/

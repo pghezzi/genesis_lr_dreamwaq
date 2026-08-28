@@ -31,6 +31,7 @@ class DreamWaQDepthDistillRunner(OnPolicyRunner):
         super().__init__(env, train_cfg, log_dir, device)
 
     def _make_policy(self, policy_class, policy_kwargs):
+        print(policy_kwargs)
         return policy_class(
             self.env.num_obs,
             self.env.num_actions,
@@ -50,9 +51,10 @@ class DreamWaQDepthDistillRunner(OnPolicyRunner):
         rank = int(teacher_cfg.get("rank", 8))
         teacher_actor_critic = teacher_cfg.get("teacher_actor_critic", "ActorCriticDreamWaQDepthLora")
         kwargs = dict(self.policy_cfg)
+        print(teacher_actor_critic)
         if "lora" in teacher_actor_critic.lower():
             kwargs.update(
-                base_model=teacher_cfg.get("base_model",self.distillation_cfg.base_model),
+                base_model=teacher_cfg.get("base_model", self.distillation_cfg.base_model),
                 actor_ranks= int(teacher_cfg.get("rank",self.distillation_cfg.lora_rank)),
                 encoder_ranks=teacher_cfg.get("encoder_ranks", rank),
                 decoder_ranks=teacher_cfg.get("decoder_ranks", rank),
@@ -132,7 +134,7 @@ class DreamWaQDepthDistillRunner(OnPolicyRunner):
         if self.current_learning_iteration == 0:
             teacher_ids = self.env.get_teacher_ids()
             unique_ids, counts = torch.unique(teacher_ids,return_counts=True)
-            print("Teacher ID check:",teacher_ids.shape,teacher_ids.dtype,unique_ids,counts)
+            print("Teacher ID check:",teacher_ids.shape, teacher_ids.dtype, unique_ids, counts)
 
         (
             obs,

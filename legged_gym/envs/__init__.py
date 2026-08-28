@@ -134,3 +134,22 @@ from legged_gym.envs.go2.go2_depth_waq_lora.go2_depth_waq_lora_config import Go2
 task_registry.register( "go2_depth_waq", Go2DepthWaq, Go2DepthWaqCfg(), Go2DepthWaqCfgPPO())
 task_registry.register( "go2_depth_waq_lora", Go2DepthWaqLora, Go2DepthWaqLoraCfg(), Go2DepthWaqLoraCfgPPO())
 
+from legged_gym.envs.go2.go2_depth_waq_distill.go2_depth_waq_distill import Go2DepthWaqDistill
+from legged_gym.envs.go2.go2_depth_waq_distill.go2_depth_waq_distill_config import Go2DepthWaqDistillCfg, Go2DepthWaqDistillCfgPPO
+
+task_registry.register( "go2_depth_waq_distill", Go2DepthWaqDistill, Go2DepthWaqDistillCfg(), Go2DepthWaqDistillCfgPPO())
+
+from legged_gym.envs.go2.go2_depth_waq_distill_gap.go2_depth_waq_distill_gap import Go2DepthWaqDistillLora
+from legged_gym.envs.go2.go2_depth_waq_distill_gap.go2_depth_waq_distill_gap_config import Go2DepthWaqDistillCfg as Go2DepthWaqDistillCfgLora, Go2DepthWaqDistillCfgPPO as Go2DepthWaqDistillCfgPPOLora
+
+task_registry.register( "go2_depth_waq_distill_gap", Go2DepthWaqDistillLora, Go2DepthWaqDistillCfgLora(), Go2DepthWaqDistillCfgPPOLora())
+
+from legged_gym.envs.go2.go2_depth_waq_distill_stairs.go2_depth_waq_distill_stairs import Go2DepthWaqDistillLora
+from legged_gym.envs.go2.go2_depth_waq_distill_stairs.go2_depth_waq_distill_stairs_config import Go2DepthWaqDistillCfg as Go2DepthWaqDistillCfgLora, Go2DepthWaqDistillCfgPPO as Go2DepthWaqDistillCfgPPOLora
+
+task_registry.register( "go2_depth_waq_distill_stairs", Go2DepthWaqDistillLora, Go2DepthWaqDistillCfgLora(), Go2DepthWaqDistillCfgPPOLora())
+
+from legged_gym.envs.go2.go2_depth_waq_distill_pit.go2_depth_waq_distill_pit import Go2DepthWaqDistillLora
+from legged_gym.envs.go2.go2_depth_waq_distill_pit.go2_depth_waq_distill_pit_config import Go2DepthWaqDistillCfg as Go2DepthWaqDistillCfgLora, Go2DepthWaqDistillCfgPPO as Go2DepthWaqDistillCfgPPOLora
+
+task_registry.register( "go2_depth_waq_distill_pit", Go2DepthWaqDistillLora, Go2DepthWaqDistillCfgLora(), Go2DepthWaqDistillCfgPPOLora())

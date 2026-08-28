@@ -294,12 +294,12 @@ def override_configs(env_cfg, args):
         },
         "gap": {
             "type": "terrain_utils.gap_terrain",
-            "gap_size": 0.6,
+            "gap_size": 0.8,
             "platform_size": 5.0,
         },
         "pit": {
             "type": "terrain_utils.pit_terrain",
-            "depth": 0.3,
+            "depth": 0.4,
             "platform_size": 3.0,
         },
         "multiple_high_platforms" : {
@@ -455,7 +455,7 @@ def override_configs(env_cfg, args):
                 {
                     "type": "terrain_utils.pyramid_stairs_terrain",
                     "step_width": 0.4,
-                    "step_height": 0.3,   # stairs up
+                    "step_height": 0.25,   # stairs up
                     "platform_size": 3.0,
                 },
                 {
@@ -541,7 +541,7 @@ def override_configs(env_cfg, args):
                         env_cfg.terrain.selected   = False
                         env_cfg.terrain.num_rows = 10
                         env_cfg.terrain.num_cols = 2
-                        env_cfg.terrain.terrain_curriculum_difficulty["step_height"] = "0.25"
+                        env_cfg.terrain.terrain_curriculum_difficulty["step_height"] = "0.2"
                         env_cfg.terrain.terrain_proportions = [0] * 11
                         env_cfg.terrain.terrain_proportions[TERRAIN_INDEX["stairs"]] = 0.5
                         env_cfg.terrain.terrain_proportions[TERRAIN_INDEX["upwards_stairs"]] = 0.5
@@ -918,7 +918,7 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
                         if idx == 0:
                             print(bayes_step.label)
                 if args.hard_terrain_detector:
-                    look_ahead_frac = 0 if args.multiterrain else 0.2
+                    look_ahead_frac = 0
                     _, row_col = get_viewed_terrain_idx(env, look_ahead_frac=look_ahead_frac)
                     row_col = row_col.cpu()
                     labels = np.atleast_1d(

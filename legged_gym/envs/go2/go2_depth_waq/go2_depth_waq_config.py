@@ -189,8 +189,6 @@ class Go2DepthWaqCfg( LeggedRobotDreamwaqCfg ):
                 feet_near_edge = -1.0
                 feet_air_time = 0.6
             elif terrain_name in ("pit", "center_platform", "all_pit"):
-                base_height = -0.0
-                torque_limits = -0.0
                 dof_pos_limits = -2.0
                 collision = -10.0
                 tracking_lin_vel = 1.2
@@ -368,6 +366,8 @@ class Go2DepthWaqCfgPPO( LeggedRobotDreamwaqCfgPPO ):
         cnn_fc_layer_dims = [128, 64]
         cnn_kernel_sizes = [5, 3]
     class algorithm( LeggedRobotDreamwaqCfgPPO.algorithm ):
+        if terrain_name == "pit":
+            entropy_coef = 0.001
         encoder_lr = 2.e-4
         num_encoder_epochs = 1
         vae_kld_weight = 2.0
@@ -395,6 +395,6 @@ class Go2DepthWaqCfgPPO( LeggedRobotDreamwaqCfgPPO ):
             #elif terrain_name in ("stairs", "gap"):
             #    max_iterations = 30000
             elif terrain_name in ("pit"):
-                max_iterations = 60000
+                max_iterations = 80000
             else:
                 max_iterations = 40000

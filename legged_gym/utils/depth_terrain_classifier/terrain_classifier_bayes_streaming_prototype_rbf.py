@@ -2515,13 +2515,13 @@ def search_rbf_svm_hyperparameters(
         brier = float((probabilities - targets).square().sum(1).mean())
         result = SVMSearchResult(params, acc, nll, brier)
         results.append(result)
-        key = (-acc, nll) if scoring == "validation_accuracy" else (nll,) if scoring == "validation_nll" else (brier,)
+        key = (-acc, nll, brier) if scoring == "validation_accuracy" else (nll,) if scoring == "validation_nll" else (brier,)
         if best_key is None or key < best_key:
             best_key, best_model = key, model
         if verbose:
             print(params, acc, nll, brier)
     if scoring == "validation_accuracy":
-        results.sort(key=lambda r: (-r.validation_accuracy, r.validation_nll))
+        results.sort(key=lambda r: (-r.validation_accuracy, r.validation_nll, r.validation_brier))
     elif scoring == "validation_nll":
         results.sort(key=lambda r: r.validation_nll)
     else:
@@ -2600,7 +2600,7 @@ def search_prototype_rbf_hyperparameters(
         result = PrototypeRBFSearchResult(params, acc, nll, brier, num_prototypes)
         results.append(result)
         key = (
-            (-acc, nll, num_prototypes)
+            (-acc, nll, brier, num_prototypes)
             if scoring == "validation_accuracy"
             else (nll, num_prototypes)
             if scoring == "validation_nll"
@@ -2612,7 +2612,7 @@ def search_prototype_rbf_hyperparameters(
             print(params, acc, nll, brier, num_prototypes)
 
     if scoring == "validation_accuracy":
-        results.sort(key=lambda r: (-r.validation_accuracy, r.validation_nll, r.num_prototypes))
+        results.sort(key=lambda r: (-r.validation_accuracy, r.validation_nll, r.validation_brier, r.num_prototypes))
     elif scoring == "validation_nll":
         results.sort(key=lambda r: (r.validation_nll, r.num_prototypes))
     else:
@@ -2710,7 +2710,7 @@ def search_prototype_rbf_hyperparameters_dataloader(
         result = PrototypeRBFSearchResult(params, acc, nll, brier, num_prototypes)
         results.append(result)
         key = (
-            (-acc, nll, num_prototypes)
+            (-acc, nll, brier, num_prototypes)
             if scoring == "validation_accuracy"
             else (nll, num_prototypes)
             if scoring == "validation_nll"
@@ -2722,7 +2722,7 @@ def search_prototype_rbf_hyperparameters_dataloader(
             print(params, acc, nll, brier, num_prototypes)
 
     if scoring == "validation_accuracy":
-        results.sort(key=lambda r: (-r.validation_accuracy, r.validation_nll, r.num_prototypes))
+        results.sort(key=lambda r: (-r.validation_accuracy, r.validation_nll, r.validation_brier, r.num_prototypes))
     elif scoring == "validation_nll":
         results.sort(key=lambda r: (r.validation_nll, r.num_prototypes))
     else:
@@ -2858,8 +2858,6 @@ def search_bayes_filter_hyperparameters(
                 )
                 transition_training_labels = true_labels
                 transition_training_sequence_ids = sequence_ids
-            else:
-                transition_training_labels = classifier._normalize_labels(transition_training_labels)
             transition_cache = build_hybrid_transition_cache(
                 labels, transition_training_labels,
                 transition_training_sequence_ids=transition_training_sequence_ids,
