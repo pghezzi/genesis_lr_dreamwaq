@@ -1103,7 +1103,9 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
         save_name = (
             f"{train_cfg.runner.experiment_name}"
             f"{'_filtered' if args.filter_depth_classifier_data else ''}"
-            f"{'_' + str(new) if new else ''}"
+            f"{'_test_terrain' if args.test_terrain else ''}"
+            f"{'_curriculum' if args.curriculum else ''}"
+            f"{'_explore' if arg.explore else ''}"
             f"{'_extreme' if args.extreme else ''}"
             f"_{env.cfg.env.num_envs}_capture_{timestamp}.pt"
         )

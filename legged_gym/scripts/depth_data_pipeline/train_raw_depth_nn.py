@@ -7,7 +7,7 @@ from .util_func import (
     classifier_metrics_from_scores, collect_raw_depth_scores,
     fit_nn, json_safe, load_training_files,
     save_results, sequence_ids_for,
-    transition_training_kwargs, processing_batch_size,
+    transition_training_kwargs, processing_batch_size, run_staged_sequential_pipeline,
     get_activation_fn
 )
 
