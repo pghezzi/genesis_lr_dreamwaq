@@ -44,9 +44,19 @@ def _flatten_metrics(prefix: str, metrics: dict[str, Any]) -> dict[str, Any]:
               "steady_state_accuracy", "mean_transition_delay", "false_transition_rate",
               "minimum_class_recall", "nll", "brier", "event_fraction", "event_precision",
               "expected_calibration_error",
-              "event_recall", "mean_event_offset", "ambiguous_frame_fraction",
+              "event_recall", "mean_event_offset", "mean_switch_event_offset",
+              "ambiguous_frame_fraction",
               "mean_ambiguity_run_length", "ambiguity_inside_transition_fraction",
-              "ambiguity_outside_transition_fraction", "high_epistemic_frame_fraction")
+              "ambiguity_outside_transition_fraction", "high_epistemic_frame_fraction",
+              "switch_event_precision", "switch_event_recall",
+              "true_transition_detection_recall", "mean_mc_agreement",
+              "agreement_correct_frames", "agreement_incorrect_frames",
+              "agreement_true_switch_events", "agreement_false_switch_events",
+              "mean_beta", "beta_std", "beta_correct_frames", "beta_incorrect_frames",
+              "beta_inside_transition_window", "beta_outside_transition_window",
+              "mean_accumulated_evidence", "evidence_true_switch_events",
+              "evidence_false_switch_events", "evidence_frames_above_threshold",
+              "evidence_fraction_above_threshold")
     row = {f"{prefix}_{key}": metrics.get(key) for key in scalar}
     for key in ("per_class_precision", "per_class_recall", "missing_predicted_classes", "confusion_matrix"):
         row[f"{prefix}_{key}"] = json.dumps(metrics.get(key))
@@ -63,6 +73,8 @@ def _deployment_row(run, mode):
             "mc_samples": value["mc_samples"], "model_path": value["model_path"],
             "temporal_filter_path": value["temporal_filter_path"],
             "temporal_family": value["selected_temporal_filter_family"],
+            "uncertainty_stage": value.get("uncertainty_search", {}).get("selected_stage")
+            if value.get("uncertainty_search") else None,
             "T_filter": value["T_filter"], "stable_stay": value["stable_stay"],
             "release_strength": value.get("release_strength"),
             "switch_margin": value.get("switch_margin"),
@@ -105,6 +117,18 @@ def _stage_rows(run):
                          "stage": stage, "parameters": json.dumps(record["parameters"], sort_keys=True),
                          **_flatten_metrics("validation", record["validation_metrics"]),
                          **_flatten_metrics("test", record["ordered_test_metrics"])})
+        uncertainty = config.get("uncertainty_search")
+        if uncertainty:
+            for stage, record in uncertainty["stages"].items():
+                rows.append({"architecture": run["architecture"], "config_id": config_id,
+                             "inference_mode": candidate["inference_mode"],
+                             "dropout_p": candidate["dropout_p"],
+                             "mc_samples": candidate["mc_samples"],
+                             "weight_decay": candidate["weight_decay"],
+                             "stage": stage, "selected": record["selected"],
+                             "parameters": json.dumps(record["parameters"], sort_keys=True),
+                             **_flatten_metrics("validation", record["validation_metrics"]),
+                             **_flatten_metrics("test", record["ordered_test_metrics"])})
     return rows
 
 
@@ -136,10 +160,13 @@ def main():
     selections = {
         "feature_nn deterministic winner": by_name.get("feature_nn_deterministic"),
         "feature_nn MC winner": by_name.get("feature_nn_mc"),
+        "best uncertainty-aware stage for feature-NN MC": by_name.get("feature_nn_mc"),
         "raw_depth_nn deterministic winner": by_name.get("raw_depth_nn_deterministic"),
         "raw_depth_nn MC winner": by_name.get("raw_depth_nn_mc"),
+        "best uncertainty-aware stage for raw-depth-NN MC": by_name.get("raw_depth_nn_mc"),
         "global deterministic winner": best(deterministic) if deterministic else None,
         "global MC winner": best(mc) if mc else None,
+        "best MC filter overall": best(mc) if mc else None,
         "global overall winner": best(winners),
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)

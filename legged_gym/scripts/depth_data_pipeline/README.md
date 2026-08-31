@@ -96,6 +96,12 @@ the validation/CV-selected EMA baseline beside the best Bayes filter; ordered te
 data remains reporting-only. `deployment_deterministic.json` and
 `deployment_mc.json` contain everything required for automatic deployment.
 
+MC deployments additionally extend the selected candidate-release Bayes filter
+through U0-U3: the unchanged U0 baseline, U1 candidate agreement plus MI gating,
+U2 MI-adaptive observation strength, and U3 uncertainty-weighted accumulated
+transition evidence. Each stage retains its prior baseline, uses cached MC logits,
+and may replace the deployed filter only after improving validation selection score.
+
 ## Comparing saved results
 
 Comparison never reruns training. Compare a completed suite:

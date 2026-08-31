@@ -503,6 +503,7 @@ def train_uncertainty_aware_nn_suite(
     search["all_trials"] = trials
     trial_rows = [{"candidate_id": candidate_id, "stage": "stage0",
         "family": metadata["inference_mode"],
+        "stage_best": False, "selected": False,
         "selection_score": metadata["validation_metrics"].get("selection_score"),
         "balanced_accuracy": metadata["validation_metrics"].get("balanced_accuracy"),
         "transition_window_accuracy": metadata["validation_metrics"].get("transition_window_accuracy"),
@@ -520,6 +521,8 @@ def train_uncertainty_aware_nn_suite(
             for value in values:
                 trial_rows.append({"candidate_id": candidate_id, "stage": stage,
                     "family": value.get("family"), "selection_score": value.get("selection_score"),
+                    "stage_best": value.get("stage_best", False),
+                    "selected": value.get("selected", False),
                     "balanced_accuracy": value.get("balanced_accuracy"),
                     "transition_window_accuracy": value.get("transition_window_accuracy"),
                     "mean_transition_delay": value.get("mean_transition_delay"),
@@ -539,6 +542,18 @@ def train_uncertainty_aware_nn_suite(
         winner = search[key]
         candidate = winner["candidate"]
         ema = winner["ema"]
+        uncertainty_search = winner.get("uncertainty_search")
+        if uncertainty_search is not None:
+            uncertainty_search = {
+                **uncertainty_search,
+                "stages": {
+                    stage: {**record,
+                            "filter_path": _relative_artifact(record["filter_path"], output)}
+                    for stage, record in uncertainty_search["stages"].items()
+                },
+            }
+            uncertainty_search["selected"] = uncertainty_search["stages"][
+                uncertainty_search["selected_stage"]]
         deployment = {
             "architecture": architecture,
             "model_path": _relative_artifact(candidate["model_path"], output),
@@ -568,6 +583,7 @@ def train_uncertainty_aware_nn_suite(
                 **ema,
                 "filter_path": _relative_artifact(ema["filter_path"], output),
             },
+            "uncertainty_search": uncertainty_search,
         }
         if architecture == "feature_nn":
             deployment.update(extractor_path="extractor.pt", standardizer_path="standardizer.pt")

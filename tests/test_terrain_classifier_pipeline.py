@@ -9,7 +9,9 @@ from torch.utils.data import DataLoader, TensorDataset
 from legged_gym.scripts.depth_data_pipeline.compare_terrain_classifier_results import parse_result_file
 from legged_gym.scripts.depth_data_pipeline.util_func import collect_neural_logits_batched
 from legged_gym.scripts.depth_data_pipeline.sequential_terrain_filter_extensions import (
-    CandidateReleaseBayesianTerrainFilter, run_candidate_release_sequences,
+    CandidateReleaseBayesianTerrainFilter, accumulate_transition_evidence,
+    mc_candidate_agreement, run_candidate_release_sequences,
+    uncertainty_adaptive_beta, validation_mi_threshold,
 )
 from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
     FeatureStandardizer, NeuralClassifierAdapter, RBFSVM, fit_nn,
@@ -90,6 +92,56 @@ def test_candidate_release_runner_resets_each_sequence():
         filt, probabilities, probabilities, [0, 0, 1, 1])
     assert predictions[0] == 1
     assert predictions[2] == 0
+
+
+def test_mc_agreement_mi_threshold_and_beta_endpoints():
+    probabilities = torch.tensor([
+        [[0.9, 0.1], [0.6, 0.4]],
+        [[0.8, 0.2], [0.2, 0.8]],
+        [[0.7, 0.3], [0.1, 0.9]],
+        [[0.4, 0.6], [0.7, 0.3]],
+    ])
+    assert torch.allclose(mc_candidate_agreement(probabilities), torch.tensor([0.75, 0.5]))
+    mi = torch.tensor([0.0, 0.1, 0.2, 0.3])
+    assert validation_mi_threshold(mi, 100) == float(mi.max())
+    assert torch.allclose(uncertainty_adaptive_beta(torch.tensor([0.0, 0.2]), 0.2, 0.25),
+                          torch.tensor([1.0, 0.25]))
+    assert torch.allclose(uncertainty_adaptive_beta(mi, 0.2, 1.0), torch.ones_like(mi))
+
+
+def test_accumulated_evidence_candidate_changes_and_reset(tmp_path):
+    value, candidate = accumulate_transition_evidence(0.4, 1, 1, 0.2, 0.5)
+    assert value == 0.4 and candidate == 1
+    value, candidate = accumulate_transition_evidence(value, candidate, 2, 0.1, 0.5)
+    assert value == 0.1 and candidate == 2
+    assert accumulate_transition_evidence(value, candidate, 2, 0.0, 0.5, False) == (0.0, None)
+
+    filt = CandidateReleaseBayesianTerrainFilter(
+        [0, 1], {0: 0.5, 1: 0.5}, torch.eye(2), release_strength=0.8,
+        change_patience=99, epistemic_threshold=1.0, agreement_threshold=0.5,
+        mi_scale=1.0, use_accumulated_evidence=True, evidence_decay=0.5,
+        evidence_threshold=0.1)
+    filt.update(torch.tensor([0.2, 0.8]), event_probabilities=torch.tensor([0.2, 0.8]),
+                mutual_information=0.0, candidate_agreement=1.0)
+    assert filt.last_event  # U3 triggers without applying discrete patience.
+    filt.reset()
+    assert filt.accumulated_evidence == 0.0 and filt.evidence_candidate_index is None
+    path = tmp_path / "u3_filter.pt"
+    filt.save(path)
+    restored = CandidateReleaseBayesianTerrainFilter.load(path)
+    assert restored.use_accumulated_evidence and restored.change_patience == 99
+
+
+def test_adaptive_beta_one_matches_unattenuated_observation():
+    kwargs = dict(labels=[0, 1], prior={0: 0.5, 1: 0.5},
+                  stable_transition_matrix=torch.tensor([[0.9, 0.1], [0.1, 0.9]]))
+    baseline = CandidateReleaseBayesianTerrainFilter(**kwargs)
+    adaptive_endpoint = CandidateReleaseBayesianTerrainFilter(
+        **kwargs, beta_min=1.0, mi_scale=0.2)
+    probability = torch.tensor([0.3, 0.7])
+    baseline.update(probability, mutual_information=0.2)
+    adaptive_endpoint.update(probability, mutual_information=0.2)
+    assert torch.allclose(baseline.belief, adaptive_endpoint.belief)
 
 
 def test_svm_search_reuses_basis_selection(monkeypatch):
