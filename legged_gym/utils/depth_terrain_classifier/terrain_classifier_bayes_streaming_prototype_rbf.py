@@ -1807,7 +1807,10 @@ def fit_nn(
     optimizer_kwargs: Optional[Mapping[str, Any]] = None,
     shuffle: bool = True,
     verbose: bool = True,
-) -> Dict[str, List[float]]:
+    early_stopping_patience: Optional[int] = None,
+    early_stopping_min_delta: float = 0.0,
+    restore_best_weights: bool = False,
+) -> Dict[str, Any]:
     """Train a :class:`NeuralClassifierAdapter` with cross-entropy.
 
     Inputs remain on CPU in the DataLoaders and are prepared by the adapter for
@@ -1818,6 +1821,8 @@ def fit_nn(
 
     if epochs <= 0 or batch_size <= 0 or validation_batch_size <= 0:
         raise ValueError("epochs and batch sizes must be positive")
+    if early_stopping_patience is not None and early_stopping_patience <= 0:
+        raise ValueError("early_stopping_patience must be positive or None")
     label_values = adapter._normalize_labels(labels)
     if not adapter.class_ids:
         adapter.set_class_ids(list(dict.fromkeys(label_values)))
@@ -1851,9 +1856,11 @@ def fit_nn(
     else:
         opt = optimizer(adapter.model.parameters(), lr=lr, **kwargs)
     criterion = nn.CrossEntropyLoss()
-    history: Dict[str, List[float]] = {
+    history: Dict[str, Any] = {
         "train_loss": [], "train_accuracy": [], "validation_loss": [], "validation_accuracy": []
     }
+    best_state, best_loss, best_epoch, stale_epochs = None, float("inf"), None, 0
+    stopped_early = False
 
     for epoch in range(epochs):
         adapter.model.train()
@@ -1886,6 +1893,14 @@ def fit_nn(
                     val_correct += int((logits.argmax(1) == y_batch).sum())
             history["validation_loss"].append(val_loss / max(val_total, 1))
             history["validation_accuracy"].append(val_correct / max(val_total, 1))
+            current_loss = history["validation_loss"][-1]
+            if ((early_stopping_patience is not None or restore_best_weights)
+                    and current_loss < best_loss - float(early_stopping_min_delta)):
+                best_loss, best_epoch, stale_epochs = current_loss, epoch, 0
+                best_state = {key: value.detach().clone()
+                              for key, value in adapter.model.state_dict().items()}
+            elif early_stopping_patience is not None or restore_best_weights:
+                stale_epochs += 1
         if verbose:
             message = (
                 f"Epoch {epoch + 1:3d} | train loss {history['train_loss'][-1]:.4f} "
@@ -1897,6 +1912,17 @@ def fit_nn(
                     f" | val acc {history['validation_accuracy'][-1]:.4f}"
                 )
             print(message)
+        if (validation_loader is not None and early_stopping_patience is not None
+                and stale_epochs >= early_stopping_patience):
+            stopped_early = True
+            break
+    if restore_best_weights and best_state is not None:
+        adapter.model.load_state_dict(best_state)
+    history["best_epoch"] = best_epoch
+    history["best_validation_loss"] = None if best_epoch is None else best_loss
+    history["stopped_early"] = stopped_early
+    history["best_weights_restored"] = bool(restore_best_weights and best_state is not None)
+    history["epochs_completed"] = len(history["train_loss"])
     return history
 
 # =============================================================================

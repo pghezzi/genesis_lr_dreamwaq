@@ -933,3 +933,472 @@ def staged_sequential_search(
               "best_ema": ema[0], "best_temporal_overall": best_temporal}
     return schema, {"stage1_fixed_bayes": stage1, "stage2_event_bayes": stage2,
                     "stage3_ambiguity_bayes": stage3, "ema_logit_patience": ema}
+
+
+# =============================================================================
+# Uncertainty-aware candidate-directed filter/search
+# =============================================================================
+
+FILTER_TEMPERATURES = (1.25, 1.5, 1.75, 2.0, 2.5)
+FILTER_STAYS = (0.95, 0.97, 0.98, 0.99, 0.995)
+RELEASE_STRENGTHS = (0.10, 0.20, 0.35, 0.50)
+RELEASE_MARGINS = (0.10, 0.20, 0.30, 0.40)
+RELEASE_PATIENCES = (1, 2)
+EPISTEMIC_PERCENTILES = (75, 90)
+AMBIGUITY_MARGINS = (0.10, 0.20, 0.30)
+AMBIGUITY_FLATTEN = (0.10, 0.25, 0.40)
+
+
+class CandidateReleaseBayesianTerrainFilter(BayesianTerrainFilter):
+    """Persistent Bayes filter with candidate-directed release and uncertainty handling."""
+
+    def __init__(
+        self, labels, prior, stable_transition_matrix, *, release_strength=0.0,
+        switch_margin=0.0, change_patience=1, epistemic_threshold=None,
+        ambiguity_margin=None, flatten_strength=0.0, device="cpu", eps=1e-8,
+    ):
+        super().__init__(labels, prior, stable_transition_matrix, torch.eye(len(labels)),
+                         evidence_power=1.0, adaptive_evidence=False,
+                         min_evidence_power=1.0, confidence_gamma=1.0,
+                         device=device, eps=eps)
+        self.stable_transition_matrix = self.transition_matrix.clone()
+        self.release_strength = float(release_strength)
+        self.switch_margin = float(switch_margin)
+        self.change_patience = int(change_patience)
+        self.epistemic_threshold = None if epistemic_threshold is None else float(epistemic_threshold)
+        self.ambiguity_margin = None if ambiguity_margin is None else float(ambiguity_margin)
+        self.flatten_strength = float(flatten_strength)
+        self.current_output_index = int(self.belief.argmax())
+        self.pending_target_index = None
+        self.pending_count = 0
+        self.last_event = False
+        self.last_ambiguous = False
+        self.last_high_epistemic = False
+
+    def reset(self, prior=None):
+        belief = super().reset(prior)
+        self.current_output_index = int(self.belief.argmax())
+        self.pending_target_index = None
+        self.pending_count = 0
+        self.last_event = self.last_ambiguous = self.last_high_epistemic = False
+        return belief
+
+    def _q(self, value):
+        q = torch.as_tensor(value, dtype=torch.float32, device=self.device).flatten().clamp_min(self.eps)
+        if q.numel() != self.num_classes:
+            raise ValueError("probability vector has wrong class count")
+        return q / q.sum().clamp_min(self.eps)
+
+    @torch.inference_mode()
+    def update(self, classifier_probabilities, *, event_probabilities=None,
+               mutual_information=0.0, observation_quality=1.0):
+        del observation_quality
+        q = self._q(classifier_probabilities)
+        q_event = q if event_probabilities is None else self._q(event_probabilities)
+        current = self.current_output_index
+        predicted = self.belief @ self.stable_transition_matrix
+        predicted = predicted / predicted.sum().clamp_min(self.eps)
+        values, indices = torch.topk(q, min(2, self.num_classes))
+        ambiguity = self.num_classes > 1 and float(values[0] - values[1]) <= (
+            -1.0 if self.ambiguity_margin is None else self.ambiguity_margin)
+        high_mi = self.epistemic_threshold is not None and float(mutual_information) > self.epistemic_threshold
+        self.last_event = False
+        self.last_ambiguous = bool(ambiguity)
+        self.last_high_epistemic = bool(self.ambiguity_margin is not None and high_mi)
+
+        if self.ambiguity_margin is not None and high_mi:
+            self.pending_target_index = None
+            self.pending_count = 0
+            self.belief = predicted
+            return BayesianFilterStep(self.labels[current], predicted.clone(), predicted.clone(),
+                                      torch.ones_like(q), q.clone(), self.entropy_confidence(q), 0.0)
+
+        if ambiguity:
+            self.pending_target_index = None
+            self.pending_count = 0
+            candidate = int(indices[0])
+            if candidate == current and self.num_classes > 1:
+                candidate = int(indices[1])
+            u = torch.zeros_like(q)
+            u[current], u[candidate] = q[current], q[candidate]
+            u = u / u.sum().clamp_min(self.eps)
+            posterior = (1.0 - self.flatten_strength) * predicted + self.flatten_strength * u
+            posterior = posterior / posterior.sum().clamp_min(self.eps)
+            self.belief = posterior
+            return BayesianFilterStep(self.labels[current], posterior.clone(), predicted.clone(),
+                                      torch.ones_like(q), q.clone(), self.entropy_confidence(q), 0.0)
+
+        candidate = int(q_event.argmax())
+        margin = float(q_event[candidate] - q_event[current])
+        eligible = candidate != current and margin >= self.switch_margin and not high_mi
+        if eligible:
+            if self.pending_target_index == candidate:
+                self.pending_count += 1
+            else:
+                self.pending_target_index, self.pending_count = candidate, 1
+        else:
+            self.pending_target_index, self.pending_count = None, 0
+        accepted = eligible and self.pending_count >= self.change_patience
+        if accepted and self.release_strength > 0:
+            directed = torch.zeros_like(predicted)
+            directed[candidate] = 1.0
+            predicted = (1.0 - self.release_strength) * predicted + self.release_strength * directed
+            predicted = predicted / predicted.sum().clamp_min(self.eps)
+            self.last_event = True
+        posterior = predicted * q
+        posterior = posterior / posterior.sum().clamp_min(self.eps)
+        self.belief = posterior
+        new_output = int(posterior.argmax())
+        self.current_output_index = new_output
+        if new_output != current:
+            self.pending_target_index, self.pending_count = None, 0
+        return BayesianFilterStep(self.labels[new_output], posterior.clone(), predicted.clone(),
+                                  q.clone(), q.clone(), self.entropy_confidence(q), 1.0)
+
+    def save(self, path):
+        torch.save({"filter_class": self.__class__.__name__, "labels": self.labels,
+                    "initial_prior": self.initial_prior.cpu(),
+                    "stable_transition_matrix": self.stable_transition_matrix.cpu(),
+                    "release_strength": self.release_strength, "switch_margin": self.switch_margin,
+                    "change_patience": self.change_patience,
+                    "epistemic_threshold": self.epistemic_threshold,
+                    "ambiguity_margin": self.ambiguity_margin,
+                    "flatten_strength": self.flatten_strength, "eps": self.eps}, path)
+
+    @classmethod
+    def load(cls, path, *, device="cpu"):
+        state = torch.load(path, map_location=device, weights_only=True)
+        return cls(state["labels"], state["initial_prior"], state["stable_transition_matrix"],
+                   release_strength=state["release_strength"], switch_margin=state["switch_margin"],
+                   change_patience=state["change_patience"],
+                   epistemic_threshold=state.get("epistemic_threshold"),
+                   ambiguity_margin=state.get("ambiguity_margin"),
+                   flatten_strength=state.get("flatten_strength", 0.0),
+                   device=device, eps=state.get("eps", 1e-8))
+
+
+@torch.inference_mode()
+def run_candidate_release_sequences(terrain_filter, filter_probabilities, event_probabilities,
+                                    sequence_ids, mutual_information=None):
+    qf, qe, ids = torch.as_tensor(filter_probabilities), torch.as_tensor(event_probabilities), list(sequence_ids)
+    mi = torch.zeros(qf.shape[0]) if mutual_information is None else torch.as_tensor(mutual_information)
+    predictions, events, ambiguities, high_mi = [], [], [], []
+    for i in range(qf.shape[0]):
+        if i == 0 or ids[i] != ids[i - 1]:
+            terrain_filter.reset()
+        step = terrain_filter.update(qf[i], event_probabilities=qe[i], mutual_information=float(mi[i]))
+        predictions.append(step.label)
+        events.append(terrain_filter.last_event)
+        ambiguities.append(terrain_filter.last_ambiguous)
+        high_mi.append(terrain_filter.last_high_epistemic)
+    return predictions, torch.tensor(events), torch.tensor(ambiguities), torch.tensor(high_mi)
+
+
+def _probabilities_from_cached_logits(logits, temperature):
+    values = torch.as_tensor(logits).float()
+    if values.ndim == 2:
+        values = values.unsqueeze(0)
+    return F.softmax(values / float(temperature), dim=-1).mean(0)
+
+
+def _candidate_metrics(truth, predictions, labels, ids, events=None, ambiguities=None,
+                       high_epistemic=None):
+    metrics = evaluate_sequential_predictions(truth, predictions, labels, ids)
+    window = _transition_window_mask(truth, ids, 5)
+    if events is not None:
+        events = torch.as_tensor(events).bool()
+        metrics["event_fraction"] = float(events.float().mean())
+        metrics["event_precision"] = float(window[events].float().mean()) if events.any() else 0.0
+        transition_indices = [i for i in range(1, len(truth)) if ids[i] == ids[i-1] and truth[i] != truth[i-1]]
+        event_indices = events.nonzero(as_tuple=False).flatten().tolist()
+        metrics["event_recall"] = (float(sum(any(ids[e] == ids[t] and abs(e - t) <= 5
+            for e in event_indices) for t in transition_indices) / len(transition_indices))
+            if transition_indices else float("nan"))
+        offsets = []
+        for i in event_indices:
+            same = [t for t in transition_indices if ids[t] == ids[i]]
+            if same:
+                offsets.append(min(same, key=lambda t: abs(t-i)) - i)
+        metrics["mean_event_offset"] = float(sum(offsets) / len(offsets)) if offsets else float("nan")
+    if ambiguities is not None:
+        ambiguities = torch.as_tensor(ambiguities).bool()
+        metrics["ambiguous_frame_fraction"] = float(ambiguities.float().mean())
+        metrics["mean_ambiguity_run_length"] = _ambiguity_run_length(ambiguities, ids)
+        metrics["ambiguity_inside_transition_fraction"] = float(ambiguities[window].float().mean()) if window.any() else float("nan")
+        metrics["ambiguity_outside_transition_fraction"] = float(ambiguities[~window].float().mean()) if (~window).any() else float("nan")
+    if high_epistemic is not None:
+        metrics["high_epistemic_frame_fraction"] = float(torch.as_tensor(high_epistemic).float().mean())
+    return metrics
+
+
+def _evaluate_release_config(config, logits, truth, ids, labels, mi_event=None):
+    q_filter = _probabilities_from_cached_logits(logits, config["T_filter"])
+    q_event = _probabilities_from_cached_logits(logits, 1.0)
+    prior = {label: 1.0 / len(labels) for label in labels}
+    filt = CandidateReleaseBayesianTerrainFilter(
+        labels, prior, make_persistent_transition_matrix(labels, config["stable_stay"]),
+        release_strength=config.get("release_strength", 0.0),
+        switch_margin=config.get("switch_margin", 0.0),
+        change_patience=config.get("change_patience", 1),
+        epistemic_threshold=config.get("epistemic_threshold"),
+        ambiguity_margin=config.get("ambiguity_margin"),
+        flatten_strength=config.get("flatten_strength", 0.0), device="cpu")
+    predictions, events, ambiguous, high_epistemic = run_candidate_release_sequences(
+        filt, q_filter, q_event, ids, mutual_information=mi_event)
+    return filt, _candidate_metrics(truth, predictions, labels, ids, events, ambiguous, high_epistemic)
+
+
+def _ema_scores_from_cached_logits(logits):
+    """Use logits for deterministic inference and MC-mean scores for MC inference."""
+    values = torch.as_tensor(logits).float()
+    if values.ndim == 2:
+        return values
+    return F.softmax(values, dim=-1).mean(0)
+
+
+def _evaluate_ema_config(config, logits, truth, ids, labels):
+    filt = EMALogitPatienceFilter(
+        labels, ema_alpha=config["ema_alpha"],
+        change_patience=config["change_patience"], device="cpu")
+    predictions = run_ema_logit_patience_sequences(
+        filt, _ema_scores_from_cached_logits(logits), sequence_ids=ids)
+    return filt, _candidate_metrics(truth, predictions, labels, ids)
+
+
+def _sequence_cv(config, logits, truth, ids, labels, mi_event=None):
+    unique = list(dict.fromkeys(list(ids)))
+    folds = [unique[i::3] for i in range(3)]
+    scores, fold_metrics = [], []
+    for fold in folds:
+        if not fold:
+            continue
+        mask = torch.tensor([value in set(fold) for value in ids])
+        _, metrics = _evaluate_release_config(config, torch.as_tensor(logits)[:, mask],
+            [truth[i] for i, keep in enumerate(mask.tolist()) if keep],
+            [ids[i] for i, keep in enumerate(mask.tolist()) if keep], labels,
+            None if mi_event is None else torch.as_tensor(mi_event)[mask])
+        scores.append(metrics["selection_score"])
+        fold_metrics.append(metrics)
+    return {"fold_selection_scores": scores,
+            "fold_metrics": fold_metrics,
+            "mean_selection_score": float(sum(scores) / len(scores)) if scores else float("nan")}
+
+
+def _sequence_cv_ema(config, logits, truth, ids, labels):
+    unique = list(dict.fromkeys(list(ids)))
+    folds = [unique[i::3] for i in range(3)]
+    scores, fold_metrics = [], []
+    values = torch.as_tensor(logits)
+    for fold in folds:
+        if not fold:
+            continue
+        selected_ids = set(fold)
+        mask = torch.tensor([value in selected_ids for value in ids])
+        fold_logits = values[mask] if values.ndim == 2 else values[:, mask]
+        _, metrics = _evaluate_ema_config(
+            config, fold_logits,
+            [truth[i] for i, keep in enumerate(mask.tolist()) if keep],
+            [ids[i] for i, keep in enumerate(mask.tolist()) if keep], labels)
+        scores.append(metrics["selection_score"])
+        fold_metrics.append(metrics)
+    return {"fold_selection_scores": scores, "fold_metrics": fold_metrics,
+            "mean_selection_score": float(sum(scores) / len(scores)) if scores else float("nan")}
+
+
+def search_uncertainty_aware_temporal(candidates, validation_labels, validation_ids,
+                                      test_labels, test_ids, labels, output_dir):
+    """Stage 0-4 search with deterministic/MC branches retained independently."""
+    output_dir = Path(output_dir)
+    truth_val, truth_test = list(validation_labels), list(test_labels)
+    ids_val = (torch.as_tensor(validation_ids).flatten().cpu().tolist()
+               if torch.is_tensor(validation_ids) else list(validation_ids))
+    ids_test = (torch.as_tensor(test_ids).flatten().cpu().tolist()
+                if torch.is_tensor(test_ids) else list(test_ids))
+    for candidate in candidates:
+        q, pe, ee, mi = _uncertainty(candidate["validation_logits"], 1.0)
+        candidate["validation_mi"] = mi
+        raw = [labels[i] for i in q.argmax(1).tolist()]
+        candidate["stage0_validation"] = {
+            **_candidate_metrics(truth_val, raw, labels, ids_val),
+            **_probability_losses(q, truth_val, labels),
+            "predictive_entropy_mean": float(pe.mean()), "expected_entropy_mean": float(ee.mean()),
+            "mutual_information_mean": float(mi.mean()),
+        }
+    key = lambda c: (c["stage0_validation"]["balanced_accuracy"],
+                     -c["stage0_validation"]["nll"], -c["stage0_validation"]["brier"])
+    deterministic = max((c for c in candidates if c["inference_mode"] == "deterministic"), key=key)
+    mc_selected = sorted((c for c in candidates if c["inference_mode"] == "mc"), key=key, reverse=True)[:2]
+    selected = [deterministic, *mc_selected]
+    # Ordered test is populated only after every Stage-0 selection is frozen.
+    for candidate in candidates:
+        tq, tpe, tee, tmi = _uncertainty(candidate["test_logits"], 1.0)
+        candidate["stage0_ordered_test"] = {
+            **_candidate_metrics(truth_test, [labels[i] for i in tq.argmax(1).tolist()],
+                                 labels, ids_test),
+            **_probability_losses(tq, truth_test, labels),
+            "predictive_entropy_mean": float(tpe.mean()),
+            "expected_entropy_mean": float(tee.mean()),
+            "mutual_information_mean": float(tmi.mean()),
+        }
+    all_trials, per_config = {}, {}
+
+    for candidate in selected:
+        cid, logits = candidate["id"], candidate["validation_logits"]
+        mi = candidate["validation_mi"] if candidate["inference_mode"] == "mc" else None
+        stage1 = []
+        for temperature in FILTER_TEMPERATURES:
+            for stay in FILTER_STAYS:
+                cfg = {"family": "fixed_bayes", "T_filter": temperature, "T_event": 1.0,
+                       "stable_stay": stay, "observation_mix": 0.0,
+                       "evidence_power": 1.0, "adaptive_evidence": False}
+                _, metrics = _evaluate_release_config(cfg, logits, truth_val, ids_val, labels, mi)
+                stage1.append({**cfg, **metrics})
+        stage1.sort(key=lambda x: x["selection_score"], reverse=True)
+        stage2 = []
+        for seed in stage1[:2]:
+            for release in RELEASE_STRENGTHS:
+                for margin in RELEASE_MARGINS:
+                    for patience in RELEASE_PATIENCES:
+                        cfg = {"family": "candidate_release", "T_filter": seed["T_filter"],
+                               "T_event": 1.0, "observation_mix": 0.0,
+                               "evidence_power": 1.0, "adaptive_evidence": False,
+                               "stable_stay": seed["stable_stay"], "release_strength": release,
+                               "switch_margin": margin, "change_patience": patience}
+                        _, metrics = _evaluate_release_config(cfg, logits, truth_val, ids_val, labels, mi)
+                        stage2.append({**cfg, **metrics})
+        stage2.sort(key=lambda x: x["selection_score"], reverse=True)
+        stage3 = []
+        if candidate["inference_mode"] == "mc":
+            for seed in stage2[:2]:
+                stage3.append(dict(seed, family="candidate_release_no_mi"))
+                for percentile in EPISTEMIC_PERCENTILES:
+                    threshold = float(torch.quantile(mi, percentile / 100.0))
+                    cfg = {k: seed[k] for k in ("T_filter", "T_event", "stable_stay",
+                        "observation_mix", "evidence_power", "adaptive_evidence",
+                        "release_strength", "switch_margin", "change_patience")}
+                    cfg.update(family="epistemic_gated_release", epistemic_percentile=percentile,
+                               epistemic_threshold=threshold)
+                    _, metrics = _evaluate_release_config(cfg, logits, truth_val, ids_val, labels, mi)
+                    stage3.append({**cfg, **metrics})
+            stage3.sort(key=lambda x: x["selection_score"], reverse=True)
+            stage4_seeds = [value for value in stage3
+                            if value["family"] == "epistemic_gated_release"][:2]
+        else:
+            stage4_seeds = stage2[:2]
+        stage4 = []
+        for seed in stage4_seeds:
+            for margin in AMBIGUITY_MARGINS:
+                for flatten in AMBIGUITY_FLATTEN:
+                    cfg = {k: seed[k] for k in ("T_filter", "T_event", "stable_stay",
+                        "observation_mix", "evidence_power", "adaptive_evidence",
+                        "release_strength", "switch_margin", "change_patience")}
+                    cfg.update(family="ambiguity_aware_release", ambiguity_margin=margin,
+                               flatten_strength=flatten)
+                    for name in ("epistemic_percentile", "epistemic_threshold"):
+                        if name in seed:
+                            cfg[name] = seed[name]
+                    _, metrics = _evaluate_release_config(cfg, logits, truth_val, ids_val, labels, mi)
+                    stage4.append({**cfg, **metrics})
+        stage4.sort(key=lambda x: x["selection_score"], reverse=True)
+        finalists = stage1[:2] + stage2[:2] + (stage3[:2] if stage3 else []) + stage4[:2]
+        for finalist in finalists:
+            finalist["cv"] = _sequence_cv(finalist, logits, truth_val, ids_val, labels, mi)
+        winner = max(finalists, key=lambda x: x["cv"]["mean_selection_score"])
+
+        ema = []
+        for alpha in EMA_ALPHAS:
+            for patience in EMA_PATIENCES:
+                cfg = {"family": "ema_logit_patience", "ema_alpha": alpha,
+                       "change_patience": patience}
+                _, metrics = _evaluate_ema_config(cfg, logits, truth_val, ids_val, labels)
+                trial = {**cfg, **metrics}
+                trial["cv"] = _sequence_cv_ema(trial, logits, truth_val, ids_val, labels)
+                ema.append(trial)
+        ema.sort(key=lambda x: x["cv"]["mean_selection_score"], reverse=True)
+        best_ema = ema[0]
+
+        test_logits = candidate["test_logits"]
+        test_mi = _uncertainty(test_logits, 1.0)[3] if candidate["inference_mode"] == "mc" else None
+        filt, test_metrics = _evaluate_release_config(winner, test_logits, truth_test, ids_test, labels, test_mi)
+        filt.reset()
+        filter_path = output_dir / f"{cid}_temporal_filter.pt"
+        filt.save(filter_path)
+        ema_filter, ema_test_metrics = _evaluate_ema_config(
+            best_ema, test_logits, truth_test, ids_test, labels)
+        ema_filter.reset()
+        ema_filter_path = output_dir / f"{cid}_ema_filter.pt"
+        ema_filter.save(ema_filter_path)
+        winner_record = {"parameters": _config_only(winner),
+                         "validation_metrics": _metrics_only(winner),
+                         "cv": winner["cv"], "ordered_test_metrics": test_metrics,
+                         "filter_path": str(filter_path)}
+        ema_record = {"parameters": _config_only(best_ema),
+                      "validation_metrics": _metrics_only(best_ema),
+                      "cv": best_ema["cv"], "ordered_test_metrics": ema_test_metrics,
+                      "filter_path": str(ema_filter_path)}
+        per_config[cid] = {"candidate": _candidate_metadata(candidate),
+                           "stage1": _stage_summary(stage1, candidate, test_logits, truth_test, ids_test, labels, test_mi),
+                           "stage2": _stage_summary(stage2, candidate, test_logits, truth_test, ids_test, labels, test_mi),
+                           "stage3": _stage_summary(stage3, candidate, test_logits, truth_test, ids_test, labels, test_mi) if stage3 else None,
+                           "stage4": _stage_summary(stage4, candidate, test_logits, truth_test, ids_test, labels, test_mi),
+                           "winner": winner_record, "best_bayes": winner_record,
+                           "ema": ema_record}
+        all_trials[cid] = {"stage1": stage1, "stage2": stage2, "stage3": stage3,
+                           "stage4": stage4, "ema": ema}
+
+    det_result = per_config[deterministic["id"]]
+    mc_result = max((per_config[c["id"]] for c in mc_selected),
+                    key=lambda r: r["winner"]["cv"]["mean_selection_score"])
+    return {"stage0": {"deterministic_selected": deterministic["id"],
+                        "mc_selected": [c["id"] for c in mc_selected],
+                        "candidates": {c["id"]: _candidate_metadata(c) | {"validation_metrics": c["stage0_validation"]} for c in candidates}},
+            "configs": per_config, "best_deterministic": det_result,
+            "best_mc": mc_result}, all_trials
+
+
+def _uncertainty(logits, temperature):
+    values = torch.as_tensor(logits).float()
+    if values.ndim == 2:
+        values = values.unsqueeze(0)
+    qs = F.softmax(values / temperature, dim=-1)
+    mean = qs.mean(0)
+    pe = -(mean * mean.clamp_min(1e-8).log()).sum(-1)
+    ee = -(qs * qs.clamp_min(1e-8).log()).sum(-1).mean(0)
+    return mean, pe, ee, pe - ee
+
+
+def _probability_losses(q, truth, labels):
+    index = {label: i for i, label in enumerate(labels)}
+    y = torch.tensor([index[v] for v in truth])
+    targets = F.one_hot(y, len(labels)).float()
+    return {"nll": float(F.nll_loss(q.clamp_min(1e-8).log(), y)),
+            "brier": float((q - targets).square().sum(1).mean())}
+
+
+_METRIC_NAMES = {"selection_score", "accuracy", "balanced_accuracy", "macro_f1",
+    "mean_transition_delay", "false_transition_rate", "transition_window_accuracy",
+    "steady_state_accuracy", "per_class_recall", "per_class_precision",
+    "minimum_class_recall", "missing_predicted_classes", "confusion_matrix",
+    "event_fraction", "event_precision", "event_recall", "mean_event_offset",
+    "ambiguous_frame_fraction", "mean_ambiguity_run_length",
+    "ambiguity_inside_transition_fraction", "ambiguity_outside_transition_fraction",
+    "high_epistemic_frame_fraction"}
+
+
+def _config_only(value):
+    return {k: v for k, v in value.items() if k not in _METRIC_NAMES and k != "cv"}
+
+
+def _metrics_only(value):
+    return {k: v for k, v in value.items() if k in _METRIC_NAMES}
+
+
+def _candidate_metadata(candidate):
+    return {k: v for k, v in candidate.items() if not k.endswith("_logits") and k != "validation_mi"}
+
+
+def _stage_summary(results, candidate, test_logits, truth, ids, labels, test_mi):
+    best = results[0]
+    _, metrics = _evaluate_release_config(best, test_logits, truth, ids, labels, test_mi)
+    return {"parameters": _config_only(best), "validation_metrics": _metrics_only(best),
+            "ordered_test_metrics": metrics}

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
+import shutil
+import time
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
@@ -18,7 +21,9 @@ from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streamin
     FeatureStandardizer, collect_classifier_scores_batched, evaluate_predictions,
     fit_nn, make_persistent_transition_matrix, run_filter_sequences,
 )
-from .sequential_terrain_filter_extensions import staged_sequential_search
+from .sequential_terrain_filter_extensions import (
+    search_uncertainty_aware_temporal, staged_sequential_search,
+)
 
 
 def make_terrain_extractor(calibration_file: str | Path) -> SobelDepthTerrainFeatureExtractor:
@@ -82,14 +87,168 @@ def collect_engineered_scores(
 
 def collect_raw_depth_scores(
     classifier: Any, depth_images: torch.Tensor, chunk_size: int = 256,
+    orientation_rpy: Optional[torch.Tensor] = None,
+    angular_velocity: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """Score raw depth chunks without creating a full float/channel-expanded copy."""
     def batches():
         for start in range(0, depth_images.shape[0], chunk_size):
             stop = min(start + chunk_size, depth_images.shape[0])
-            yield depth_images[start:stop].unsqueeze(1).float()
+            if getattr(classifier.model, "robot_state_dim", 0):
+                if orientation_rpy is None or angular_velocity is None:
+                    raise ValueError("state-aware raw-depth models require orientation and angular velocity")
+                yield pack_raw_depth_state_inputs(
+                    depth_images[start:stop], orientation_rpy[start:stop],
+                    angular_velocity[start:stop])
+            else:
+                yield depth_images[start:stop].unsqueeze(1).float()
 
     return collect_classifier_scores_batched(classifier, batches(), cache_device="cpu")
+
+
+def pack_raw_depth_state_inputs(
+    depth_images: torch.Tensor, orientation_rpy: torch.Tensor,
+    angular_velocity: torch.Tensor,
+) -> torch.Tensor:
+    """Pack depth with roll, pitch, and roll/pitch/yaw angular velocities."""
+    depth = torch.as_tensor(depth_images).float()
+    if depth.ndim == 3:
+        depth = depth.unsqueeze(1)
+    if depth.ndim != 4:
+        raise ValueError("depth_images must have shape [N,H,W] or [N,C,H,W]")
+    orientation = torch.as_tensor(orientation_rpy, dtype=depth.dtype, device=depth.device)
+    angular = torch.as_tensor(angular_velocity, dtype=depth.dtype, device=depth.device)
+    if orientation.ndim != 2 or orientation.shape[1] < 2:
+        raise ValueError("orientation_rpy must provide roll and pitch")
+    if angular.ndim != 2 or angular.shape[1] < 3:
+        raise ValueError("angular_velocity must provide roll, pitch, and yaw rates")
+    if orientation.shape[0] != depth.shape[0] or angular.shape[0] != depth.shape[0]:
+        raise ValueError("depth and robot-state batch sizes must match")
+    robot_state = torch.cat((orientation[:, :2], angular[:, :3]), dim=1)
+    return torch.cat((depth.flatten(1), robot_state), dim=1)
+
+
+@torch.inference_mode()
+def collect_neural_logits_batched(
+    classifier: Any, inputs: Any, *, batch_size: int = 256, mc_samples: int = 1,
+    mc_dropout: bool = False, expanded_batch_size: int = 4096,
+    cache_device: str | torch.device = "cpu",
+) -> tuple[torch.Tensor, float]:
+    """Collect ``[K,N,C]`` logits with one replicated/chunked forward stream per batch."""
+    if batch_size <= 0 or mc_samples <= 0 or expanded_batch_size <= 0:
+        raise ValueError("batch sizes and mc_samples must be positive")
+    model = classifier.model
+    model.eval()
+    if mc_dropout:
+        for module in model.modules():
+            if isinstance(module, torch.nn.Dropout):
+                module.train()
+
+    def batch_input(batch: Any) -> Any:
+        if isinstance(batch, Mapping):
+            return batch.get("inputs", batch.get("features"))
+        if isinstance(batch, (tuple, list)):
+            return batch[0]
+        return batch
+
+    if torch.is_tensor(inputs) or hasattr(inputs, "shape"):
+        batches = (inputs[i:i + batch_size] for i in range(0, int(inputs.shape[0]), batch_size))
+    else:
+        batches = (batch_input(batch) for batch in inputs)
+    pieces, runtime = [], 0.0
+    for raw in batches:
+        x = classifier._prepare(raw)
+        b = x.shape[0]
+        expanded = x.unsqueeze(0).expand(mc_samples, *x.shape).reshape(
+            mc_samples * b, *x.shape[1:]
+        )
+        if x.is_cuda:
+            torch.cuda.synchronize(x.device)
+        started = time.perf_counter()
+        logits = torch.cat([
+            model(expanded[i:i + expanded_batch_size])
+            for i in range(0, expanded.shape[0], expanded_batch_size)
+        ], dim=0)
+        if x.is_cuda:
+            torch.cuda.synchronize(x.device)
+        runtime += time.perf_counter() - started
+        pieces.append(logits.reshape(mc_samples, b, -1).detach().to(cache_device))
+    model.eval()
+    if not pieces:
+        raise ValueError("classifier input yielded no samples")
+    return torch.cat(pieces, dim=1), runtime
+
+
+def collect_engineered_logits(
+    classifier: Any, extractor: Any, standardizer: FeatureStandardizer,
+    data: Mapping[str, Any], *, chunk_size: int, mc_samples: int = 1,
+    mc_dropout: bool = False, expanded_batch_size: int = 4096,
+) -> tuple[torch.Tensor, float]:
+    def batches():
+        for start in range(0, len(data["labels"]), chunk_size):
+            stop = min(start + chunk_size, len(data["labels"]))
+            features = extractor.extract_batch(
+                data["depth_images"][start:stop].float(),
+                data["orientation_rpy"][start:stop], data["angular_velocity"][start:stop],
+            )
+            yield standardizer.transform(features)
+    return collect_neural_logits_batched(
+        classifier, batches(), batch_size=chunk_size, mc_samples=mc_samples,
+        mc_dropout=mc_dropout, expanded_batch_size=expanded_batch_size,
+    )
+
+
+def collect_raw_depth_logits(
+    classifier: Any, data: Mapping[str, Any], *, chunk_size: int,
+    mc_samples: int = 1, mc_dropout: bool = False,
+    expanded_batch_size: int = 4096,
+) -> tuple[torch.Tensor, float]:
+    def batches():
+        for start in range(0, len(data["labels"]), chunk_size):
+            stop = min(start + chunk_size, len(data["labels"]))
+            if getattr(classifier.model, "robot_state_dim", 0):
+                yield pack_raw_depth_state_inputs(
+                    data["depth_images"][start:stop],
+                    data["orientation_rpy"][start:stop],
+                    data["angular_velocity"][start:stop])
+            else:
+                yield data["depth_images"][start:stop].unsqueeze(1).float()
+    return collect_neural_logits_batched(
+        classifier, batches(), batch_size=chunk_size, mc_samples=mc_samples,
+        mc_dropout=mc_dropout, expanded_batch_size=expanded_batch_size,
+    )
+
+
+def probabilities_and_uncertainty(logits: torch.Tensor, temperature: float = 1.0):
+    """Return MC-mean probabilities, predictive/expected entropy, and MI."""
+    values = torch.as_tensor(logits).float()
+    if values.ndim == 2:
+        values = values.unsqueeze(0)
+    q_samples = F.softmax(values / float(temperature), dim=-1)
+    q_mean = q_samples.mean(0)
+    predictive_entropy = -(q_mean * q_mean.clamp_min(1e-8).log()).sum(-1)
+    expected_entropy = -(q_samples * q_samples.clamp_min(1e-8).log()).sum(-1).mean(0)
+    return q_mean, predictive_entropy, expected_entropy, predictive_entropy - expected_entropy
+
+
+def probability_metrics(classifier: Any, probabilities: torch.Tensor, labels: Sequence[Any]) -> dict[str, Any]:
+    truth = classifier._normalize_labels(labels)
+    encoded = torch.tensor([classifier.class_to_index[v] for v in truth], dtype=torch.long)
+    probabilities = torch.as_tensor(probabilities).cpu().clamp_min(1e-8)
+    predicted = [classifier.class_ids[i] for i in probabilities.argmax(1).tolist()]
+    metrics = evaluate_predictions(truth, predicted, classifier.class_ids).as_dict()
+    targets = F.one_hot(encoded, len(classifier.class_ids)).to(probabilities.dtype)
+    metrics["nll"] = float(F.nll_loss(probabilities.log(), encoded))
+    metrics["brier"] = float((probabilities - targets).square().sum(1).mean())
+    confidence, prediction = probabilities.max(1)
+    correct = prediction.eq(encoded)
+    ece = 0.0
+    for lo in torch.linspace(0, 0.9, 10):
+        mask = (confidence > lo) & (confidence <= lo + 0.1)
+        if mask.any():
+            ece += float(mask.float().mean() * (confidence[mask].mean() - correct[mask].float().mean()).abs())
+    metrics["expected_calibration_error"] = ece
+    return metrics
 
 
 def classifier_metrics(classifier: Any, inputs: Any, labels: Sequence[Any], temperature: float = 1.0) -> dict[str, Any]:
@@ -264,6 +423,209 @@ def run_staged_sequential_pipeline(
     return sequential, trials, legacy_bayes
 
 
+def train_uncertainty_aware_nn_suite(
+    *, architecture: str, model_factory: Any, class_ids: Sequence[Any],
+    train_inputs: torch.Tensor, train_labels: Sequence[Any],
+    validation_inputs: torch.Tensor, validation_labels: Sequence[Any],
+    split_data: Mapping[str, Mapping[str, Any]], collect_logits: Any,
+    validation_sequence_ids: Sequence[Any], test_sequence_ids: Sequence[Any],
+    output: Path, device: str, train_batch: int, validation_batch: int,
+) -> dict[str, Any]:
+    """Search dropout/weight decay with early stopping, cache MC50 logits, and tune filters."""
+    from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
+        NeuralClassifierAdapter,
+    )
+    dropout_values = (0.0, 0.10, 0.15, 0.20)
+    weight_decay_values = (1e-6, 1e-5, 1e-4, 1e-3)
+    mc_values = (10, 25, 50)
+    candidates, histories, model_records = [], {}, {}
+    models_dir = output / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    for dropout_p in dropout_values:
+        for weight_decay in weight_decay_values:
+            tag = (f"dropout_{str(dropout_p).replace('.', 'p')}_"
+                   f"wd_{weight_decay:.0e}".replace("-", "m"))
+            model = model_factory(dropout_p)
+            classifier = NeuralClassifierAdapter(model, class_ids, fit_callback=fit_nn, device=device)
+            classifier.require_feature = architecture == "feature_nn"
+            started = time.perf_counter()
+            classifier.fit(
+                train_inputs, train_labels, val=(validation_inputs, validation_labels),
+                epochs=50, batch_size=train_batch, validation_batch_size=validation_batch,
+                optimizer_kwargs={"weight_decay": weight_decay},
+                early_stopping_patience=10, restore_best_weights=True)
+            training_runtime = time.perf_counter() - started
+            model_dir = models_dir / tag
+            model_dir.mkdir(parents=True, exist_ok=True)
+            model_path, args_path = model_dir / "classifier.pt", model_dir / "nn_model_args.pt"
+            classifier.save(model_path)
+            torch.save(model.get_args(), args_path)
+            deterministic_logits, deterministic_runtimes = {}, {}
+            for split, data in split_data.items():
+                logits, runtime = collect_logits(classifier, data, 1, False)
+                deterministic_logits[split], deterministic_runtimes[split] = logits, runtime
+            det_id = f"{tag}_deterministic"
+            det_candidate = _nn_candidate_record(
+                det_id, architecture, dropout_p, "deterministic", 1, model_path, args_path,
+                deterministic_logits, deterministic_runtimes, classifier, split_data,
+                training_runtime, weight_decay, False, None,
+            )
+            candidates.append(det_candidate)
+            histories[tag] = classifier.training_history
+            model_records[tag] = {"model_path": model_path, "model_args_path": args_path,
+                                  "dropout_p": dropout_p, "weight_decay": weight_decay,
+                                  "training_runtime_seconds": training_runtime}
+            if dropout_p > 0:
+                cached_logits, cached_runtimes = {}, {}
+                for split, data in split_data.items():
+                    logits, runtime = collect_logits(classifier, data, 50, True)
+                    cached_logits[split], cached_runtimes[split] = logits, runtime
+                for samples in mc_values:
+                    cid = f"{tag}_mc{samples}"
+                    runtimes = {name: value * samples / 50.0
+                                for name, value in cached_runtimes.items()}
+                    candidates.append(_nn_candidate_record(
+                        cid, architecture, dropout_p, "mc", samples, model_path, args_path,
+                        {name: value[:samples] for name, value in cached_logits.items()},
+                        runtimes, classifier, split_data, training_runtime, weight_decay,
+                        True, cached_runtimes,
+                    ))
+            classifier.to("cpu")
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    search, trials = search_uncertainty_aware_temporal(
+        candidates, classifier._normalize_labels(split_data["ordered_validation"]["labels"]),
+        validation_sequence_ids, classifier._normalize_labels(split_data["ordered_test"]["labels"]),
+        test_sequence_ids, class_ids, output,
+    )
+    torch.save(trials, output / "uncertainty_temporal_search.pt")
+    search["all_trials"] = trials
+    trial_rows = [{"candidate_id": candidate_id, "stage": "stage0",
+        "family": metadata["inference_mode"],
+        "selection_score": metadata["validation_metrics"].get("selection_score"),
+        "balanced_accuracy": metadata["validation_metrics"].get("balanced_accuracy"),
+        "transition_window_accuracy": metadata["validation_metrics"].get("transition_window_accuracy"),
+        "mean_transition_delay": metadata["validation_metrics"].get("mean_transition_delay"),
+        "false_transition_rate": metadata["validation_metrics"].get("false_transition_rate"),
+        "nll": metadata["validation_metrics"].get("nll"),
+        "brier": metadata["validation_metrics"].get("brier"),
+        "predictive_entropy_mean": metadata["validation_metrics"].get("predictive_entropy_mean"),
+        "mutual_information_mean": metadata["validation_metrics"].get("mutual_information_mean"),
+        "parameters": json.dumps({"dropout_p": metadata["dropout_p"],
+            "weight_decay": metadata["weight_decay"], "mc_samples": metadata["mc_samples"]},
+            sort_keys=True)} for candidate_id, metadata in search["stage0"]["candidates"].items()]
+    for candidate_id, stages in trials.items():
+        for stage, values in stages.items():
+            for value in values:
+                trial_rows.append({"candidate_id": candidate_id, "stage": stage,
+                    "family": value.get("family"), "selection_score": value.get("selection_score"),
+                    "balanced_accuracy": value.get("balanced_accuracy"),
+                    "transition_window_accuracy": value.get("transition_window_accuracy"),
+                    "mean_transition_delay": value.get("mean_transition_delay"),
+                    "false_transition_rate": value.get("false_transition_rate"),
+                    "nll": value.get("nll"), "brier": value.get("brier"),
+                    "predictive_entropy_mean": value.get("predictive_entropy_mean"),
+                    "mutual_information_mean": value.get("mutual_information_mean"),
+                    "parameters": json.dumps(json_safe({k: v for k, v in value.items()
+                        if k not in {"confusion_matrix", "per_class_recall", "per_class_precision"}
+                        and not k.endswith("accuracy") and k not in {"selection_score", "macro_f1"}}), sort_keys=True)})
+    if trial_rows:
+        with (output / "search_trials.csv").open("w", newline="", encoding="utf-8") as stream:
+            writer = csv.DictWriter(stream, fieldnames=list(trial_rows[0]))
+            writer.writeheader(); writer.writerows(trial_rows)
+    deployments = {}
+    for mode, key in (("deterministic", "best_deterministic"), ("mc", "best_mc")):
+        winner = search[key]
+        candidate = winner["candidate"]
+        ema = winner["ema"]
+        deployment = {
+            "architecture": architecture,
+            "model_path": _relative_artifact(candidate["model_path"], output),
+            "model_args_path": _relative_artifact(candidate["model_args_path"], output),
+            "dropout_p": candidate["dropout_p"],
+            "weight_decay": candidate["weight_decay"],
+            "inference_mode": mode, "mc_samples": candidate["mc_samples"],
+            "selected_temporal_filter_family": winner["winner"]["parameters"]["family"],
+            "temporal_filter_path": _relative_artifact(winner["winner"]["filter_path"], output),
+            "structural_metrics": candidate["structural_metrics"],
+            "sequential_instantaneous_validation": candidate["stage0_validation"],
+            "sequential_instantaneous_test": candidate["stage0_ordered_test"],
+            "uncertainty_stats": candidate["uncertainty_stats"],
+            "inference_runtime_seconds": candidate["inference_runtime_seconds"],
+            "inference_runtime_estimated_from_mc50": candidate["inference_runtime_estimated_from_mc50"],
+            "mc50_cache_runtime_seconds": candidate["mc50_cache_runtime_seconds"],
+            "training_runtime_seconds": candidate["training_runtime_seconds"],
+            **winner["winner"]["parameters"],
+            "validation_metrics": winner["winner"]["validation_metrics"],
+            "cv_metrics": winner["winner"]["cv"],
+            "ordered_test_metrics": winner["winner"]["ordered_test_metrics"],
+            "best_bayes": {
+                **winner["best_bayes"],
+                "filter_path": _relative_artifact(winner["best_bayes"]["filter_path"], output),
+            },
+            "best_ema": {
+                **ema,
+                "filter_path": _relative_artifact(ema["filter_path"], output),
+            },
+        }
+        if architecture == "feature_nn":
+            deployment.update(extractor_path="extractor.pt", standardizer_path="standardizer.pt")
+        else:
+            deployment["robot_state_inputs"] = [
+                "roll", "pitch", "angular_velocity_roll",
+                "angular_velocity_pitch", "angular_velocity_yaw"]
+        deployments[mode] = deployment
+        save_results(output / f"deployment_{mode}.json", deployment)
+        suffix = "" if mode == "deterministic" else "_mc"
+        shutil.copyfile(output / deployment["model_path"], output / f"classifier{suffix}.pt")
+        shutil.copyfile(output / deployment["model_args_path"], output / f"nn_model_args{suffix}.pt")
+        shutil.copyfile(output / deployment["temporal_filter_path"], output / f"bayes_filter{suffix}.pt")
+        shutil.copyfile(output / deployment["best_ema"]["filter_path"],
+                        output / f"ema_filter{suffix}.pt")
+    return {"schema_version": 2, "architecture": architecture,
+            "deterministic_baseline_dropout_p": 0.0,
+            "dropout_search": list(dropout_values[1:]), "mc_samples_search": list(mc_values),
+            "weight_decay_search": list(weight_decay_values),
+            "max_epochs": 50, "early_stopping_patience": 10,
+            "models": model_records, "training_history": histories,
+            "search": search, "deployments": deployments}
+
+
+def _relative_artifact(path, root):
+    path, root = Path(path), Path(root)
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return str(path)
+
+
+def _nn_candidate_record(cid, architecture, dropout_p, mode, samples, model_path,
+                         args_path, logits, runtimes, classifier, split_data,
+                         training_runtime, weight_decay, runtime_estimated,
+                         mc50_cache_runtimes):
+    structural = {}
+    uncertainty = {}
+    for split in ("structural_validation", "structural_test"):
+        probabilities, pe, ee, mi = probabilities_and_uncertainty(logits[split], 1.0)
+        structural[split] = probability_metrics(classifier, probabilities, split_data[split]["labels"])
+        uncertainty[split] = {"predictive_entropy_mean": float(pe.mean()),
+                              "expected_entropy_mean": float(ee.mean()),
+                              "mutual_information_mean": float(mi.mean()),
+                              "mutual_information_p90": float(torch.quantile(mi, 0.9))}
+    return {"id": cid, "architecture": architecture, "dropout_p": dropout_p,
+            "weight_decay": weight_decay,
+            "inference_mode": mode, "mc_samples": samples,
+            "model_path": str(model_path), "model_args_path": str(args_path),
+            "validation_logits": logits["ordered_validation"],
+            "test_logits": logits["ordered_test"],
+            "structural_metrics": structural, "uncertainty_stats": uncertainty,
+            "inference_runtime_seconds": runtimes,
+            "inference_runtime_estimated_from_mc50": runtime_estimated,
+            "mc50_cache_runtime_seconds": mc50_cache_runtimes,
+            "training_runtime_seconds": training_runtime}
+
+
 def get_files_for_training() -> tuple[Path, ...]:
     """Compatibility wrapper returning paths in the historical order."""
     _, files = load_training_files()
@@ -274,10 +636,14 @@ def get_files_for_training() -> tuple[Path, ...]:
 
 __all__ = [
     "classifier_metrics", "classifier_metrics_from_scores", "collect_engineered_scores",
-    "collect_raw_depth_scores", "evaluate_bayes", "evaluate_bayes_from_scores",
+    "collect_raw_depth_scores", "collect_neural_logits_batched", "collect_engineered_logits",
+    "collect_raw_depth_logits", "pack_raw_depth_state_inputs",
+    "probabilities_and_uncertainty", "probability_metrics",
+    "evaluate_bayes", "evaluate_bayes_from_scores",
     "extract_dataset_features", "extract_in_chunks",
     "FeatureStandardizer", "fit_nn", "fit_standardizer", "json_safe", "load_training_files",
     "make_terrain_extractor", "save_results", "sequence_ids_for",
     "transition_training_kwargs", "processing_batch_size",
     "run_staged_sequential_pipeline",
+    "train_uncertainty_aware_nn_suite",
 ]

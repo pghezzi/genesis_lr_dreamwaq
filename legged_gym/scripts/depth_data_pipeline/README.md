@@ -32,7 +32,7 @@ For other layouts, pass `--classifier-data` and `--bayesian-data` explicitly.
 
 ## Training
 
-Run all four approaches:
+Run both NN architectures (each produces deterministic and MC-Dropout deployments):
 
 ```bash
 python -m legged_gym.scripts.depth_data_pipeline.train_terrain_classifiers \
@@ -47,26 +47,24 @@ python -m legged_gym.scripts.depth_data_pipeline.train_terrain_classifiers \
   --classifier-data /data/terrain/structural \
   --bayesian-data /data/terrain/bayesian \
   --output /results/terrain_suite \
-  --approach rbf_svm feature_nn \
+  --approach feature_nn raw_depth_nn \
   --batch-size 128
 ```
 
 Approach names are:
 
-- `rbf_prototype`
-- `rbf_svm`
 - `feature_nn`
 - `raw_depth_nn`
 - `all`
 
 Batch/chunk processing is enabled by default. `--batch-size` controls feature
-extraction, classifier-score inference, NN batches, SVM optimization batches, and
-Prototype DataLoaders. To process each split as a single batch, use:
+extraction, classifier-score inference, and NN batches. To process each split as
+a single batch, use:
 
 ```bash
 python -m legged_gym.scripts.depth_data_pipeline.train_terrain_classifiers \
   --dataset /path/to/dataset_root \
-  --approach rbf_svm \
+  --approach feature_nn \
   --no-batch-processing
 ```
 
@@ -84,13 +82,19 @@ parameters, metrics, and standardized `results.json`. The suite root contains
 `--skip-comparison` to omit automatic comparison or `--continue-on-error` to run
 remaining approaches after one fails.
 
-RBF Prototype and RBF SVM instantaneous tuning now use structural Stage 1 and
-Stage 2 searches; their final classifier is selected only on structural
-validation. Every classifier then runs the same ordered-validation search for
-fixed-persistence Bayes, event-conditioned Bayes, ambiguity-aware Bayes, and an
-EMA-logit + patience baseline. Ordered test data is reporting-only. The selected
-Bayes artifact remains `bayes_filter.pt`; stage-specific filters and
-`best_temporal_filter.pt` are saved alongside it.
+Each architecture searches dropout (`0.10/0.15/0.20`) and weight decay
+(`1e-6/1e-5/1e-4/1e-3`) while retaining the `dropout_p=0` baseline. Models train
+for at most 50 epochs with validation-loss early stopping and best-weight rollback,
+then cache batched MC10/25/50 logits and retain deterministic and MC branches separately.
+The raw-depth network concatenates robot roll, pitch, and roll/pitch/yaw angular
+velocities with the flattened CNN representation before its hidden FC layers.
+The ordered-validation search covers fixed persistence, candidate-directed event
+release, MC epistemic gating, and ambiguity handling, followed by sequence-level
+CV reranking. For each retained classifier, an independent EMA-score + patience
+baseline searches `ema_alpha=0.40/0.60/0.80/1.0` and `patience=1/2`. Results report
+the validation/CV-selected EMA baseline beside the best Bayes filter; ordered test
+data remains reporting-only. `deployment_deterministic.json` and
+`deployment_mc.json` contain everything required for automatic deployment.
 
 ## Comparing saved results
 
@@ -106,20 +110,20 @@ Or provide individual run directories/files:
 
 ```bash
 python -m legged_gym.scripts.depth_data_pipeline.compare_terrain_classifier_results \
-  /results/prototype /results/svm /results/feature_nn /results/raw_nn \
+  /results/feature_nn /results/raw_nn \
   --output terrain_comparison
 ```
 
-The command prints separate instantaneous and Bayesian rankings and writes:
+The command writes stage-level and selected-deployment comparisons:
 
-- `<output>_instantaneous.csv`
-- `<output>_bayesian.csv`
-- `<output>_instantaneous_stages.csv`
-- `<output>_sequential_stages.csv`
-- `<output>_per_classifier_best.csv`
-- `<output>_staged.json`
+- `<output>_winners.csv`
+- `<output>_stages.csv`
 - `<output>.json`
 
-Bayesian output includes the filtering accuracy delta on the same ordered test
-sequences, selected temperature, stay probability, transition alpha/matrix,
-transition-delay statistics, and false-transition rate.
+The suite also writes `suite_deployments.json` identifying the four learned
+deployments and the global validation/CV-selected deterministic, MC, and overall
+winners.
+
+Outputs include structural and ordered instantaneous metrics, uncertainty and
+calibration summaries, temporal validation/CV scores, ordered-test metrics, and
+the selected Bayes and EMA baseline parameters.

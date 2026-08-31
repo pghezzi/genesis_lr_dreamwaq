@@ -7,6 +7,10 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from legged_gym.scripts.depth_data_pipeline.compare_terrain_classifier_results import parse_result_file
+from legged_gym.scripts.depth_data_pipeline.util_func import collect_neural_logits_batched
+from legged_gym.scripts.depth_data_pipeline.sequential_terrain_filter_extensions import (
+    CandidateReleaseBayesianTerrainFilter, run_candidate_release_sequences,
+)
 from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
     FeatureStandardizer, NeuralClassifierAdapter, RBFSVM, fit_nn,
     build_filter_from_search_result, build_hybrid_transition_cache,
@@ -61,6 +65,33 @@ def test_fit_nn_callback_supports_feature_and_image_batches():
         assert len(adapter.predict(inputs[:2])) == 2
 
 
+def test_batched_mc_dropout_shapes_and_masks():
+    model = nn.Sequential(nn.Linear(4, 12), nn.ELU(), nn.Dropout(0.5), nn.Linear(12, 3))
+    adapter = NeuralClassifierAdapter(model, [0, 1, 2])
+    inputs = torch.ones(5, 4)
+    for samples in (10, 25, 50):
+        logits, _ = collect_neural_logits_batched(
+            adapter, inputs, batch_size=5, mc_samples=samples,
+            mc_dropout=True, expanded_batch_size=64)
+        assert logits.shape == (samples, 5, 3)
+        assert not torch.allclose(logits[0], logits[1])
+    deterministic, _ = collect_neural_logits_batched(adapter, inputs, batch_size=5)
+    assert deterministic.shape == (1, 5, 3)
+    assert torch.allclose(deterministic[0, 0], deterministic[0, 1])
+
+
+def test_candidate_release_runner_resets_each_sequence():
+    labels = [0, 1]
+    filt = CandidateReleaseBayesianTerrainFilter(
+        labels, {0: 0.5, 1: 0.5}, torch.tensor([[0.99, 0.01], [0.01, 0.99]]),
+        release_strength=0.5, switch_margin=0.1, change_patience=1)
+    probabilities = torch.tensor([[0.1, 0.9], [0.1, 0.9], [0.9, 0.1], [0.9, 0.1]])
+    predictions, _, _, _ = run_candidate_release_sequences(
+        filt, probabilities, probabilities, [0, 0, 1, 1])
+    assert predictions[0] == 1
+    assert predictions[2] == 0
+
+
 def test_svm_search_reuses_basis_selection(monkeypatch):
     x, labels = _toy_data()
     calls = 0
@@ -82,14 +113,13 @@ def test_svm_search_reuses_basis_selection(monkeypatch):
 
 def test_result_parser(tmp_path):
     result = {
-        "method": "RBF SVM", "validation_score": 0.8,
-        "instantaneous": {"accuracy": 0.7},
-        "bayes": {"metrics": {"accuracy": 0.75}},
+        "method": "feature NN", "architecture": "feature_nn",
+        "deployments": {"deterministic": {}, "mc": {}}, "search": {},
     }
     path = tmp_path / "results.json"
     path.write_text(json.dumps(result), encoding="utf-8")
     parsed = parse_result_file(tmp_path)
-    assert parsed["method"] == "RBF SVM"
+    assert parsed["architecture"] == "feature_nn"
     assert parsed["result_file"].endswith("results.json")
 
 

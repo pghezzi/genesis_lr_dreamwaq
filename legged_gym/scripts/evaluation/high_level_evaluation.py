@@ -23,10 +23,10 @@ CANONICAL_CLASSES = ["rough", "gap", "pit", "stairs"]
 SKILL_SPEEDS = {"rough": 0.8, "gap": 1.5, "pit": 1.2, "stairs": 1.2}
 SKILL_LORA = {"rough": -1, "gap": 0, "stairs": 1, "pit": 2}
 METHOD_TO_APPROACH = {
-    "RBF Prototype": "rbf_prototype",
-    "RBF SVM": "rbf_svm",
-    "feature NN": "feature_nn",
-    "raw-depth NN": "raw_depth_nn",
+    "feature_nn_deterministic": ("feature_nn", "deterministic"),
+    "raw_depth_nn_deterministic": ("raw_depth_nn", "deterministic"),
+    "feature_nn_mc": ("feature_nn", "mc"),
+    "raw_depth_nn_mc": ("raw_depth_nn", "mc"),
 }
 
 # Keep evaluation randomization identical to low_level_evaluation.py.
@@ -182,28 +182,37 @@ def get_ground_truth_labels(env, look_ahead_frac=0.75):
 
 
 class RuntimeClassifier:
-    def __init__(self, classifier, approach, extractor=None, standardizer=None):
+    def __init__(self, classifier, approach, deployment, extractor=None, standardizer=None):
         self.classifier = classifier
         self.approach = approach
         self.extractor = extractor
         self.standardizer = standardizer
         self.class_ids = list(classifier.class_ids)
+        self.inference_mode = deployment["inference_mode"]
+        self.mc_samples = int(deployment.get("mc_samples", 1))
+        self.filter_temperature = float(deployment["T_filter"])
 
     def predict(self, depth, euler, angular_velocity):
         if self.approach == "raw_depth_nn":
-            inputs = depth
+            from legged_gym.scripts.depth_data_pipeline.util_func import pack_raw_depth_state_inputs
+            if getattr(self.classifier.model, "robot_state_dim", 0):
+                inputs = pack_raw_depth_state_inputs(depth, euler, angular_velocity)
+            else:
+                inputs = depth.unsqueeze(1) if depth.ndim == 3 else depth
         else:
             inputs = self.extractor.extract_batch(depth, euler, angular_velocity)
             if self.standardizer is not None:
                 inputs = self.standardizer.transform(inputs)
-        probabilities, class_ids = self.classifier.predict_class_distribution(inputs)
-        if list(class_ids) != self.class_ids:
-            raise RuntimeError("Classifier returned a class ordering different from classifier.class_ids")
-        if probabilities.ndim != 2 or probabilities.shape[1] != len(self.class_ids):
-            raise RuntimeError(
-                f"Classifier must return [B,{len(self.class_ids)}], got {tuple(probabilities.shape)}"
-            )
-        return probabilities.detach()
+        from legged_gym.scripts.depth_data_pipeline.util_func import (
+            collect_neural_logits_batched, probabilities_and_uncertainty,
+        )
+        logits, _ = collect_neural_logits_batched(
+            self.classifier, inputs, batch_size=inputs.shape[0],
+            mc_samples=self.mc_samples, mc_dropout=self.inference_mode == "mc",
+            cache_device=self.classifier.device)
+        q_filter, _, _, _ = probabilities_and_uncertainty(logits, self.filter_temperature)
+        q_event, _, _, mi = probabilities_and_uncertainty(logits, 1.0)
+        return q_filter.detach(), q_event.detach(), mi.detach()
 
 
 def _classifier_artifacts(classifier_dir):
@@ -233,32 +242,23 @@ def _feature_parts(root, device):
     return extractor, standardizer
 
 
-def load_rbf_prototype(classifier_dir, device):
-    from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
-        PCAWhitenedRBFPrototypeClassifier,
-    )
-    root, checkpoint = _classifier_artifacts(classifier_dir)
-    extractor, standardizer = _feature_parts(root, device)
-    classifier = PCAWhitenedRBFPrototypeClassifier.load(checkpoint, map_location=device)
-    return RuntimeClassifier(classifier, "rbf_prototype", extractor, standardizer)
-
-
-def load_rbf_svm(classifier_dir, device):
-    from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import RBFSVM
-    root, checkpoint = _classifier_artifacts(classifier_dir)
-    extractor, standardizer = _feature_parts(root, device)
-    classifier = RBFSVM.load(checkpoint, map_location=device)
-    return RuntimeClassifier(classifier, "rbf_svm", extractor, standardizer)
-
-
-def _load_neural(classifier_dir, device, raw_depth):
+def _load_neural(suite_dir, approach, device):
     from legged_gym.scripts.depth_data_pipeline.train_feature_nn import TerrainDepthFeatureClassifierNN
     from legged_gym.scripts.depth_data_pipeline.train_raw_depth_nn import TerrainDepthClassifierNN
     from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
         NeuralClassifierAdapter,
     )
-    root, checkpoint = _classifier_artifacts(classifier_dir)
-    args_file = root / "nn_model_args.pt"
+    architecture, mode = METHOD_TO_APPROACH[approach]
+    root = Path(suite_dir)
+    run_root = root / architecture if (root / architecture).is_dir() else root
+    deployment_file = run_root / f"deployment_{mode}.json"
+    if not deployment_file.is_file():
+        raise FileNotFoundError(f"Missing selected deployment manifest: {deployment_file}")
+    with deployment_file.open(encoding="utf-8") as stream:
+        deployment = json.load(stream)
+    artifact = lambda value: Path(value) if Path(value).is_absolute() else run_root / value
+    checkpoint, args_file = artifact(deployment["model_path"]), artifact(deployment["model_args_path"])
+    raw_depth = architecture == "raw_depth_nn"
     if not args_file.is_file():
         raise FileNotFoundError(f"Missing neural model arguments: {args_file}")
     model_args = dict(torch.load(args_file, map_location="cpu", weights_only=False))
@@ -273,83 +273,33 @@ def _load_neural(classifier_dir, device, raw_depth):
     model = model_types[class_name](**model_args)
     classifier = NeuralClassifierAdapter.load(checkpoint, model, device=device)
     if raw_depth:
-        return RuntimeClassifier(classifier, "raw_depth_nn")
-    extractor, standardizer = _feature_parts(root, device)
-    return RuntimeClassifier(classifier, "feature_nn", extractor, standardizer)
+        runtime = RuntimeClassifier(classifier, architecture, deployment)
+    else:
+        extractor_path = artifact(deployment["extractor_path"])
+        standardizer_path = artifact(deployment["standardizer_path"])
+        from legged_gym.utils.depth_terrain_classifier.depth_terrain_classifier import SobelDepthTerrainFeatureExtractor
+        from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import FeatureStandardizer
+        runtime = RuntimeClassifier(
+            classifier, architecture, deployment,
+            SobelDepthTerrainFeatureExtractor.load(extractor_path, device=device),
+            FeatureStandardizer.load(standardizer_path))
+    return runtime, deployment
 
 
-def load_feature_nn(classifier_dir, device):
-    return _load_neural(classifier_dir, device, raw_depth=False)
-
-
-def load_raw_depth_nn(classifier_dir, device):
-    return _load_neural(classifier_dir, device, raw_depth=True)
-
-
-CLASSIFIER_LOADERS = {
-    "rbf_prototype": load_rbf_prototype,
-    "rbf_svm": load_rbf_svm,
-    "feature_nn": load_feature_nn,
-    "raw_depth_nn": load_raw_depth_nn,
-}
+CLASSIFIER_LOADERS = {name: _load_neural for name in METHOD_TO_APPROACH}
 
 
 def resolve_classifier_approach(args):
-    if args.classifier_approach != "auto":
-        return args.classifier_approach
-    root = Path(args.classifier_dir)
-    results_file = root / "results.json"
-    if results_file.is_file():
-        with results_file.open(encoding="utf-8") as stream:
-            method = json.load(stream).get("method")
-        if method in METHOD_TO_APPROACH:
-            return METHOD_TO_APPROACH[method]
-    model_args_file = root / "nn_model_args.pt"
-    if model_args_file.is_file():
-        model_args = torch.load(model_args_file, map_location="cpu", weights_only=False)
-        neural_types = {
-            "TerrainDepthFeatureClassifierNN": "feature_nn",
-            "TerrainDepthClassifierNN": "raw_depth_nn",
-        }
-        if model_args.get("cls") in neural_types:
-            return neural_types[model_args["cls"]]
-    checkpoint_file = root / "classifier.pt"
-    if checkpoint_file.is_file():
-        state = torch.load(checkpoint_file, map_location="cpu", weights_only=False)
-        if "kernel_basis" in state:
-            return "rbf_svm"
-        if "prototypes" in state and "pca_components" in state:
-            return "rbf_prototype"
-    raise ValueError("Could not infer classifier approach from results.json or saved artifacts")
-
-
-def load_paired_bayes_filter(args, device):
-    path = Path(args.classifier_dir) / "bayes_filter.pt"
-    return _load_bayes_template(path, device), path
-
-
-def load_checkpoint_bayes_filter(args, device):
-    if not args.bayes_filter_path:
-        raise ValueError("--bayes_filter_path is required for checkpoint filters")
-    path = Path(args.bayes_filter_path)
-    return _load_bayes_template(path, device), path
+    return args.classifier_approach
 
 
 def _load_bayes_template(path, device):
-    from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
-        BayesianTerrainFilter,
-    )
+    from legged_gym.scripts.depth_data_pipeline.sequential_terrain_filter_extensions import CandidateReleaseBayesianTerrainFilter
     if not path.is_file():
         raise FileNotFoundError(f"Missing Bayes filter checkpoint: {path}")
-    result = BayesianTerrainFilter.load(path, device=device)
+    result = CandidateReleaseBayesianTerrainFilter.load(path, device=device)
     result.reset()
     return result
-
-
-BAYES_FILTER_LOADERS = {
-    "paired": load_paired_bayes_filter,
-    "checkpoint": load_checkpoint_bayes_filter,
-}
 
 
 def get_args():
@@ -373,13 +323,9 @@ def get_args():
         default="bayes",
     )
     parser.add_argument(
-        "--classifier_approach", choices=("auto",) + tuple(CLASSIFIER_LOADERS), default="auto"
+        "--classifier_approach", choices=tuple(CLASSIFIER_LOADERS), required=True
     )
-    parser.add_argument("--classifier_dir", required=True)
-    parser.add_argument(
-        "--bayes_filter_approach", choices=tuple(BAYES_FILTER_LOADERS), default="paired"
-    )
-    parser.add_argument("--bayes_filter_path", default=None)
+    parser.add_argument("--classifier_dir", "--classifier_suite", dest="classifier_dir", required=True)
     parser.add_argument("--jit", "--policy_jit", dest="jit", required=True)
     parser.add_argument("--fixed_forward_command", type=float, default=None)
     parser.add_argument("--out_dir", default=None)
@@ -649,8 +595,14 @@ def run_eval(args):
     obs_buf, _, obs_history, _, _, depth = unpack_observations(env.get_observations(), 6)
 
     approach = resolve_classifier_approach(args)
-    runtime_classifier = CLASSIFIER_LOADERS[approach](args.classifier_dir, device)
-    bayes_template, bayes_path = BAYES_FILTER_LOADERS[args.bayes_filter_approach](args, device)
+    runtime_classifier, deployment = _load_neural(args.classifier_dir, approach, device)
+    bayes_path = Path(deployment["temporal_filter_path"])
+    if not bayes_path.is_absolute():
+        suite_root = Path(args.classifier_dir)
+        architecture = METHOD_TO_APPROACH[approach][0]
+        run_root = suite_root / architecture if (suite_root / architecture).is_dir() else suite_root
+        bayes_path = run_root / bayes_path
+    bayes_template = _load_bayes_template(bayes_path, device)
     if runtime_classifier.class_ids != list(bayes_template.labels):
         raise ValueError(
             "Classifier class_ids and Bayes filter labels/order must agree exactly: "
@@ -726,16 +678,21 @@ def run_eval(args):
                 sensor_depth = depth[valid_ids].detach()
                 euler = env.simulator._base_euler[valid_ids].detach()
                 angular_velocity = env.simulator.base_ang_vel[valid_ids].detach()
-                probabilities = runtime_classifier.predict(sensor_depth, euler, angular_velocity)
-                probabilities = probabilities.to(device)
-                if probabilities.shape[0] != valid_ids.numel():
+                filter_probabilities, event_probabilities, mutual_information = runtime_classifier.predict(
+                    sensor_depth, euler, angular_velocity)
+                filter_probabilities = filter_probabilities.to(device)
+                event_probabilities = event_probabilities.to(device)
+                mutual_information = mutual_information.to(device)
+                if filter_probabilities.shape[0] != valid_ids.numel():
                     raise RuntimeError("Classifier batch size does not match valid environment count")
                 for batch_index, env_id in enumerate(valid_ids.detach().cpu().tolist()):
                     truth = canonical_truth[env_id]
-                    probability = probabilities[batch_index]
+                    probability = event_probabilities[batch_index]
                     instant_id = runtime_classifier.class_ids[int(probability.argmax().item())]
                     instant_label = canonicalize_label(instant_id)
-                    bayes_step = filters[env_id].update(probability)
+                    bayes_step = filters[env_id].update(
+                        filter_probabilities[batch_index], event_probabilities=probability,
+                        mutual_information=float(mutual_information[batch_index]))
                     bayes_label = canonicalize_label(bayes_step.label)
                     posterior = bayes_step.posterior
                     if args.selector_mode == "oracle":
@@ -770,6 +727,7 @@ def run_eval(args):
                         "canonical_ground_truth": truth,
                         "class_ids": [str(value) for value in runtime_classifier.class_ids],
                         "instantaneous_probabilities": probability.detach().cpu().tolist(),
+                        "mutual_information": float(mutual_information[batch_index]),
                         "instantaneous_label": instant_label,
                         "bayes_posterior": posterior.detach().cpu().tolist(),
                         "bayes_label": bayes_label,
@@ -797,7 +755,7 @@ def run_eval(args):
                 episode_rows.append({
                     "selector_mode": args.selector_mode,
                     "classifier_approach": approach,
-                    "bayes_filter_approach": args.bayes_filter_approach,
+                    "bayes_filter_approach": "suite_selected",
                     "bayes_filter_path": str(bayes_path),
                     "seed": args.seed, "difficulty": args.difficulty,
                     "track_id": track_id,
@@ -858,8 +816,14 @@ def run_eval(args):
             "task": args.task, "policy_jit": args.jit,
             "selector_mode": args.selector_mode,
             "classifier_approach": approach, "classifier_dir": args.classifier_dir,
-            "bayes_filter_approach": args.bayes_filter_approach,
+            "bayes_filter_approach": "suite_selected",
             "bayes_filter_path": str(bayes_path), "seed": args.seed,
+            "inference_mode": deployment["inference_mode"],
+            "mc_samples": deployment["mc_samples"],
+            "dropout_p": deployment["dropout_p"],
+            "weight_decay": deployment.get("weight_decay"),
+            "temporal_filter_family": deployment["selected_temporal_filter_family"],
+            "T_filter": deployment["T_filter"],
             "difficulty": args.difficulty, "look_ahead_frac": args.look_ahead_frac,
             "disabled_randomizations": sorted(
                 name for name, enabled in EVAL_DOMAIN_RANDOMIZATION_ENABLED.items()
@@ -882,7 +846,7 @@ def run_eval(args):
                 "difficulty": args.difficulty,
                 "selector_mode": args.selector_mode,
                 "classifier_approach": approach,
-                "bayes_filter_approach": args.bayes_filter_approach,
+                "bayes_filter_approach": "suite_selected",
             }
             for track in range(10)
         ],

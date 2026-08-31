@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
-    NeuralClassifierAdapter,
-)
 from .util_func import (
-    classifier_metrics_from_scores, collect_raw_depth_scores,
-    fit_nn, json_safe, load_training_files,
-    save_results, sequence_ids_for,
-    processing_batch_size, run_staged_sequential_pipeline,
+    collect_raw_depth_logits, json_safe, load_training_files,
+    pack_raw_depth_state_inputs, processing_batch_size, save_results, sequence_ids_for,
+    train_uncertainty_aware_nn_suite,
 )
 
 import torch
@@ -27,6 +23,8 @@ class TerrainDepthClassifierNN(nn.Module):
         cnn_fc_layer_dims,
         cnn_kernel_sizes,
         cnn_activation_fn,
+        dropout_p=0.0,
+        robot_state_dim=0,
     ):
         super().__init__()
 
@@ -38,6 +36,10 @@ class TerrainDepthClassifierNN(nn.Module):
         self.cnn_fc_layer_dims = list(cnn_fc_layer_dims)
         self.cnn_kernel_sizes = list(cnn_kernel_sizes)
         self.cnn_activation_fn = cnn_activation_fn
+        self.dropout_p = float(dropout_p)
+        self.robot_state_dim = int(robot_state_dim)
+        if self.robot_state_dim < 0:
+            raise ValueError("robot_state_dim must be non-negative")
 
         in_channels = cnn_input_channel
         in_height, in_width = depth_image_resolution
@@ -73,15 +75,41 @@ class TerrainDepthClassifierNN(nn.Module):
         cnn_out_dim = in_height * in_width * cnn_channel_dims[-1]
 
         for l, dim in enumerate(cnn_fc_layer_dims):
-            in_dim = cnn_out_dim if l == 0 else cnn_fc_layer_dims[l - 1]
+            in_dim = cnn_out_dim + self.robot_state_dim if l == 0 else cnn_fc_layer_dims[l - 1]
             cnn_layers.append(nn.Linear(in_dim, dim))
             cnn_layers.append(cnn_activation_fn)
+            if l != len(cnn_fc_layer_dims) - 1 and self.dropout_p > 0:
+                cnn_layers.append(nn.Dropout(self.dropout_p))
 
         self._output_size = cnn_fc_layer_dims[-1]
         self.model = nn.Sequential(*cnn_layers)
 
-    def forward(self, depth_image):
-        return self.model(depth_image)
+    def forward(self, depth_image, robot_state=None):
+        if self.robot_state_dim:
+            if robot_state is None:
+                expected_pixels = (self.cnn_input_channel
+                                   * self.depth_image_resolution[0]
+                                   * self.depth_image_resolution[1])
+                if depth_image.ndim != 2 or depth_image.shape[1] != expected_pixels + self.robot_state_dim:
+                    raise ValueError(
+                        "state-aware raw-depth input must be packed as "
+                        f"[B,{expected_pixels + self.robot_state_dim}]")
+                robot_state = depth_image[:, expected_pixels:]
+                depth_image = depth_image[:, :expected_pixels].reshape(
+                    -1, self.cnn_input_channel, *self.depth_image_resolution)
+            elif robot_state.shape[-1] != self.robot_state_dim:
+                raise ValueError(f"robot_state must have {self.robot_state_dim} entries")
+        elif robot_state is not None:
+            raise ValueError("this model was constructed without robot-state inputs")
+
+        value = depth_image
+        state_pending = robot_state
+        for layer in self.model:
+            if state_pending is not None and isinstance(layer, nn.Linear):
+                value = torch.cat((value, state_pending.to(value)), dim=1)
+                state_pending = None
+            value = layer(value)
+        return value
     
     def get_args(self) -> dict:
         """Return constructor kwargs sufficient to rebuild an equivalent (untrained)
@@ -100,6 +128,8 @@ class TerrainDepthClassifierNN(nn.Module):
             "cnn_fc_layer_dims": list(self.cnn_fc_layer_dims),
             "cnn_kernel_sizes": list(self.cnn_kernel_sizes),
             "cnn_activation_fn": self.cnn_activation_fn,
+            "dropout_p": self.dropout_p,
+            "robot_state_dim": self.robot_state_dim,
         }
 
 def main():
@@ -109,122 +139,48 @@ def main():
                                  f"raw_depth_nn_{datetime.now():%Y%m%d_%H%M%S}")
     output.mkdir(parents=True, exist_ok=True)
     train = torch.load(files["train"], map_location="cpu", weights_only=False)
-    structural_training_images = train["depth_images"].unsqueeze(1).float()
+    structural_training_images = pack_raw_depth_state_inputs(
+        train["depth_images"], train["orientation_rpy"], train["angular_velocity"])
     structural_training_labels = train["labels"]
 
     validation = torch.load(files["validation"], map_location="cpu", weights_only=False)
-    structural_validation_images = validation["depth_images"].unsqueeze(1).float()
+    structural_validation_images = pack_raw_depth_state_inputs(
+        validation["depth_images"], validation["orientation_rpy"],
+        validation["angular_velocity"])
     structural_validation_labels = validation["labels"]
     train_batch = processing_batch_size(args, len(structural_training_labels))
     validation_batch = processing_batch_size(args, len(structural_validation_labels))
 
     label_values = structural_training_labels.tolist() if torch.is_tensor(structural_training_labels) else list(structural_training_labels)
     class_ids = list(dict.fromkeys(label_values))
-    nn_raw_depth_model = TerrainDepthClassifierNN(
-        depth_image_resolution=structural_training_images.shape[-2:],   # (H, W)
-        cnn_input_channel=1,                              # grayscale
-        cnn_channel_dims=[8, 16],
-        cnn_strides=[1, 1],
-        cnn_fc_layer_dims=[128, len(class_ids)],
-        cnn_kernel_sizes=[5, 3],
-        cnn_activation_fn=nn.ELU(),
-    )
-
-    classifier = NeuralClassifierAdapter(
-        model = nn_raw_depth_model,
-        class_ids=class_ids,
-        input_transform=None,
-        fit_callback=fit_nn,
-        device=device,
-    )
-
-    training_start = time.perf_counter()
-    classifier.fit(inputs=structural_training_images, labels=structural_training_labels,
-                   val=(structural_validation_images, structural_validation_labels), epochs=20,
-                   batch_size=train_batch, validation_batch_size=validation_batch)
-    training_runtime = time.perf_counter() - training_start
-
-
-    del train, structural_training_images, structural_training_labels
-    del validation, structural_validation_images, structural_validation_labels
-
-    test = torch.load(files["structural_test"], map_location="cpu", weights_only=False)
-    structural_test_labels = test["labels"]
-    structural_test_scores = collect_raw_depth_scores(
-        classifier, test["depth_images"],
-        chunk_size=processing_batch_size(args, len(structural_test_labels)),
-    )
-    instantaneous = classifier_metrics_from_scores(
-        classifier, structural_test_scores, structural_test_labels
-    )
-    del test, structural_test_scores, structural_test_labels
-
-    calibration = torch.load(files["calibration"], map_location="cpu", weights_only=False)
-    calibration_labels = classifier._normalize_labels(calibration["labels"])
-    calibration_scores = collect_raw_depth_scores(
-        classifier, calibration["depth_images"],
-        chunk_size=processing_batch_size(args, len(calibration_labels)),
-    )
-    del calibration
-    validation = torch.load(files["bayes_validation"], map_location="cpu", weights_only=False)
-    filter_validation_labels = classifier._normalize_labels(validation["labels"])
-    filter_validation_ids = sequence_ids_for(validation)
-    filter_validation_scores = collect_raw_depth_scores(
-        classifier, validation["depth_images"],
-        chunk_size=processing_batch_size(args, len(filter_validation_labels)),
-    )
-    del validation
-
-    classifier.to("cpu")
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    bayes_start = time.perf_counter()
-    ordered = torch.load(files["ordered_test"], map_location="cpu", weights_only=False)
-    ordered_scores = collect_raw_depth_scores(
-        classifier, ordered["depth_images"],
-        chunk_size=processing_batch_size(args, len(ordered["labels"])),
-    )
-    sequential_search, filter_results, legacy_bayes = run_staged_sequential_pipeline(
-        classifier, calibration_scores, calibration_labels,
-        filter_validation_scores, filter_validation_labels, filter_validation_ids,
-        ordered_scores, ordered["labels"], sequence_ids_for(ordered), output,
-    )
-    bayes_runtime = time.perf_counter() - bayes_start
-    selected_temperature = legacy_bayes["selected_temperature"]
-    classifier.temperature = selected_temperature
-    ordered_instantaneous, bayesian = legacy_bayes["unfiltered_metrics"], legacy_bayes["metrics"]
-    classifier.save(output / "classifier.pt")
-    torch.save(nn_raw_depth_model.get_args(), output / "nn_model_args.pt")
-    best_validation = max(classifier.training_history.get("validation_accuracy", [float("nan")]))
-    classifier_search_stages = {
-        "base": {"best_params": {"epochs": 20, "batch_size": train_batch, "optimizer": "adam", "lr": 1e-3},
-                 "validation_metrics": {"accuracy": best_validation},
-                 "structural_test_metrics": instantaneous,
-                 "model_metadata": {"parameter_count": sum(p.numel() for p in nn_raw_depth_model.parameters())}},
-        "selected_stage": "base", "selected_params": {"epochs": 20, "batch_size": train_batch,
-        "optimizer": "adam", "lr": 1e-3}, "selected_validation_score": best_validation,
-        "selected_structural_test_metrics": instantaneous,
+    split_data = {
+        "structural_validation": validation,
+        "structural_test": torch.load(files["structural_test"], map_location="cpu", weights_only=False),
+        "ordered_validation": torch.load(files["bayes_validation"], map_location="cpu", weights_only=False),
+        "ordered_test": torch.load(files["ordered_test"], map_location="cpu", weights_only=False),
     }
-    results = {
-        "schema_version": 1, "method": "raw-depth NN", "require_feature": False,
-        "best_hyperparameters": {"epochs": 20, "batch_size": train_batch, "optimizer": "adam", "lr": 1e-3},
-        "validation_score": best_validation, "instantaneous": instantaneous,
-        "classifier_search_stages": classifier_search_stages,
-        "model": {"parameter_count": sum(p.numel() for p in nn_raw_depth_model.parameters()),
-                  "model_size_bytes": (output / "classifier.pt").stat().st_size},
-        "runtime_seconds": {"search_or_training": training_runtime, "bayes_search": bayes_runtime},
-        "training_history": classifier.training_history,
-        "bayes": legacy_bayes, "sequential_search": sequential_search,
-        "data_files": files,
-    }
+    def model_factory(dropout_p):
+        return TerrainDepthClassifierNN(
+            train["depth_images"].shape[-2:], 1, [8, 16], [1, 1],
+            [128, len(class_ids)], [5, 3], nn.ELU(), dropout_p,
+            robot_state_dim=5)
+    def collect(classifier, data, samples, mc):
+        return collect_raw_depth_logits(
+            classifier, data, chunk_size=processing_batch_size(args, len(data["labels"])),
+            mc_samples=samples, mc_dropout=mc)
+    results = train_uncertainty_aware_nn_suite(
+        architecture="raw_depth_nn", model_factory=model_factory, class_ids=class_ids,
+        train_inputs=structural_training_images, train_labels=structural_training_labels,
+        validation_inputs=structural_validation_images,
+        validation_labels=structural_validation_labels, split_data=split_data,
+        collect_logits=collect,
+        validation_sequence_ids=sequence_ids_for(split_data["ordered_validation"]),
+        test_sequence_ids=sequence_ids_for(split_data["ordered_test"]), output=output,
+        device=device, train_batch=train_batch, validation_batch=validation_batch)
+    results.update(method="raw-depth NN", require_feature=False, data_files=files,
+                   robot_state_inputs=["roll", "pitch", "angular_velocity_roll",
+                                       "angular_velocity_pitch", "angular_velocity_yaw"])
     save_results(output / "results.json", results)
-    save_results(output / "params.json", {
-        "classifier": results["best_hyperparameters"], "temperature": selected_temperature,
-        "bayes_filter": results["bayes"]["filter_parameters"],
-    })
-    save_results(output / "metrics.json", {"instantaneous": instantaneous,
-                                            "ordered_instantaneous": ordered_instantaneous,
-                                            "bayesian": bayesian})
     torch.save(json_safe(results), output / "results.pt")
     print(f"Saved raw-depth NN run to {output}")
 

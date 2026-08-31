@@ -52,20 +52,17 @@ Each environment owns an independent Bayes belief. Beliefs persist between class
 
 `--classifier_approach` supports:
 
-- `auto`;
-- `rbf_prototype`;
-- `rbf_svm`;
-- `feature_nn`;
-- `raw_depth_nn`.
+- `feature_nn_deterministic`;
+- `raw_depth_nn_deterministic`;
+- `feature_nn_mc`;
+- `raw_depth_nn_mc`.
 
-Set `--classifier_dir` to a saved classifier run containing the applicable artifacts: `classifier.pt`, `results.json`, `extractor.pt`, `standardizer.pt`, and/or `nn_model_args.pt`. `auto` inspects `results.json` and falls back to the saved artifact structure.
+Set `--classifier_dir` (or `--classifier_suite`) to a completed classifier-suite
+root and select one of the four learned deployments. The evaluator loads the
+selected model, feature preprocessing, deterministic/MC mode, MC sample count,
+and uncertainty-aware temporal filter from its deployment manifest.
 
-Engineered-feature approaches use the saved Sobel/geometric extractor and standardizer. The raw-depth NN consumes the processed depth tensor directly.
-
-Bayes-filter loading supports:
-
-- `--bayes_filter_approach paired`: load `bayes_filter.pt` from `classifier_dir`;
-- `--bayes_filter_approach checkpoint`: load `--bayes_filter_path`.
+Engineered-feature approaches use the saved Sobel/geometric extractor and standardizer. The raw-depth NN combines the processed depth tensor with base roll, pitch, and roll/pitch/yaw angular velocities before its hidden FC layers.
 
 Classifier class ordering must exactly match the filter checkpoint's label ordering.
 
@@ -111,9 +108,8 @@ Run from the repository root after selecting an installed simulator:
 SIMULATOR=genesis python -m legged_gym.scripts.evaluation.high_level_evaluation \
   --task go2_depth_waq_lora \
   --selector_mode bayes \
-  --classifier_approach auto \
-  --classifier_dir /path/to/classifier_run \
-  --bayes_filter_approach paired \
+  --classifier_approach feature_nn_mc \
+  --classifier_suite /path/to/classifier_suite \
   --policy_jit /path/to/swap_policy.jit.pt \
   --difficulty 0.5 \
   --episodes_per_track 5 \
@@ -123,15 +119,13 @@ SIMULATOR=genesis python -m legged_gym.scripts.evaluation.high_level_evaluation 
   --out_dir results/high_level_bayes
 ```
 
-Use an independent filter checkpoint and instantaneous policy selection:
+Use deterministic raw-depth inference and instantaneous policy selection:
 
 ```bash
 SIMULATOR=genesis python -m legged_gym.scripts.evaluation.high_level_evaluation \
   --selector_mode instantaneous \
-  --classifier_approach rbf_svm \
-  --classifier_dir /path/to/rbf_svm_run \
-  --bayes_filter_approach checkpoint \
-  --bayes_filter_path /path/to/bayes_filter.pt \
+  --classifier_approach raw_depth_nn_deterministic \
+  --classifier_suite /path/to/classifier_suite \
   --policy_jit /path/to/swap_policy.jit.pt \
   --difficulty 0.75 --headless
 ```
@@ -140,7 +134,8 @@ For a bounded smoke run, use ten environments and one episode per track:
 
 ```bash
 SIMULATOR=genesis python -m legged_gym.scripts.evaluation.high_level_evaluation \
-  --selector_mode oracle --classifier_dir /path/to/classifier_run \
+  --selector_mode oracle --classifier_approach feature_nn_deterministic \
+  --classifier_suite /path/to/classifier_suite \
   --policy_jit /path/to/swap_policy.jit.pt \
   --num_envs 10 --episodes_per_track 1 --num_steps 500 --headless
 ```
@@ -152,7 +147,7 @@ SIMULATOR=genesis python -m legged_gym.scripts.evaluation.high_level_evaluation 
 ```bash
 SIMULATOR=genesis \
 POLICY_JIT=/path/to/swap_policy.jit.pt \
-CLASSIFIER_DIR=/path/to/classifier_run \
+CLASSIFIER_DIR=/path/to/classifier_suite \
 SELECTOR_MODES="oracle instantaneous bayes baseline" \
 DIFFICULTIES="0.0 0.25 0.5 0.75 1.0" \
 SEED=42 \
@@ -162,7 +157,7 @@ OUTPUT_ROOT=results/high_level_sweep \
 legged_gym/scripts/evaluation/run_high_level_difficulty_sweep.sh
 ```
 
-Optional sweep variables include `CLASSIFIER_APPROACH`, `BAYES_FILTER_APPROACH`, `BAYES_FILTER_PATH`, and `TASK`.
+Optional sweep variables include `CLASSIFIER_APPROACH` and `TASK`.
 
 ## Evaluation randomization settings
 
