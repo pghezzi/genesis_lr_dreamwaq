@@ -7,6 +7,12 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from legged_gym.scripts.depth_data_pipeline.compare_terrain_classifier_results import parse_result_file
+from legged_gym.scripts.depth_data_pipeline.util_func import collect_neural_logits_batched
+from legged_gym.scripts.depth_data_pipeline.sequential_terrain_filter_extensions import (
+    CandidateReleaseBayesianTerrainFilter, accumulate_transition_evidence,
+    mc_candidate_agreement, run_candidate_release_sequences,
+    uncertainty_adaptive_beta, validation_mi_threshold,
+)
 from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
     FeatureStandardizer, NeuralClassifierAdapter, RBFSVM, fit_nn,
     build_filter_from_search_result, build_hybrid_transition_cache,
@@ -61,6 +67,83 @@ def test_fit_nn_callback_supports_feature_and_image_batches():
         assert len(adapter.predict(inputs[:2])) == 2
 
 
+def test_batched_mc_dropout_shapes_and_masks():
+    model = nn.Sequential(nn.Linear(4, 12), nn.ELU(), nn.Dropout(0.5), nn.Linear(12, 3))
+    adapter = NeuralClassifierAdapter(model, [0, 1, 2])
+    inputs = torch.ones(5, 4)
+    for samples in (10, 25, 50):
+        logits, _ = collect_neural_logits_batched(
+            adapter, inputs, batch_size=5, mc_samples=samples,
+            mc_dropout=True, expanded_batch_size=64)
+        assert logits.shape == (samples, 5, 3)
+        assert not torch.allclose(logits[0], logits[1])
+    deterministic, _ = collect_neural_logits_batched(adapter, inputs, batch_size=5)
+    assert deterministic.shape == (1, 5, 3)
+    assert torch.allclose(deterministic[0, 0], deterministic[0, 1])
+
+
+def test_candidate_release_runner_resets_each_sequence():
+    labels = [0, 1]
+    filt = CandidateReleaseBayesianTerrainFilter(
+        labels, {0: 0.5, 1: 0.5}, torch.tensor([[0.99, 0.01], [0.01, 0.99]]),
+        release_strength=0.5, switch_margin=0.1, change_patience=1)
+    probabilities = torch.tensor([[0.1, 0.9], [0.1, 0.9], [0.9, 0.1], [0.9, 0.1]])
+    predictions, _, _, _ = run_candidate_release_sequences(
+        filt, probabilities, probabilities, [0, 0, 1, 1])
+    assert predictions[0] == 1
+    assert predictions[2] == 0
+
+
+def test_mc_agreement_mi_threshold_and_beta_endpoints():
+    probabilities = torch.tensor([
+        [[0.9, 0.1], [0.6, 0.4]],
+        [[0.8, 0.2], [0.2, 0.8]],
+        [[0.7, 0.3], [0.1, 0.9]],
+        [[0.4, 0.6], [0.7, 0.3]],
+    ])
+    assert torch.allclose(mc_candidate_agreement(probabilities), torch.tensor([0.75, 0.5]))
+    mi = torch.tensor([0.0, 0.1, 0.2, 0.3])
+    assert validation_mi_threshold(mi, 100) == float(mi.max())
+    assert torch.allclose(uncertainty_adaptive_beta(torch.tensor([0.0, 0.2]), 0.2, 0.25),
+                          torch.tensor([1.0, 0.25]))
+    assert torch.allclose(uncertainty_adaptive_beta(mi, 0.2, 1.0), torch.ones_like(mi))
+
+
+def test_accumulated_evidence_candidate_changes_and_reset(tmp_path):
+    value, candidate = accumulate_transition_evidence(0.4, 1, 1, 0.2, 0.5)
+    assert value == 0.4 and candidate == 1
+    value, candidate = accumulate_transition_evidence(value, candidate, 2, 0.1, 0.5)
+    assert value == 0.1 and candidate == 2
+    assert accumulate_transition_evidence(value, candidate, 2, 0.0, 0.5, False) == (0.0, None)
+
+    filt = CandidateReleaseBayesianTerrainFilter(
+        [0, 1], {0: 0.5, 1: 0.5}, torch.eye(2), release_strength=0.8,
+        change_patience=99, epistemic_threshold=1.0, agreement_threshold=0.5,
+        mi_scale=1.0, use_accumulated_evidence=True, evidence_decay=0.5,
+        evidence_threshold=0.1)
+    filt.update(torch.tensor([0.2, 0.8]), event_probabilities=torch.tensor([0.2, 0.8]),
+                mutual_information=0.0, candidate_agreement=1.0)
+    assert filt.last_event  # U3 triggers without applying discrete patience.
+    filt.reset()
+    assert filt.accumulated_evidence == 0.0 and filt.evidence_candidate_index is None
+    path = tmp_path / "u3_filter.pt"
+    filt.save(path)
+    restored = CandidateReleaseBayesianTerrainFilter.load(path)
+    assert restored.use_accumulated_evidence and restored.change_patience == 99
+
+
+def test_adaptive_beta_one_matches_unattenuated_observation():
+    kwargs = dict(labels=[0, 1], prior={0: 0.5, 1: 0.5},
+                  stable_transition_matrix=torch.tensor([[0.9, 0.1], [0.1, 0.9]]))
+    baseline = CandidateReleaseBayesianTerrainFilter(**kwargs)
+    adaptive_endpoint = CandidateReleaseBayesianTerrainFilter(
+        **kwargs, beta_min=1.0, mi_scale=0.2)
+    probability = torch.tensor([0.3, 0.7])
+    baseline.update(probability, mutual_information=0.2)
+    adaptive_endpoint.update(probability, mutual_information=0.2)
+    assert torch.allclose(baseline.belief, adaptive_endpoint.belief)
+
+
 def test_svm_search_reuses_basis_selection(monkeypatch):
     x, labels = _toy_data()
     calls = 0
@@ -82,14 +165,13 @@ def test_svm_search_reuses_basis_selection(monkeypatch):
 
 def test_result_parser(tmp_path):
     result = {
-        "method": "RBF SVM", "validation_score": 0.8,
-        "instantaneous": {"accuracy": 0.7},
-        "bayes": {"metrics": {"accuracy": 0.75}},
+        "method": "feature NN", "architecture": "feature_nn",
+        "deployments": {"deterministic": {}, "mc": {}}, "search": {},
     }
     path = tmp_path / "results.json"
     path.write_text(json.dumps(result), encoding="utf-8")
     parsed = parse_result_file(tmp_path)
-    assert parsed["method"] == "RBF SVM"
+    assert parsed["architecture"] == "feature_nn"
     assert parsed["result_file"].endswith("results.json")
 
 

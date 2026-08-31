@@ -15,10 +15,8 @@ from legged_gym import LEGGED_GYM_ROOT_DIR
 
 
 APPROACH_MODULES = {
-    "raw_depth_nn": "legged_gym.scripts.depth_data_pipeline.train_raw_depth_nn",
     "feature_nn": "legged_gym.scripts.depth_data_pipeline.train_feature_nn",
-    "rbf_prototype": "legged_gym.scripts.depth_data_pipeline.train_rbf_prototype_classifier",
-    "rbf_svm": "legged_gym.scripts.depth_data_pipeline.train_rbf_svm_classifier",
+    "raw_depth_nn": "legged_gym.scripts.depth_data_pipeline.train_raw_depth_nn",
 }
 
 
