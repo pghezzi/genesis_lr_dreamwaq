@@ -674,8 +674,8 @@ def run_ema_logit_patience_sequences(
 # search semantics in one place.
 SEQUENTIAL_METRIC_CONFIG = {
     "transition_window_radius": 5,
-    "transition_accuracy_weight": 0.35,
-    "delay_weight": 0.002,
+    "transition_accuracy_weight": 0.40,
+    "delay_weight": 0.003,
     "false_transition_weight": 0.05,
     "missing_class_penalty": 0.05,
 }
@@ -747,8 +747,15 @@ def evaluate_sequential_predictions(
     if math.isfinite(float(base.false_transition_rate)):
         score -= float(metric_config["false_transition_weight"]) * float(base.false_transition_rate)
     score -= float(metric_config["missing_class_penalty"]) * len(missing)
+    legacy_score = 0.65 * float(base.balanced_accuracy) + 0.35 * transition_term
+    if math.isfinite(float(base.mean_transition_delay)):
+        legacy_score -= 0.002 * float(base.mean_transition_delay)
+    if math.isfinite(float(base.false_transition_rate)):
+        legacy_score -= 0.05 * float(base.false_transition_rate)
+    legacy_score -= 0.05 * len(missing)
     return {
-        "selection_score": float(score), **base.as_dict(),
+        "selection_score": float(score), "score_v2": float(score),
+        "legacy_selection_score": float(legacy_score), **base.as_dict(),
         "transition_window_accuracy": transition_accuracy,
         "steady_state_accuracy": steady_accuracy,
         "transition_window_frame_fraction": float(window.float().mean()),
@@ -940,19 +947,53 @@ def staged_sequential_search(
 # Uncertainty-aware candidate-directed filter/search
 # =============================================================================
 
-FILTER_TEMPERATURES = (1.25, 1.5, 1.75, 2.0, 2.5)
-FILTER_STAYS = (0.95, 0.97, 0.98, 0.99, 0.995)
-RELEASE_STRENGTHS = (0.10, 0.20, 0.35, 0.50)
-RELEASE_MARGINS = (0.10, 0.20, 0.30, 0.40)
+FILTER_TEMPERATURES = (1.0, 1.25, 1.5, 1.75, 2.0, 2.5)
+FILTER_STAYS = (0.90, 0.95, 0.97, 0.98, 0.99, 0.995, 0.997)
+RELEASE_STRENGTHS = (0.05, 0.10, 0.20, 0.35, 0.50, 0.70)
+RELEASE_MARGINS = (0.05, 0.10, 0.20, 0.30, 0.40)
 RELEASE_PATIENCES = (1, 2)
-EPISTEMIC_PERCENTILES = (75, 90)
-AMBIGUITY_MARGINS = (0.10, 0.20, 0.30)
-AMBIGUITY_FLATTEN = (0.10, 0.25, 0.40)
-AGREEMENT_THRESHOLDS = (0.50, 0.65, 0.80, 0.90)
-UNCERTAINTY_PERCENTILES = (75, 90, 95, 100)
-BETA_MIN_VALUES = (0.25, 0.50, 0.75, 0.90, 1.0)
-EVIDENCE_DECAYS = (0.25, 0.50, 0.75, 0.90)
-EVIDENCE_THRESHOLDS = (0.05, 0.10, 0.20, 0.35, 0.50)
+EPISTEMIC_PERCENTILES = (75, 90, 95, 100)
+AMBIGUITY_MARGINS = (0.05, 0.10, 0.15, 0.20, 0.30)
+AMBIGUITY_FLATTEN = (0.0, 0.05, 0.10, 0.25, 0.40)
+BETA_MIN_VALUES = (0.25, 0.40, 0.50, 0.65, 0.75, 0.90, 1.0)
+MI_SCALE_PERCENTILES = (75, 90, 95)
+EVIDENCE_DECAYS = (0.0, 0.10, 0.25, 0.50, 0.75, 0.90)
+EVIDENCE_THRESHOLDS = (0.02, 0.05, 0.075, 0.10, 0.20, 0.35, 0.50)
+
+STAGE_SEARCH_BOUNDARIES = {
+    "stage1_fixed_bayes": {"T_filter": FILTER_TEMPERATURES, "stable_stay": FILTER_STAYS},
+    "stage2_candidate_release": {"release_strength": RELEASE_STRENGTHS,
+                                 "switch_margin": RELEASE_MARGINS,
+                                 "change_patience": RELEASE_PATIENCES},
+    "stage3_mi_release": {"epistemic_percentile": EPISTEMIC_PERCENTILES},
+    "stage4_ambiguity": {"ambiguity_margin": AMBIGUITY_MARGINS,
+                         "flatten_strength": AMBIGUITY_FLATTEN},
+    "u1_adaptive_beta": {"beta_min": BETA_MIN_VALUES,
+                         "mi_scale_percentile": MI_SCALE_PERCENTILES},
+    "u2_accumulated_evidence": {"evidence_decay": EVIDENCE_DECAYS,
+                                "evidence_threshold": EVIDENCE_THRESHOLDS},
+    "controlled_C1": {"epistemic_percentile": EPISTEMIC_PERCENTILES},
+    "controlled_C2": {"beta_min": BETA_MIN_VALUES,
+                      "mi_scale_percentile": MI_SCALE_PERCENTILES},
+    "controlled_C3": {"evidence_decay": EVIDENCE_DECAYS,
+                      "evidence_threshold": EVIDENCE_THRESHOLDS},
+    "ema": {"ema_alpha": EMA_ALPHAS, "change_patience": EMA_PATIENCES},
+}
+for _stage_name, _stage_space in STAGE_SEARCH_BOUNDARIES.items():
+    if _stage_name not in {"stage1_fixed_bayes", "ema"}:
+        _stage_space.update(T_filter=FILTER_TEMPERATURES, stable_stay=FILTER_STAYS)
+
+
+def _search_boundary_metadata(stage, parameters):
+    space = STAGE_SEARCH_BOUNDARIES.get(stage, {})
+    lower = [name for name, values in space.items()
+             if name in parameters and parameters[name] == min(values)]
+    upper = [name for name, values in space.items()
+             if name in parameters and parameters[name] == max(values)]
+    return {"selected_at_lower_boundary": bool(lower),
+            "selected_at_upper_boundary": bool(upper),
+            "lower_boundary_parameters": lower,
+            "upper_boundary_parameters": upper}
 
 
 def mc_candidate_agreement(mc_probabilities):
@@ -991,7 +1032,7 @@ class CandidateReleaseBayesianTerrainFilter(BayesianTerrainFilter):
     def __init__(
         self, labels, prior, stable_transition_matrix, *, release_strength=0.0,
         switch_margin=0.0, change_patience=1, epistemic_threshold=None,
-        ambiguity_margin=None, flatten_strength=0.0, agreement_threshold=None,
+        ambiguity_margin=None, flatten_strength=0.0,
         beta_min=1.0, mi_scale=None, use_accumulated_evidence=False,
         evidence_decay=0.0, evidence_threshold=0.0, device="cpu", eps=1e-8,
     ):
@@ -1006,8 +1047,6 @@ class CandidateReleaseBayesianTerrainFilter(BayesianTerrainFilter):
         self.epistemic_threshold = None if epistemic_threshold is None else float(epistemic_threshold)
         self.ambiguity_margin = None if ambiguity_margin is None else float(ambiguity_margin)
         self.flatten_strength = float(flatten_strength)
-        self.agreement_threshold = (None if agreement_threshold is None
-                                    else float(agreement_threshold))
         self.beta_min = float(beta_min)
         self.mi_scale = None if mi_scale is None else float(mi_scale)
         self.use_accumulated_evidence = bool(use_accumulated_evidence)
@@ -1023,9 +1062,10 @@ class CandidateReleaseBayesianTerrainFilter(BayesianTerrainFilter):
         self.last_high_epistemic = False
         self.accumulated_evidence = 0.0
         self.evidence_candidate_index = None
-        self.last_agreement = 1.0
         self.last_beta = 1.0
         self.last_accumulated_evidence = 0.0
+        self.last_candidate_index = self.current_output_index
+        self.last_candidate_margin = 0.0
 
     def reset(self, prior=None):
         belief = super().reset(prior)
@@ -1035,9 +1075,10 @@ class CandidateReleaseBayesianTerrainFilter(BayesianTerrainFilter):
         self.last_event = self.last_ambiguous = self.last_high_epistemic = False
         self.accumulated_evidence = 0.0
         self.evidence_candidate_index = None
-        self.last_agreement = 1.0
         self.last_beta = 1.0
         self.last_accumulated_evidence = 0.0
+        self.last_candidate_index = self.current_output_index
+        self.last_candidate_margin = 0.0
         return belief
 
     def _q(self, value):
@@ -1048,12 +1089,15 @@ class CandidateReleaseBayesianTerrainFilter(BayesianTerrainFilter):
 
     @torch.inference_mode()
     def update(self, classifier_probabilities, *, event_probabilities=None,
-               mutual_information=0.0, candidate_agreement=1.0,
-               observation_quality=1.0):
+               mutual_information=0.0, observation_quality=1.0):
         del observation_quality
         q = self._q(classifier_probabilities)
         q_event = q if event_probabilities is None else self._q(event_probabilities)
         current = self.current_output_index
+        event_candidate = int(q_event.argmax())
+        event_margin = float(q_event[event_candidate] - q_event[current])
+        self.last_candidate_index = event_candidate
+        self.last_candidate_margin = event_margin
         predicted = self.belief @ self.stable_transition_matrix
         predicted = predicted / predicted.sum().clamp_min(self.eps)
         values, indices = torch.topk(q, min(2, self.num_classes))
@@ -1063,32 +1107,30 @@ class CandidateReleaseBayesianTerrainFilter(BayesianTerrainFilter):
         self.last_event = False
         self.last_ambiguous = bool(ambiguity)
         self.last_high_epistemic = bool(self.ambiguity_margin is not None and high_mi)
-        self.last_agreement = float(candidate_agreement)
         scale = self.mi_scale if self.mi_scale is not None else float("inf")
         uncertainty = min(max(float(mutual_information) / max(scale, self.eps), 0.0), 1.0)
         self.last_beta = float(uncertainty_adaptive_beta(
             float(mutual_information), scale, self.beta_min))
         self.last_accumulated_evidence = self.accumulated_evidence
 
-        if self.ambiguity_margin is not None and high_mi:
-            self.pending_target_index = None
-            self.pending_count = 0
-            self.evidence_candidate_index = None
-            self.accumulated_evidence = 0.0
-            self.last_accumulated_evidence = 0.0
-            self.belief = predicted
-            return BayesianFilterStep(self.labels[current], predicted.clone(), predicted.clone(),
-                                      torch.ones_like(q), q.clone(), self.entropy_confidence(q), 0.0)
-
         if ambiguity:
-            self.pending_target_index = None
-            self.pending_count = 0
-            self.evidence_candidate_index = None
-            self.accumulated_evidence = 0.0
-            self.last_accumulated_evidence = 0.0
             candidate = int(indices[0])
             if candidate == current and self.num_classes > 1:
                 candidate = int(indices[1])
+            plausible = set(indices.tolist())
+            if (self.pending_target_index is not None
+                    and self.pending_target_index not in plausible):
+                self.pending_target_index = None
+                self.pending_count = 0
+            if self.use_accumulated_evidence:
+                if (self.evidence_candidate_index is not None
+                        and self.evidence_candidate_index in plausible
+                        and self.evidence_candidate_index != current):
+                    self.accumulated_evidence *= self.evidence_decay
+                else:
+                    self.evidence_candidate_index = None
+                    self.accumulated_evidence = 0.0
+                self.last_accumulated_evidence = self.accumulated_evidence
             u = torch.zeros_like(q)
             u[current], u[candidate] = q[current], q[candidate]
             u = u / u.sum().clamp_min(self.eps)
@@ -1098,19 +1140,23 @@ class CandidateReleaseBayesianTerrainFilter(BayesianTerrainFilter):
             return BayesianFilterStep(self.labels[current], posterior.clone(), predicted.clone(),
                                       torch.ones_like(q), q.clone(), self.entropy_confidence(q), 0.0)
 
-        candidate = int(q_event.argmax())
-        margin = float(q_event[candidate] - q_event[current])
-        agreement_ok = (self.agreement_threshold is None
-                        or float(candidate_agreement) >= self.agreement_threshold)
+        candidate = event_candidate
+        margin = event_margin
         if self.use_accumulated_evidence:
-            valid = candidate != current and margin > 0.0 and not high_mi and agreement_ok
+            plausible_candidate = candidate != current and margin > 0.0
+            valid = plausible_candidate and not high_mi
             if valid:
                 uncertainty_weight = max(1.0 - uncertainty, 0.0)
-                instant = max(margin, 0.0) * uncertainty_weight * float(candidate_agreement)
+                instant = max(margin, 0.0) * uncertainty_weight
                 self.accumulated_evidence, self.evidence_candidate_index = (
                     accumulate_transition_evidence(
                         self.accumulated_evidence, self.evidence_candidate_index,
                         candidate, instant, self.evidence_decay))
+            elif (plausible_candidate
+                  and self.evidence_candidate_index == candidate):
+                # An epistemically uncertain frame pauses release; it does not
+                # erase already accumulated candidate-specific support.
+                self.accumulated_evidence *= self.evidence_decay
             else:
                 self.accumulated_evidence, self.evidence_candidate_index = (
                     accumulate_transition_evidence(
@@ -1120,7 +1166,7 @@ class CandidateReleaseBayesianTerrainFilter(BayesianTerrainFilter):
             accepted = valid and self.accumulated_evidence >= self.evidence_threshold
         else:
             eligible = (candidate != current and margin >= self.switch_margin
-                        and not high_mi and agreement_ok)
+                        and not high_mi)
             if eligible:
                 if self.pending_target_index == candidate:
                     self.pending_count += 1
@@ -1159,7 +1205,6 @@ class CandidateReleaseBayesianTerrainFilter(BayesianTerrainFilter):
                     "epistemic_threshold": self.epistemic_threshold,
                     "ambiguity_margin": self.ambiguity_margin,
                     "flatten_strength": self.flatten_strength,
-                    "agreement_threshold": self.agreement_threshold,
                     "beta_min": self.beta_min, "mi_scale": self.mi_scale,
                     "use_accumulated_evidence": self.use_accumulated_evidence,
                     "evidence_decay": self.evidence_decay,
@@ -1174,7 +1219,6 @@ class CandidateReleaseBayesianTerrainFilter(BayesianTerrainFilter):
                    epistemic_threshold=state.get("epistemic_threshold"),
                    ambiguity_margin=state.get("ambiguity_margin"),
                    flatten_strength=state.get("flatten_strength", 0.0),
-                   agreement_threshold=state.get("agreement_threshold"),
                    beta_min=state.get("beta_min", 1.0), mi_scale=state.get("mi_scale"),
                    use_accumulated_evidence=state.get("use_accumulated_evidence", False),
                    evidence_decay=state.get("evidence_decay", 0.0),
@@ -1185,30 +1229,37 @@ class CandidateReleaseBayesianTerrainFilter(BayesianTerrainFilter):
 @torch.inference_mode()
 def run_candidate_release_sequences(terrain_filter, filter_probabilities, event_probabilities,
                                     sequence_ids, mutual_information=None,
-                                    candidate_agreement=None, return_diagnostics=False):
+                                    diagnostic_agreement=None, return_diagnostics=False):
     qf, qe, ids = torch.as_tensor(filter_probabilities), torch.as_tensor(event_probabilities), list(sequence_ids)
     mi = torch.zeros(qf.shape[0]) if mutual_information is None else torch.as_tensor(mutual_information)
-    agreement = (torch.ones(qf.shape[0]) if candidate_agreement is None
-                 else torch.as_tensor(candidate_agreement))
+    agreement = (torch.ones(qf.shape[0]) if diagnostic_agreement is None
+                 else torch.as_tensor(diagnostic_agreement))
     predictions, events, ambiguities, high_mi = [], [], [], []
-    betas, evidence = [], []
+    betas, evidence, posteriors, candidates, margins, emitted = [], [], [], [], [], []
     for i in range(qf.shape[0]):
         if i == 0 or ids[i] != ids[i - 1]:
             terrain_filter.reset()
         step = terrain_filter.update(
-            qf[i], event_probabilities=qe[i], mutual_information=float(mi[i]),
-            candidate_agreement=float(agreement[i]))
+            qf[i], event_probabilities=qe[i], mutual_information=float(mi[i]))
         predictions.append(step.label)
         events.append(terrain_filter.last_event)
         ambiguities.append(terrain_filter.last_ambiguous)
         high_mi.append(terrain_filter.last_high_epistemic)
         betas.append(terrain_filter.last_beta)
         evidence.append(terrain_filter.last_accumulated_evidence)
+        posteriors.append(step.posterior.detach().cpu())
+        candidates.append(terrain_filter.last_candidate_index)
+        margins.append(terrain_filter.last_candidate_margin)
+        emitted.append(terrain_filter.current_output_index)
     base = (predictions, torch.tensor(events), torch.tensor(ambiguities), torch.tensor(high_mi))
     if not return_diagnostics:
         return base
     return (*base, {"agreement": agreement.float().cpu(), "beta": torch.tensor(betas),
-                    "accumulated_evidence": torch.tensor(evidence)})
+                    "accumulated_evidence": torch.tensor(evidence),
+                    "posterior": torch.stack(posteriors),
+                    "candidate_index": torch.tensor(candidates, dtype=torch.long),
+                    "candidate_margin": torch.tensor(margins, dtype=torch.float32),
+                    "emitted_index": torch.tensor(emitted, dtype=torch.long)})
 
 
 def _probabilities_from_cached_logits(logits, temperature):
@@ -1285,7 +1336,7 @@ def _candidate_metrics(truth, predictions, labels, ids, events=None, ambiguities
 
 
 def _evaluate_release_config(config, logits, truth, ids, labels, mi_event=None,
-                             candidate_agreement=None):
+                             diagnostic_agreement=None, return_outputs=False):
     q_filter = _probabilities_from_cached_logits(logits, config["T_filter"])
     q_event = _probabilities_from_cached_logits(logits, 1.0)
     prior = {label: 1.0 / len(labels) for label in labels}
@@ -1297,21 +1348,28 @@ def _evaluate_release_config(config, logits, truth, ids, labels, mi_event=None,
         epistemic_threshold=config.get("epistemic_threshold"),
         ambiguity_margin=config.get("ambiguity_margin"),
         flatten_strength=config.get("flatten_strength", 0.0),
-        agreement_threshold=config.get("agreement_threshold"),
         beta_min=config.get("beta_min", 1.0), mi_scale=config.get("mi_scale"),
         use_accumulated_evidence=config.get("use_accumulated_evidence", False),
         evidence_decay=config.get("evidence_decay", 0.0),
         evidence_threshold=config.get("evidence_threshold", 0.0), device="cpu")
     predictions, events, ambiguous, high_epistemic, diagnostics = run_candidate_release_sequences(
         filt, q_filter, q_event, ids, mutual_information=mi_event,
-        candidate_agreement=candidate_agreement, return_diagnostics=True)
+        diagnostic_agreement=diagnostic_agreement, return_diagnostics=True)
     label_index = {label: i for i, label in enumerate(labels)}
     truth_indices = torch.tensor([label_index[value] for value in truth])
     instantaneous_correct = q_event.argmax(1).cpu() == truth_indices
-    return filt, _candidate_metrics(
+    metrics = _candidate_metrics(
         truth, predictions, labels, ids, events, ambiguous, high_epistemic,
         diagnostics, instantaneous_correct, config.get("evidence_threshold")
         if config.get("use_accumulated_evidence") else None)
+    if not return_outputs:
+        return filt, metrics
+    return filt, metrics, {
+        "q_filter": q_filter.cpu(), "q_event": q_event.cpu(),
+        "predictions": predictions, "events": events.cpu(),
+        "ambiguity": ambiguous.cpu(), "high_epistemic": high_epistemic.cpu(),
+        **diagnostics,
+    }
 
 
 def _ema_scores_from_cached_logits(logits):
@@ -1331,8 +1389,224 @@ def _evaluate_ema_config(config, logits, truth, ids, labels):
     return filt, _candidate_metrics(truth, predictions, labels, ids)
 
 
+def _trace_frame_fields(truth, ids, labels):
+    ids, truth = list(ids), list(truth)
+    label_index = {label: index for index, label in enumerate(labels)}
+    frame_in_sequence, transition_mask = [], []
+    position = 0
+    for index in range(len(truth)):
+        if index == 0 or ids[index] != ids[index - 1]:
+            position = 0
+        frame_in_sequence.append(position)
+        transition_mask.append(
+            index > 0 and ids[index] == ids[index - 1] and truth[index] != truth[index - 1])
+        position += 1
+    transition_mask = torch.tensor(transition_mask, dtype=torch.bool)
+    return {
+        "sequence_id": ids,
+        "frame_index": torch.arange(len(truth), dtype=torch.long),
+        "sequence_frame_index": torch.tensor(frame_in_sequence, dtype=torch.long),
+        "ground_truth_class": truth,
+        "ground_truth_index": torch.tensor([label_index[value] for value in truth], dtype=torch.long),
+        "true_transition_mask": transition_mask,
+        "true_transition_index": torch.where(
+            transition_mask, torch.arange(len(truth), dtype=torch.long),
+            torch.full((len(truth),), -1, dtype=torch.long)),
+    }
+
+
+def _cached_uncertainty_for_trace(logits, inference_mode):
+    values = torch.as_tensor(logits).float()
+    if values.ndim == 2:
+        values = values.unsqueeze(0)
+    samples = F.softmax(values, dim=-1)
+    probabilities = samples.mean(0)
+    predictive_entropy = -(probabilities * probabilities.clamp_min(1e-8).log()).sum(-1)
+    expected_entropy = -(samples * samples.clamp_min(1e-8).log()).sum(-1).mean(0)
+    if inference_mode != "mc":
+        predictive_entropy = torch.full_like(predictive_entropy, float("nan"))
+        mutual_information = torch.full_like(predictive_entropy, float("nan"))
+    else:
+        mutual_information = predictive_entropy - expected_entropy
+    return probabilities.cpu(), predictive_entropy.cpu(), mutual_information.cpu()
+
+
+def _validate_temporal_trace(trace):
+    n = len(trace["ground_truth_class"])
+    length_fields = (
+        "sequence_id", "frame_index", "sequence_frame_index", "ground_truth_index",
+        "true_transition_mask", "true_transition_index", "instantaneous_class_probabilities",
+        "instantaneous_predicted_index", "filtered_posterior", "emitted_filtered_index",
+        "mutual_information", "predictive_entropy", "beta_t", "candidate_index",
+        "candidate_vs_current_margin", "ambiguity_flag", "release_event_flag",
+        "accumulated_transition_evidence",
+    )
+    for name in length_fields:
+        if len(trace[name]) != n:
+            raise ValueError(f"trace field {name!r} has length {len(trace[name])}, expected {n}")
+    posterior = torch.as_tensor(trace["filtered_posterior"]).float()
+    if not torch.allclose(posterior.sum(1), torch.ones(n), atol=1e-5, rtol=1e-5):
+        raise ValueError("trace posterior rows do not sum to one")
+    expected = _trace_frame_fields(
+        trace["ground_truth_class"], trace["sequence_id"], trace["metadata"]["class_ordering"])
+    if not torch.equal(torch.as_tensor(trace["true_transition_mask"]), expected["true_transition_mask"]):
+        raise ValueError("trace transition indices do not match within-sequence GT changes")
+    if not torch.equal(torch.as_tensor(trace["true_transition_index"]), expected["true_transition_index"]):
+        raise ValueError("trace transition-index values do not match the transition mask")
+    if trace["metadata"]["inference_mode"] != "mc":
+        if not torch.isnan(torch.as_tensor(trace["mutual_information"]).float()).all():
+            raise ValueError("deterministic trace mutual information must be NaN")
+        if not torch.isnan(torch.as_tensor(trace["predictive_entropy"]).float()).all():
+            raise ValueError("deterministic trace predictive entropy must be NaN")
+    return trace
+
+
+def save_release_temporal_trace(path, trial, logits, truth, ids, labels, *,
+                                inference_mode, mc_samples, mutual_information=None,
+                                diagnostic_agreement=None):
+    """Save compact cached-score/filter diagnostics without depth-image tensors."""
+    _, _, outputs = _evaluate_release_config(
+        trial, logits, truth, ids, labels, mutual_information,
+        diagnostic_agreement, return_outputs=True)
+    probabilities, entropy, cached_mi = _cached_uncertainty_for_trace(logits, inference_mode)
+    if inference_mode == "mc" and mutual_information is not None:
+        cached_mi = torch.as_tensor(mutual_information).float().cpu()
+    candidate_indices = torch.as_tensor(outputs["candidate_index"]).long()
+    emitted_indices = torch.as_tensor(outputs["emitted_index"]).long()
+    trace = {
+        **_trace_frame_fields(truth, ids, labels),
+        "instantaneous_class_probabilities": probabilities,
+        "instantaneous_predicted_index": probabilities.argmax(1),
+        "instantaneous_predicted_class": [labels[index] for index in probabilities.argmax(1).tolist()],
+        "filtered_posterior": torch.as_tensor(outputs["posterior"]).float(),
+        "emitted_filtered_index": emitted_indices,
+        "emitted_filtered_class": [labels[index] for index in emitted_indices.tolist()],
+        "mutual_information": cached_mi,
+        "predictive_entropy": entropy,
+        "beta_t": torch.as_tensor(outputs["beta"]).float(),
+        "candidate_index": candidate_indices,
+        "candidate_class": [labels[index] for index in candidate_indices.tolist()],
+        "candidate_vs_current_margin": torch.as_tensor(outputs["candidate_margin"]).float(),
+        "ambiguity_flag": torch.as_tensor(outputs["ambiguity"]).bool(),
+        "release_event_flag": torch.as_tensor(outputs["events"]).bool(),
+        "accumulated_transition_evidence": torch.as_tensor(
+            outputs["accumulated_evidence"]).float(),
+        "metadata": {
+            "class_ordering": list(labels), "trial_id": trial["trial_id"],
+            "parent_trial_id": trial.get("parent_trial_id"), "stage": trial.get("stage"),
+            "family": trial.get("family"), "filter_parameters": _config_only(trial),
+            "inference_mode": inference_mode, "mc_samples": int(mc_samples),
+        },
+    }
+    _validate_temporal_trace(trace)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(trace, path)
+    restored = torch.load(path, map_location="cpu", weights_only=False)
+    _validate_temporal_trace(restored)
+    if (not torch.equal(restored["emitted_filtered_index"], trace["emitted_filtered_index"])
+            or not torch.allclose(restored["filtered_posterior"], trace["filtered_posterior"])):
+        raise AssertionError("trace serialization changed filter outputs")
+    return str(path)
+
+
+def save_ema_temporal_trace(path, trial, logits, truth, ids, labels, *,
+                            inference_mode, mc_samples):
+    scores = _ema_scores_from_cached_logits(logits)
+    instantaneous, entropy, mi = _cached_uncertainty_for_trace(logits, inference_mode)
+    filt = EMALogitPatienceFilter(
+        labels, ema_alpha=trial["ema_alpha"],
+        change_patience=trial["change_patience"], device="cpu")
+    emitted, posterior, candidates, margins, events = [], [], [], [], []
+    previous_id, previous_output = object(), None
+    for index, score in enumerate(scores):
+        if index == 0 or ids[index] != previous_id:
+            filt.reset()
+            previous_output = None
+        previous_id = ids[index]
+        label = filt.update(score)
+        probability = F.softmax(filt.ema_scores, dim=0).cpu()
+        candidate = int(probability.argmax())
+        output = int(filt.current_output_index)
+        emitted.append(output)
+        posterior.append(probability)
+        candidates.append(candidate)
+        margins.append(float(probability[candidate] - probability[output]))
+        events.append(previous_output is not None and output != previous_output)
+        previous_output = output
+    emitted = torch.tensor(emitted, dtype=torch.long)
+    candidates = torch.tensor(candidates, dtype=torch.long)
+    n = len(truth)
+    trace = {
+        **_trace_frame_fields(truth, ids, labels),
+        "instantaneous_class_probabilities": instantaneous,
+        "instantaneous_predicted_index": instantaneous.argmax(1),
+        "instantaneous_predicted_class": [labels[i] for i in instantaneous.argmax(1).tolist()],
+        "filtered_posterior": torch.stack(posterior),
+        "emitted_filtered_index": emitted,
+        "emitted_filtered_class": [labels[i] for i in emitted.tolist()],
+        "mutual_information": mi, "predictive_entropy": entropy,
+        "beta_t": torch.ones(n), "candidate_index": candidates,
+        "candidate_class": [labels[i] for i in candidates.tolist()],
+        "candidate_vs_current_margin": torch.tensor(margins),
+        "ambiguity_flag": torch.zeros(n, dtype=torch.bool),
+        "release_event_flag": torch.tensor(events, dtype=torch.bool),
+        "accumulated_transition_evidence": torch.zeros(n),
+        "metadata": {"class_ordering": list(labels), "trial_id": trial["trial_id"],
+                     "parent_trial_id": trial.get("parent_trial_id"),
+                     "stage": trial.get("stage"), "family": trial.get("family"),
+                     "filter_parameters": _config_only(trial),
+                     "inference_mode": inference_mode, "mc_samples": int(mc_samples)},
+    }
+    _validate_temporal_trace(trace)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(trace, path)
+    restored = torch.load(path, map_location="cpu", weights_only=False)
+    _validate_temporal_trace(restored)
+    if (not torch.equal(restored["emitted_filtered_index"], trace["emitted_filtered_index"])
+            or not torch.allclose(restored["filtered_posterior"], trace["filtered_posterior"])):
+        raise AssertionError("trace serialization changed EMA outputs")
+    return str(path)
+
+
+def load_temporal_trace(path, *, validate=True):
+    """Load a saved trace for offline metrics, error analysis, or plotting."""
+    trace = torch.load(path, map_location="cpu", weights_only=False)
+    return _validate_temporal_trace(trace) if validate else trace
+
+
+def recompute_temporal_trace_metrics(trace_or_path, *, transition_window_radius=5):
+    """Recompute temporal/confusion/uncertainty metrics without NN inference."""
+    trace = (load_temporal_trace(trace_or_path) if isinstance(trace_or_path, (str, Path))
+             else _validate_temporal_trace(trace_or_path))
+    config = dict(SEQUENTIAL_METRIC_CONFIG)
+    config["transition_window_radius"] = int(transition_window_radius)
+    metrics = evaluate_sequential_predictions(
+        trace["ground_truth_class"], trace["emitted_filtered_class"],
+        trace["metadata"]["class_ordering"], trace["sequence_id"], config)
+    incorrect = (torch.as_tensor(trace["instantaneous_predicted_index"])
+                 != torch.as_tensor(trace["ground_truth_index"]))
+    mi = torch.as_tensor(trace["mutual_information"]).float()
+    metrics["instantaneous_accuracy"] = float((~incorrect).float().mean())
+    instantaneous_labels = [trace["metadata"]["class_ordering"][index]
+                            for index in trace["instantaneous_predicted_index"].tolist()]
+    instantaneous_metrics = evaluate_sequential_predictions(
+        trace["ground_truth_class"], instantaneous_labels,
+        trace["metadata"]["class_ordering"], trace["sequence_id"], config)
+    metrics["instantaneous_confusion_matrix"] = instantaneous_metrics["confusion_matrix"]
+    metrics["instantaneous_per_class_precision"] = instantaneous_metrics["per_class_precision"]
+    metrics["instantaneous_per_class_recall"] = instantaneous_metrics["per_class_recall"]
+    metrics.update(_probability_losses(
+        torch.as_tensor(trace["instantaneous_class_probabilities"]),
+        trace["ground_truth_class"], trace["metadata"]["class_ordering"]))
+    metrics["uncertainty_error_auroc"] = (
+        uncertainty_error_auroc(mi, incorrect) if torch.isfinite(mi).all() else float("nan"))
+    return metrics
+
+
 def _sequence_cv(config, logits, truth, ids, labels, mi_event=None,
-                 candidate_agreement=None):
+                 diagnostic_agreement=None):
     unique = list(dict.fromkeys(list(ids)))
     folds = [unique[i::3] for i in range(3)]
     scores, fold_metrics = [], []
@@ -1340,12 +1614,14 @@ def _sequence_cv(config, logits, truth, ids, labels, mi_event=None,
         if not fold:
             continue
         mask = torch.tensor([value in set(fold) for value in ids])
-        _, metrics = _evaluate_release_config(config, torch.as_tensor(logits)[:, mask],
+        values = torch.as_tensor(logits)
+        fold_logits = values[mask] if values.ndim == 2 else values[:, mask]
+        _, metrics = _evaluate_release_config(config, fold_logits,
             [truth[i] for i, keep in enumerate(mask.tolist()) if keep],
             [ids[i] for i, keep in enumerate(mask.tolist()) if keep], labels,
             None if mi_event is None else torch.as_tensor(mi_event)[mask],
-            None if candidate_agreement is None
-            else torch.as_tensor(candidate_agreement)[mask])
+            None if diagnostic_agreement is None
+            else torch.as_tensor(diagnostic_agreement)[mask])
         scores.append(metrics["selection_score"])
         fold_metrics.append(metrics)
     return {"fold_selection_scores": scores,
@@ -1374,287 +1650,662 @@ def _sequence_cv_ema(config, logits, truth, ids, labels):
             "mean_selection_score": float(sum(scores) / len(scores)) if scores else float("nan")}
 
 
-def _rank_uncertainty_trials(trials):
-    def finite(value, fallback):
-        value = float(value)
-        return fallback if math.isnan(value) else value
-
-    def compare(left, right):
-        delta = finite(left["selection_score"], -float("inf")) - finite(
-            right["selection_score"], -float("inf"))
-        if abs(delta) >= 1e-3:
-            return -1 if delta > 0 else 1
-        criteria = (
-            ("mean_transition_delay", False),
-            ("transition_window_accuracy", True),
-            ("true_transition_detection_recall", True),
-            ("false_transition_rate", False),
-            ("balanced_accuracy", True),
-        )
-        for key, higher_is_better in criteria:
-            lval = finite(left.get(key, float("nan")), -float("inf") if higher_is_better else float("inf"))
-            rval = finite(right.get(key, float("nan")), -float("inf") if higher_is_better else float("inf"))
-            if lval != rval:
-                better = lval > rval if higher_is_better else lval < rval
-                return -1 if better else 1
-        return 0
-
-    return sorted(trials, key=cmp_to_key(compare))
+def _finite(value, fallback):
+    value = float(value)
+    return fallback if not math.isfinite(value) else value
 
 
-def _mc_probabilities_and_agreement(logits):
-    probabilities = F.softmax(torch.as_tensor(logits).float(), dim=-1)
-    if probabilities.ndim != 3:
-        raise ValueError("MC uncertainty stages require cached [K,B,C] logits")
-    return probabilities.mean(0), mc_candidate_agreement(probabilities)
+def _compare_score_v2(left, right):
+    delta = _finite(left.get("score_v2", left.get("selection_score")), -float("inf")) - _finite(
+        right.get("score_v2", right.get("selection_score")), -float("inf"))
+    if abs(delta) >= 0.003:
+        return -1 if delta > 0 else 1
+    for key, higher in (("mean_transition_delay", False),
+                        ("transition_window_accuracy", True),
+                        ("false_transition_rate", False),
+                        ("balanced_accuracy", True)):
+        lv = _finite(left.get(key, float("nan")), -float("inf") if higher else float("inf"))
+        rv = _finite(right.get(key, float("nan")), -float("inf") if higher else float("inf"))
+        if lv != rv:
+            return -1 if (lv > rv if higher else lv < rv) else 1
+    return 0
 
 
-def _search_mc_uncertainty_stages(
-    u0_config, candidate, truth_val, ids_val, truth_test, ids_test, labels, output_dir,
-):
-    logits, test_logits = candidate["validation_logits"], candidate["test_logits"]
-    _, agreement = _mc_probabilities_and_agreement(logits)
-    _, test_agreement = _mc_probabilities_and_agreement(test_logits)
-    mi = candidate["validation_mi"]
-    test_mi = _uncertainty(test_logits, 1.0)[3]
-    mi_scale = validation_mi_threshold(mi, 90)
+def rank_score_v2(trials):
+    return sorted(trials, key=cmp_to_key(_compare_score_v2))
 
-    def evaluate(config):
-        _, metrics = _evaluate_release_config(
-            config, logits, truth_val, ids_val, labels, mi, agreement)
-        return {**config, **metrics}
 
-    u0 = evaluate({**_config_only(u0_config), "uncertainty_stage": "u0"})
-    u0["cv"] = _sequence_cv(u0, logits, truth_val, ids_val, labels, mi, agreement)
+def _parameter_signature(value):
+    ignored = set(_METRIC_NAMES) | {
+        "trial_id", "parent_trial_id", "parent_stage", "lineage", "on_stage_frontier",
+        "on_pareto_frontier", "stage_best", "selected", "cv", "ordered_test_metrics",
+        "filter_path", "trace_paths", "stage", "family", "is_noop_baseline",
+        "noop_expected_exact", "noop_verified", "noop_max_posterior_abs_error",
+        "metric_deltas_vs_parent", "selected_at_lower_boundary",
+        "selected_at_upper_boundary", "lower_boundary_parameters",
+        "upper_boundary_parameters",
+    }
+    return tuple(sorted((key, repr(item)) for key, item in value.items() if key not in ignored))
 
-    u1_trials = []
-    for agreement_threshold in AGREEMENT_THRESHOLDS:
-        for percentile in UNCERTAINTY_PERCENTILES:
-            config = {**_config_only(u0), "family": "u1_agreement_mi",
-                      "uncertainty_stage": "u1",
-                      "agreement_threshold": agreement_threshold,
-                      "epistemic_percentile": percentile,
-                      "epistemic_threshold": validation_mi_threshold(mi, percentile)}
-            u1_trials.append(evaluate(config))
-    u1_trials = _rank_uncertainty_trials(u1_trials)
 
-    u2_trials = []
-    for seed in u1_trials[:2]:
-        for beta_min in BETA_MIN_VALUES:
-            config = {**_config_only(seed), "family": "u2_adaptive_beta",
-                      "uncertainty_stage": "u2", "beta_min": beta_min,
-                      "beta_max": 1.0, "mi_scale": mi_scale}
-            u2_trials.append(evaluate(config))
-    u2_trials = _rank_uncertainty_trials(u2_trials)
+def _deduplicate_trials(trials):
+    unique = {}
+    for trial in rank_score_v2(trials):
+        unique.setdefault(_parameter_signature(trial), trial)
+    return list(unique.values())
 
-    u3_trials = []
-    for seed in u2_trials[:2]:
-        for decay in EVIDENCE_DECAYS:
-            for threshold in EVIDENCE_THRESHOLDS:
-                config = {**_config_only(seed), "family": "u3_accumulated_evidence",
-                          "uncertainty_stage": "u3", "use_accumulated_evidence": True,
-                          "evidence_decay": decay, "evidence_threshold": threshold,
-                          "discrete_patience_enabled": False}
-                u3_trials.append(evaluate(config))
-    u3_trials = _rank_uncertainty_trials(u3_trials)
 
-    bests = {"u0": u0, "u1": u1_trials[0], "u2": u2_trials[0], "u3": u3_trials[0]}
-    for stage in ("u1", "u2", "u3"):
-        config = bests[stage]
-        config["cv"] = _sequence_cv(
-            config, logits, truth_val, ids_val, labels, mi, agreement)
+def select_stage_frontier(trials):
+    """Select score, responsive, transition-accuracy, and low-false-event representatives."""
+    trials = _deduplicate_trials(trials)
+    if not trials:
+        return []
+    ranked = rank_score_v2(trials)
+    best_score = ranked[0]["score_v2"]
+    near = [trial for trial in ranked if best_score - trial["score_v2"] <= 0.01]
+    choices = [ranked[0]]
+    choices.append(min(near, key=lambda x: _finite(x["mean_transition_delay"], float("inf"))))
+    choices.append(max(near, key=lambda x: _finite(x["transition_window_accuracy"], -float("inf"))))
+    choices.append(min(near, key=lambda x: _finite(x["false_transition_rate"], float("inf"))))
+    frontier, seen = [], set()
+    for trial in choices:
+        signature = _parameter_signature(trial)
+        if signature not in seen:
+            seen.add(signature)
+            frontier.append(trial)
+    # Fill tied/collapsed objective representatives from validation rank. This
+    # prevents a single fixed-Bayes winner from becoming the sole Stage-2
+    # ancestor while keeping the frontier bounded and parameter-unique.
+    for trial in ranked:
+        if len(frontier) >= 4:
+            break
+        signature = _parameter_signature(trial)
+        if signature not in seen:
+            seen.add(signature)
+            frontier.append(trial)
+    selected_ids = {trial["trial_id"] for trial in frontier}
+    for trial in trials:
+        trial["on_stage_frontier"] = trial["trial_id"] in selected_ids
+    return frontier
 
-    selected_stage, selected = "u0", u0
-    for stage in ("u1", "u2", "u3"):
-        challenger = bests[stage]
-        if challenger["selection_score"] > selected["selection_score"]:
-            selected_stage, selected = stage, challenger
-    accumulated_improved = bests["u3"]["selection_score"] > bests["u2"]["selection_score"]
-    trial_groups = {"u0": [u0], "u1": u1_trials, "u2": u2_trials, "u3": u3_trials}
-    for stage, trials in trial_groups.items():
-        for index, trial in enumerate(trials):
-            trial["stage_best"] = index == 0
-            trial["selected"] = stage == selected_stage and index == 0
 
-    stage_records = {}
-    baseline_for = {"u0": None, "u1": "u0", "u2": "u1", "u3": "u2"}
-    for stage, config in bests.items():
-        filt, test_metrics = _evaluate_release_config(
-            config, test_logits, truth_test, ids_test, labels, test_mi, test_agreement)
-        filt.reset()
-        path = Path(output_dir) / f"{candidate['id']}_{stage}_filter.pt"
-        filt.save(path)
-        stage_records[stage] = {
-            "parameters": _config_only(config),
-            "validation_metrics": _metrics_only(config), "cv": config["cv"],
-            "ordered_test_metrics": test_metrics, "filter_path": str(path),
-            "baseline_stage": baseline_for[stage], "selected": stage == selected_stage,
-        }
-    return {
-        "stages": stage_records, "selected_stage": selected_stage,
-        "selected": stage_records[selected_stage],
-        "accumulated_evidence_improved": accumulated_improved,
-        "validation_mi_scale_p90": mi_scale,
-    }, trial_groups
+def pareto_frontier(trials):
+    trials = _deduplicate_trials(trials)
+    frontier = []
+    for trial in trials:
+        dominated = False
+        for other in trials:
+            if other is trial:
+                continue
+            no_worse = (other["balanced_accuracy"] >= trial["balanced_accuracy"]
+                        and other["transition_window_accuracy"] >= trial["transition_window_accuracy"]
+                        and _finite(other["mean_transition_delay"], float("inf"))
+                        <= _finite(trial["mean_transition_delay"], float("inf"))
+                        and _finite(other["false_transition_rate"], float("inf"))
+                        <= _finite(trial["false_transition_rate"], float("inf")))
+            strictly = (other["balanced_accuracy"] > trial["balanced_accuracy"]
+                        or other["transition_window_accuracy"] > trial["transition_window_accuracy"]
+                        or _finite(other["mean_transition_delay"], float("inf"))
+                        < _finite(trial["mean_transition_delay"], float("inf"))
+                        or _finite(other["false_transition_rate"], float("inf"))
+                        < _finite(trial["false_transition_rate"], float("inf")))
+            if no_worse and strictly:
+                dominated = True
+                break
+        trial["on_pareto_frontier"] = not dominated
+        if not dominated:
+            frontier.append(trial)
+    return rank_score_v2(frontier)
+
+
+def uncertainty_error_auroc(mutual_information, incorrect):
+    scores = torch.as_tensor(mutual_information).float().flatten()
+    target = torch.as_tensor(incorrect).bool().flatten()
+    positives, negatives = int(target.sum()), int((~target).sum())
+    if positives == 0 or negatives == 0:
+        return float("nan")
+    order = scores.argsort()
+    sorted_scores = scores[order]
+    ranks = torch.arange(1, scores.numel() + 1, dtype=torch.float64)
+    start = 0
+    while start < scores.numel():
+        stop = start + 1
+        while stop < scores.numel() and sorted_scores[stop] == sorted_scores[start]:
+            stop += 1
+        ranks[start:stop] = ranks[start:stop].mean()
+        start = stop
+    inverse = torch.empty_like(order)
+    inverse[order] = torch.arange(order.numel())
+    positive_rank_sum = float(ranks[inverse][target].sum())
+    return (positive_rank_sum - positives * (positives + 1) / 2) / (positives * negatives)
 
 
 def search_uncertainty_aware_temporal(candidates, validation_labels, validation_ids,
                                       test_labels, test_ids, labels, output_dir):
-    """Stage 0-4 search with deterministic/MC branches retained independently."""
+    """Structured validation-only temporal search with frozen paper A-C lineages."""
     output_dir = Path(output_dir)
     truth_val, truth_test = list(validation_labels), list(test_labels)
-    ids_val = (torch.as_tensor(validation_ids).flatten().cpu().tolist()
-               if torch.is_tensor(validation_ids) else list(validation_ids))
-    ids_test = (torch.as_tensor(test_ids).flatten().cpu().tolist()
-                if torch.is_tensor(test_ids) else list(test_ids))
+    ids_val = torch.as_tensor(validation_ids).flatten().cpu().tolist() if torch.is_tensor(validation_ids) else list(validation_ids)
+    ids_test = torch.as_tensor(test_ids).flatten().cpu().tolist() if torch.is_tensor(test_ids) else list(test_ids)
+
     for candidate in candidates:
         q, pe, ee, mi = _uncertainty(candidate["validation_logits"], 1.0)
+        predicted_indices = q.argmax(1)
+        predicted = [labels[index] for index in predicted_indices.tolist()]
+        incorrect = torch.tensor([prediction != actual for prediction, actual in zip(predicted, truth_val)])
+        runtime = float(candidate["inference_runtime_seconds"]["ordered_validation"])
+        latency = runtime / max(len(truth_val), 1)
         candidate["validation_mi"] = mi
-        raw = [labels[i] for i in q.argmax(1).tolist()]
+        candidate["stage0_trial_id"] = f"{candidate['id']}:stage0"
         candidate["stage0_validation"] = {
-            **_candidate_metrics(truth_val, raw, labels, ids_val),
+            **_candidate_metrics(truth_val, predicted, labels, ids_val),
             **_probability_losses(q, truth_val, labels),
             "predictive_entropy_mean": float(pe.mean()), "expected_entropy_mean": float(ee.mean()),
             "mutual_information_mean": float(mi.mean()),
+            "uncertainty_error_auroc": (uncertainty_error_auroc(mi, incorrect)
+                                        if candidate["inference_mode"] == "mc" else float("nan")),
+            "inference_latency_seconds": latency,
+            "effective_hz": 1.0 / latency if latency > 0 else float("inf"),
         }
-    key = lambda c: (c["stage0_validation"]["balanced_accuracy"],
-                     -c["stage0_validation"]["nll"], -c["stage0_validation"]["brier"])
-    deterministic = max((c for c in candidates if c["inference_mode"] == "deterministic"), key=key)
-    mc_selected = sorted((c for c in candidates if c["inference_mode"] == "mc"), key=key, reverse=True)[:2]
-    selected = [deterministic, *mc_selected]
-    # Ordered test is populated only after every Stage-0 selection is frozen.
-    for candidate in candidates:
-        tq, tpe, tee, tmi = _uncertainty(candidate["test_logits"], 1.0)
-        candidate["stage0_ordered_test"] = {
-            **_candidate_metrics(truth_test, [labels[i] for i in tq.argmax(1).tolist()],
-                                 labels, ids_test),
-            **_probability_losses(tq, truth_test, labels),
-            "predictive_entropy_mean": float(tpe.mean()),
-            "expected_entropy_mean": float(tee.mean()),
-            "mutual_information_mean": float(tmi.mean()),
-        }
-    all_trials, per_config = {}, {}
+    deterministic = next(candidate for candidate in candidates if candidate["inference_mode"] == "deterministic")
+    mc_candidates = [candidate for candidate in candidates if candidate["inference_mode"] == "mc"]
+    mc_selected = sorted(mc_candidates, key=lambda c: (
+        -c["stage0_validation"]["balanced_accuracy"], c["stage0_validation"]["nll"],
+        c["stage0_validation"]["inference_latency_seconds"]))[0]
+    selected = [deterministic, mc_selected]
 
+    # Test is touched only after the Stage-0 K selection is frozen.
+    for candidate in candidates:
+        q, pe, ee, mi = _uncertainty(candidate["test_logits"], 1.0)
+        predicted = [labels[index] for index in q.argmax(1).tolist()]
+        incorrect = torch.tensor([prediction != actual for prediction, actual in zip(predicted, truth_test)])
+        runtime = float(candidate["inference_runtime_seconds"]["ordered_test"])
+        latency = runtime / max(len(truth_test), 1)
+        candidate["stage0_ordered_test"] = {
+            **_candidate_metrics(truth_test, predicted, labels, ids_test),
+            **_probability_losses(q, truth_test, labels),
+            "predictive_entropy_mean": float(pe.mean()), "expected_entropy_mean": float(ee.mean()),
+            "mutual_information_mean": float(mi.mean()),
+            "uncertainty_error_auroc": (uncertainty_error_auroc(mi, incorrect)
+                                        if candidate["inference_mode"] == "mc" else float("nan")),
+            "inference_latency_seconds": latency,
+            "effective_hz": 1.0 / latency if latency > 0 else float("inf"),
+        }
+
+    all_trials, per_config = {}, {}
     for candidate in selected:
-        cid, logits = candidate["id"], candidate["validation_logits"]
-        mi = candidate["validation_mi"] if candidate["inference_mode"] == "mc" else None
-        stage1 = []
-        for temperature in FILTER_TEMPERATURES:
-            for stay in FILTER_STAYS:
-                cfg = {"family": "fixed_bayes", "T_filter": temperature, "T_event": 1.0,
-                       "stable_stay": stay, "observation_mix": 0.0,
-                       "evidence_power": 1.0, "adaptive_evidence": False}
-                _, metrics = _evaluate_release_config(cfg, logits, truth_val, ids_val, labels, mi)
-                stage1.append({**cfg, **metrics})
-        stage1.sort(key=lambda x: x["selection_score"], reverse=True)
-        stage2 = []
-        for seed in stage1[:2]:
-            for release in RELEASE_STRENGTHS:
-                for margin in RELEASE_MARGINS:
-                    for patience in RELEASE_PATIENCES:
-                        cfg = {"family": "candidate_release", "T_filter": seed["T_filter"],
-                               "T_event": 1.0, "observation_mix": 0.0,
-                               "evidence_power": 1.0, "adaptive_evidence": False,
-                               "stable_stay": seed["stable_stay"], "release_strength": release,
-                               "switch_margin": margin, "change_patience": patience}
-                        _, metrics = _evaluate_release_config(cfg, logits, truth_val, ids_val, labels, mi)
-                        stage2.append({**cfg, **metrics})
-        stage2.sort(key=lambda x: x["selection_score"], reverse=True)
-        stage3 = []
-        if candidate["inference_mode"] == "mc":
-            for seed in stage2[:2]:
-                stage3.append(dict(seed, family="candidate_release_no_mi"))
-                for percentile in EPISTEMIC_PERCENTILES:
-                    threshold = float(torch.quantile(mi, percentile / 100.0))
-                    cfg = {k: seed[k] for k in ("T_filter", "T_event", "stable_stay",
-                        "observation_mix", "evidence_power", "adaptive_evidence",
-                        "release_strength", "switch_margin", "change_patience")}
-                    cfg.update(family="epistemic_gated_release", epistemic_percentile=percentile,
-                               epistemic_threshold=threshold)
-                    _, metrics = _evaluate_release_config(cfg, logits, truth_val, ids_val, labels, mi)
-                    stage3.append({**cfg, **metrics})
-            stage3.sort(key=lambda x: x["selection_score"], reverse=True)
-            stage4_seeds = [value for value in stage3
-                            if value["family"] == "epistemic_gated_release"][:2]
-        else:
-            stage4_seeds = stage2[:2]
-        stage4 = []
-        for seed in stage4_seeds:
-            for margin in AMBIGUITY_MARGINS:
-                for flatten in AMBIGUITY_FLATTEN:
-                    cfg = {k: seed[k] for k in ("T_filter", "T_event", "stable_stay",
-                        "observation_mix", "evidence_power", "adaptive_evidence",
-                        "release_strength", "switch_margin", "change_patience")}
-                    cfg.update(family="ambiguity_aware_release", ambiguity_margin=margin,
-                               flatten_strength=flatten)
-                    for name in ("epistemic_percentile", "epistemic_threshold"):
-                        if name in seed:
-                            cfg[name] = seed[name]
-                    _, metrics = _evaluate_release_config(cfg, logits, truth_val, ids_val, labels, mi)
-                    stage4.append({**cfg, **metrics})
-        stage4.sort(key=lambda x: x["selection_score"], reverse=True)
-        finalists = stage1[:2] + stage2[:2] + (stage3[:2] if stage3 else []) + stage4[:2]
-        for finalist in finalists:
-            finalist["cv"] = _sequence_cv(finalist, logits, truth_val, ids_val, labels, mi)
-        winner = max(finalists, key=lambda x: x["cv"]["mean_selection_score"])
+        cid, logits, test_logits = candidate["id"], candidate["validation_logits"], candidate["test_logits"]
+        is_mc = candidate["inference_mode"] == "mc"
+        mi = candidate["validation_mi"] if is_mc else None
+        test_mi = _uncertainty(test_logits, 1.0)[3] if is_mc else None
+        agreement = mc_candidate_agreement(F.softmax(torch.as_tensor(logits).float(), dim=-1)) if is_mc else None
+        test_agreement = mc_candidate_agreement(F.softmax(torch.as_tensor(test_logits).float(), dim=-1)) if is_mc else None
+        counter = 0
+
+        def make_trial(stage, family, config, parent=None, *, is_noop=False,
+                       noop_expected_exact=False):
+            nonlocal counter
+            counter += 1
+            if noop_expected_exact:
+                _, metrics, outputs = _evaluate_release_config(
+                    config, logits, truth_val, ids_val, labels, mi, agreement,
+                    return_outputs=True)
+            else:
+                _, metrics = _evaluate_release_config(
+                    config, logits, truth_val, ids_val, labels, mi, agreement)
+                outputs = None
+            record = {**config, **metrics, "stage": stage, "family": family,
+                      "trial_id": f"{cid}:{stage}:{counter:05d}",
+                      "parent_trial_id": None if parent is None else parent["trial_id"],
+                      "parent_stage": None if parent is None else parent["stage"],
+                      "lineage": family if parent is None else f"{parent['lineage']}>{family}",
+                      "on_stage_frontier": False, "on_pareto_frontier": False,
+                      "is_noop_baseline": bool(is_noop),
+                      "noop_expected_exact": bool(noop_expected_exact),
+                      **_search_boundary_metadata(stage, config)}
+            if is_noop:
+                if parent is None:
+                    raise ValueError("a no-op/reference trial requires a parent")
+                delta_names = ("score_v2", "balanced_accuracy", "transition_window_accuracy",
+                               "mean_transition_delay", "false_transition_rate")
+                record["metric_deltas_vs_parent"] = {
+                    name: float(record[name]) - float(parent[name])
+                    if math.isfinite(float(record[name])) and math.isfinite(float(parent[name]))
+                    else float("nan") for name in delta_names}
+                record["noop_verified"] = None
+                if noop_expected_exact:
+                    _, parent_metrics, parent_outputs = _evaluate_release_config(
+                        parent, logits, truth_val, ids_val, labels, mi, agreement,
+                        return_outputs=True)
+                    posterior_error = float((outputs["posterior"]
+                                             - parent_outputs["posterior"]).abs().max())
+                    predictions_match = outputs["predictions"] == parent_outputs["predictions"]
+                    metrics_match = all(
+                        (not math.isfinite(float(metrics[name]))
+                         and not math.isfinite(float(parent_metrics[name])))
+                        or math.isclose(float(metrics[name]), float(parent_metrics[name]),
+                                        rel_tol=1e-6, abs_tol=1e-7)
+                        for name in delta_names)
+                    record["noop_max_posterior_abs_error"] = posterior_error
+                    record["noop_verified"] = bool(
+                        predictions_match and metrics_match and posterior_error <= 1e-6)
+                    if not record["noop_verified"]:
+                        raise AssertionError(
+                            f"{record['trial_id']} failed exact no-op verification")
+            return record
+
+        def inherited(parent):
+            return _config_only(parent)
+
+        def unique_parents(values):
+            return _deduplicate_trials(values)
+
+        def best_by_cv(values):
+            ranked = rank_score_v2([
+                {**trial, "score_v2": trial["cv"]["mean_selection_score"]}
+                for trial in values])
+            trial_id = ranked[0]["trial_id"]
+            return next(trial for trial in values if trial["trial_id"] == trial_id)
+
+        trace_cache = {}
+
+        def assert_trace_metrics(path, expected):
+            recomputed = recompute_temporal_trace_metrics(path)
+            for name in ("score_v2", "balanced_accuracy", "transition_window_accuracy",
+                         "mean_transition_delay", "false_transition_rate"):
+                left, right = float(recomputed[name]), float(expected[name])
+                if math.isfinite(left) or math.isfinite(right):
+                    if not math.isclose(left, right, rel_tol=1e-6, abs_tol=1e-7):
+                        raise AssertionError(
+                            f"trace metric {name} changed for {path}: {left} != {right}")
+
+        def ensure_release_traces(trial):
+            if trial["trial_id"] in trace_cache:
+                return trace_cache[trial["trial_id"]]
+            safe_id = trial["trial_id"].replace(":", "_")
+            trace_root = output_dir / "temporal_traces" / cid / safe_id
+            paths = {
+                "validation": save_release_temporal_trace(
+                    trace_root / "ordered_validation.pt", trial, logits, truth_val,
+                    ids_val, labels, inference_mode=candidate["inference_mode"],
+                    mc_samples=candidate["mc_samples"], mutual_information=mi,
+                    diagnostic_agreement=agreement),
+                "ordered_test": save_release_temporal_trace(
+                    trace_root / "ordered_test.pt", trial, test_logits, truth_test,
+                    ids_test, labels, inference_mode=candidate["inference_mode"],
+                    mc_samples=candidate["mc_samples"], mutual_information=test_mi,
+                    diagnostic_agreement=test_agreement),
+            }
+            assert_trace_metrics(paths["validation"], trial)
+            trace_cache[trial["trial_id"]] = paths
+            return paths
+
+        def ensure_ema_traces(trial):
+            key = f"ema:{trial['trial_id']}"
+            if key in trace_cache:
+                return trace_cache[key]
+            safe_id = trial["trial_id"].replace(":", "_")
+            trace_root = output_dir / "temporal_traces" / cid / safe_id
+            paths = {
+                "validation": save_ema_temporal_trace(
+                    trace_root / "ordered_validation.pt", trial, logits, truth_val,
+                    ids_val, labels, inference_mode=candidate["inference_mode"],
+                    mc_samples=candidate["mc_samples"]),
+                "ordered_test": save_ema_temporal_trace(
+                    trace_root / "ordered_test.pt", trial, test_logits, truth_test,
+                    ids_test, labels, inference_mode=candidate["inference_mode"],
+                    mc_samples=candidate["mc_samples"]),
+            }
+            assert_trace_metrics(paths["validation"], trial)
+            trace_cache[key] = paths
+            return paths
+
+        def trial_record_metadata(trial):
+            keys = ("parent_trial_id", "parent_stage", "stage", "family", "lineage",
+                    "is_noop_baseline", "noop_expected_exact", "noop_verified",
+                    "noop_max_posterior_abs_error", "metric_deltas_vs_parent",
+                    "selected_at_lower_boundary", "selected_at_upper_boundary",
+                    "lower_boundary_parameters", "upper_boundary_parameters")
+            return {key: trial.get(key) for key in keys if key in trial}
+
+        def stage_payload(stage, trials, frontier, parent_baselines=None):
+            best = rank_score_v2(frontier)[0]
+            records = []
+            for index, trial in enumerate(frontier):
+                filt, test_metrics = _evaluate_release_config(
+                    trial, test_logits, truth_test, ids_test, labels, test_mi, test_agreement)
+                filt.reset()
+                path = output_dir / f"{cid}_{stage}_frontier_{index}.pt"
+                filt.save(path)
+                trace_paths = ensure_release_traces(trial)
+                assert_trace_metrics(trace_paths["ordered_test"], test_metrics)
+                records.append({"trial_id": trial["trial_id"], "parameters": _config_only(trial),
+                                "validation_metrics": _metrics_only(trial),
+                                "ordered_test_metrics": test_metrics, "filter_path": str(path),
+                                "trace_paths": trace_paths,
+                                **trial_record_metadata(trial)})
+            best_record = next(record for record in records if record["trial_id"] == best["trial_id"])
+            baseline_records = []
+            for index, trial in enumerate(parent_baselines or []):
+                filt, test_metrics = _evaluate_release_config(
+                    trial, test_logits, truth_test, ids_test, labels, test_mi, test_agreement)
+                filt.reset()
+                path = output_dir / f"{cid}_{stage}_parent_baseline_{index}.pt"
+                filt.save(path)
+                trace_paths = ensure_release_traces(trial)
+                assert_trace_metrics(trace_paths["ordered_test"], test_metrics)
+                baseline_records.append({
+                    "trial_id": trial["trial_id"], "parameters": _config_only(trial),
+                    "validation_metrics": _metrics_only(trial),
+                    "ordered_test_metrics": test_metrics, "filter_path": str(path),
+                    "trace_paths": trace_paths,
+                    **trial_record_metadata(trial)})
+            return {"best": best_record, "frontier": records,
+                    "parent_baselines": baseline_records,
+                    "pareto_frontier_trial_ids": [trial["trial_id"] for trial in pareto_frontier(trials)]}
+
+        instantaneous_trial = {
+            "trial_id": candidate["stage0_trial_id"], "parent_trial_id": None,
+            "parent_stage": None, "stage": "stage0_instantaneous",
+            "family": "instantaneous", "lineage": "instantaneous",
+            "ema_alpha": 1.0, "change_patience": 1,
+            **candidate["stage0_validation"],
+        }
+        candidate["stage0_trace_paths"] = ensure_ema_traces(instantaneous_trial)
+
+        stage1 = [make_trial("stage1_fixed_bayes", "fixed_bayes", {
+            "T_filter": temperature, "T_event": 1.0, "stable_stay": stay,
+            "observation_mix": 0.0, "evidence_power": 1.0, "adaptive_evidence": False,
+        }) for temperature in FILTER_TEMPERATURES for stay in FILTER_STAYS]
+        frontier1 = select_stage_frontier(stage1)
 
         ema = []
         for alpha in EMA_ALPHAS:
             for patience in EMA_PATIENCES:
-                cfg = {"family": "ema_logit_patience", "ema_alpha": alpha,
-                       "change_patience": patience}
-                _, metrics = _evaluate_ema_config(cfg, logits, truth_val, ids_val, labels)
-                trial = {**cfg, **metrics}
-                trial["cv"] = _sequence_cv_ema(trial, logits, truth_val, ids_val, labels)
-                ema.append(trial)
-        ema.sort(key=lambda x: x["cv"]["mean_selection_score"], reverse=True)
-        best_ema = ema[0]
+                config = {"family": "ema_logit_patience", "ema_alpha": alpha,
+                          "change_patience": patience}
+                _, metrics = _evaluate_ema_config(config, logits, truth_val, ids_val, labels)
+                counter += 1
+                ema.append({**config, **metrics, "stage": "ema", "family": "ema_logit_patience",
+                            "trial_id": f"{cid}:ema:{counter:05d}", "parent_trial_id": None,
+                            "parent_stage": None, "lineage": "ema_logit_patience",
+                            "on_stage_frontier": False, "on_pareto_frontier": False,
+                            "is_noop_baseline": False,
+                            **_search_boundary_metadata("ema", config)})
+        ema_finalists = select_stage_frontier(ema)
+        for trial in ema_finalists:
+            trial["cv"] = _sequence_cv_ema(trial, logits, truth_val, ids_val, labels)
+        best_ema = best_by_cv(ema_finalists)
 
-        test_logits = candidate["test_logits"]
-        test_mi = _uncertainty(test_logits, 1.0)[3] if candidate["inference_mode"] == "mc" else None
-        filt, test_metrics = _evaluate_release_config(winner, test_logits, truth_test, ids_test, labels, test_mi)
-        filt.reset()
-        filter_path = output_dir / f"{cid}_temporal_filter.pt"
-        filt.save(filter_path)
-        ema_filter, ema_test_metrics = _evaluate_ema_config(
-            best_ema, test_logits, truth_test, ids_test, labels)
+        stage2 = []
+        stage2_parent_baselines = [
+            make_trial("stage2_candidate_release", "fixed_bayes_parent", inherited(parent),
+                       parent, is_noop=True, noop_expected_exact=True)
+            for parent in frontier1]
+        for parent in frontier1:
+            for release in RELEASE_STRENGTHS:
+                for margin in RELEASE_MARGINS:
+                    for patience in RELEASE_PATIENCES:
+                        config = {**inherited(parent), "T_event": 1.0,
+                                  "release_strength": release, "switch_margin": margin,
+                                  "change_patience": patience}
+                        stage2.append(make_trial("stage2_candidate_release", "candidate_release", config, parent))
+        frontier2 = select_stage_frontier(stage2)
+        responsive2 = min(
+            [trial for trial in frontier2 if rank_score_v2(frontier2)[0]["score_v2"] - trial["score_v2"] <= 0.01],
+            key=lambda trial: _finite(trial["mean_transition_delay"], float("inf")))
+
+        stage3 = []
+        if is_mc:
+            for parent in frontier2:
+                for percentile in EPISTEMIC_PERCENTILES:
+                    config = {**inherited(parent), "epistemic_percentile": percentile,
+                              "epistemic_threshold": validation_mi_threshold(mi, percentile)}
+                    stage3.append(make_trial(
+                        "stage3_mi_release", "mi_gated_release", config, parent,
+                        is_noop=percentile == 100, noop_expected_exact=percentile == 100))
+        frontier3 = select_stage_frontier(stage3) if stage3 else []
+
+        stage4_parents = unique_parents(frontier2 + frontier3)
+        stage4 = []
+        for parent in stage4_parents:
+            for ambiguity_margin in AMBIGUITY_MARGINS:
+                for flatten_strength in AMBIGUITY_FLATTEN:
+                    config = {**inherited(parent), "ambiguity_margin": ambiguity_margin,
+                              "flatten_strength": flatten_strength}
+                    stage4.append(make_trial(
+                        "stage4_ambiguity", "ambiguity_aware_release", config, parent,
+                        is_noop=flatten_strength == 0.0, noop_expected_exact=False))
+        frontier4 = select_stage_frontier(stage4)
+
+        uncertainty = None
+        controlled = None
+        unrestricted_trials = []
+        if is_mc:
+            u0_frontier = unique_parents(frontier2 + frontier3 + frontier4)
+            adaptive = []
+            for parent in u0_frontier:
+                for beta_min in BETA_MIN_VALUES:
+                    for scale_percentile in MI_SCALE_PERCENTILES:
+                        config = {**inherited(parent), "beta_min": beta_min, "beta_max": 1.0,
+                                  "mi_scale_percentile": scale_percentile,
+                                  "mi_scale": validation_mi_threshold(mi, scale_percentile)}
+                        adaptive.append(make_trial(
+                            "u1_adaptive_beta", "adaptive_beta", config, parent,
+                            is_noop=beta_min == 1.0, noop_expected_exact=beta_min == 1.0))
+            adaptive_frontier = select_stage_frontier(adaptive)
+            accumulated_parents = unique_parents(
+                [responsive2] + ([rank_score_v2(frontier3)[0]] if frontier3 else [])
+                + [rank_score_v2(frontier4)[0]] + adaptive_frontier)
+            accumulated = []
+            accumulated_parent_baselines = [
+                make_trial("u2_accumulated_evidence", "patience_parent_baseline",
+                           inherited(parent), parent, is_noop=True,
+                           noop_expected_exact=True)
+                for parent in accumulated_parents]
+            for parent in accumulated_parents:
+                for decay in EVIDENCE_DECAYS:
+                    for threshold in EVIDENCE_THRESHOLDS:
+                        config = {**inherited(parent), "use_accumulated_evidence": True,
+                                  "discrete_patience_enabled": False,
+                                  "evidence_decay": decay, "evidence_threshold": threshold}
+                        accumulated.append(make_trial(
+                            "u2_accumulated_evidence", "accumulated_evidence", config, parent))
+            accumulated_frontier = select_stage_frontier(accumulated)
+            unrestricted_trials = u0_frontier + adaptive_frontier + accumulated_frontier
+            unrestricted_best = rank_score_v2(unrestricted_trials)[0]
+            unrestricted_near = [trial for trial in unrestricted_trials
+                                 if unrestricted_best["score_v2"] - trial["score_v2"] <= 0.01]
+            unrestricted_low_delay = min(
+                unrestricted_near, key=lambda trial: _finite(trial["mean_transition_delay"], float("inf")))
+
+            def controlled_record(name, trial, parent, searched):
+                filt, test_metrics = _evaluate_release_config(
+                    trial, test_logits, truth_test, ids_test, labels, test_mi, test_agreement)
+                filt.reset()
+                path = output_dir / f"{cid}_{name}_filter.pt"
+                filt.save(path)
+                trace_paths = ensure_release_traces(trial)
+                assert_trace_metrics(trace_paths["ordered_test"], test_metrics)
+                return {"trial_id": trial["trial_id"],
+                        "parent_id": None if parent is None else parent["trial_id"],
+                        "inherited_frozen_parameters": {} if parent is None else _config_only(parent),
+                        "newly_searched_parameters": searched,
+                        "parameters": _config_only(trial), "validation_metrics": _metrics_only(trial),
+                        "ordered_test_metrics": test_metrics,
+                        "delta_score_v2_vs_parent": None if parent is None else trial["score_v2"] - parent["score_v2"],
+                        "filter_path": str(path), "trace_paths": trace_paths,
+                        **trial_record_metadata(trial)}
+
+            c0_pool = frontier2 + [trial for trial in stage4 if "epistemic_threshold" not in trial]
+            c0 = rank_score_v2(c0_pool)[0]
+            c1_trials = [make_trial("controlled_C1", "controlled_mi", {
+                **inherited(c0), "epistemic_percentile": percentile,
+                "epistemic_threshold": validation_mi_threshold(mi, percentile)}, c0,
+                is_noop=percentile == 100, noop_expected_exact=percentile == 100)
+                for percentile in EPISTEMIC_PERCENTILES]
+            c1 = rank_score_v2(c1_trials)[0]
+            c2_parent = c1 if c1["score_v2"] > c0["score_v2"] else c0
+            c2_trials = [make_trial("controlled_C2", "controlled_adaptive_beta", {
+                **inherited(c2_parent), "beta_min": beta_min, "beta_max": 1.0,
+                "mi_scale_percentile": percentile,
+                "mi_scale": validation_mi_threshold(mi, percentile)}, c2_parent,
+                is_noop=beta_min == 1.0, noop_expected_exact=beta_min == 1.0)
+                for beta_min in BETA_MIN_VALUES for percentile in MI_SCALE_PERCENTILES]
+            c2 = rank_score_v2(c2_trials)[0]
+            c3_parent = c2 if c2["score_v2"] > c2_parent["score_v2"] else c2_parent
+            c3_trials = [make_trial("controlled_C3", "controlled_accumulated_evidence", {
+                **inherited(c3_parent), "use_accumulated_evidence": True,
+                "discrete_patience_enabled": False, "evidence_decay": decay,
+                "evidence_threshold": threshold}, c3_parent)
+                for decay in EVIDENCE_DECAYS for threshold in EVIDENCE_THRESHOLDS]
+            c3 = rank_score_v2(c3_trials)[0]
+            final_controlled = c3 if c3["score_v2"] > c3_parent["score_v2"] else c3_parent
+            controlled = {
+                "C0": controlled_record("C0", c0, None, []),
+                "C1_MI": controlled_record("C1", c1, c0, ["epistemic_percentile"]),
+                "C2_adaptive_beta": controlled_record(
+                    "C2", c2, c2_parent, ["beta_min", "mi_scale_percentile"]),
+                "C3_accumulated_evidence": controlled_record(
+                    "C3", c3, c3_parent, ["evidence_decay", "evidence_threshold"]),
+                "final_beneficial_stage": final_controlled["stage"],
+                "final_beneficial_trial_id": final_controlled["trial_id"],
+            }
+            accumulated_improved = (
+                rank_score_v2(accumulated_frontier)[0]["score_v2"]
+                > rank_score_v2(accumulated_parents)[0]["score_v2"])
+            accumulated_payload = stage_payload(
+                "accumulated_evidence", accumulated, accumulated_frontier,
+                accumulated_parent_baselines)
+            if accumulated_improved:
+                accumulated_payload["selected"] = accumulated_payload["best"]
+            else:
+                best_parent_id = rank_score_v2(accumulated_parents)[0]["trial_id"]
+                accumulated_payload["selected"] = next(
+                    record for record in accumulated_payload["parent_baselines"]
+                    if record["parent_trial_id"] == best_parent_id)
+            uncertainty = {
+                "u0_frontier_trial_ids": [trial["trial_id"] for trial in u0_frontier],
+                "adaptive_beta": stage_payload("adaptive_beta", adaptive, adaptive_frontier),
+                "accumulated_evidence": accumulated_payload,
+                "best_unrestricted_trial_id": unrestricted_best["trial_id"],
+                "best_low_delay_trial_id": unrestricted_low_delay["trial_id"],
+                "accumulated_evidence_improved": accumulated_improved,
+            }
+            extra_trials = {"u1_adaptive_beta": adaptive,
+                            "u2_accumulated_evidence": accumulated,
+                            "u2_parent_baselines": accumulated_parent_baselines,
+                            "controlled_C1": c1_trials, "controlled_C2": c2_trials,
+                            "controlled_C3": c3_trials}
+        else:
+            # Fixed Bayes remains eligible for deployment, but it never prunes
+            # the protected candidate-release ancestry used by Stage 4.
+            deterministic_finalists = unique_parents(frontier1 + frontier2 + frontier4)
+            unrestricted_trials = deterministic_finalists
+            unrestricted_best = rank_score_v2(deterministic_finalists)[0]
+            unrestricted_low_delay = min(
+                [trial for trial in deterministic_finalists
+                 if unrestricted_best["score_v2"] - trial["score_v2"] <= 0.01],
+                key=lambda trial: _finite(trial["mean_transition_delay"], float("inf")))
+            extra_trials = {}
+
+        stage_records = {
+            "stage1": stage_payload("fixed_bayes", stage1, frontier1),
+            "stage2": stage_payload(
+                "candidate_release", stage2, frontier2, stage2_parent_baselines),
+            "stage3": stage_payload("mi_gated_release", stage3, frontier3) if stage3 else None,
+            "stage4": stage_payload("ambiguity_aware", stage4, frontier4),
+        }
+        if stage_records["stage3"] is not None:
+            stage_records["stage3"]["preserved_no_mi_parent_trial_ids"] = [
+                trial["trial_id"] for trial in frontier2]
+        ema_frontier_records = []
+        for index, trial in enumerate(ema_finalists):
+            frontier_filter, frontier_test = _evaluate_ema_config(
+                trial, test_logits, truth_test, ids_test, labels)
+            frontier_filter.reset()
+            frontier_path = output_dir / f"{cid}_ema_frontier_{index}.pt"
+            frontier_filter.save(frontier_path)
+            trace_paths = ensure_ema_traces(trial)
+            assert_trace_metrics(trace_paths["ordered_test"], frontier_test)
+            ema_frontier_records.append({
+                "trial_id": trial["trial_id"], "parameters": _config_only(trial),
+                "validation_metrics": _metrics_only(trial),
+                "ordered_test_metrics": frontier_test, "filter_path": str(frontier_path),
+                "trace_paths": trace_paths,
+                **trial_record_metadata(trial)})
+        ema_filter, ema_test = _evaluate_ema_config(best_ema, test_logits, truth_test, ids_test, labels)
         ema_filter.reset()
-        ema_filter_path = output_dir / f"{cid}_ema_filter.pt"
-        ema_filter.save(ema_filter_path)
-        winner_record = {"parameters": _config_only(winner),
-                         "validation_metrics": _metrics_only(winner),
-                         "cv": winner["cv"], "ordered_test_metrics": test_metrics,
-                         "filter_path": str(filter_path)}
+        ema_path = output_dir / f"{cid}_ema_filter.pt"
+        ema_filter.save(ema_path)
         ema_record = {"parameters": _config_only(best_ema),
                       "validation_metrics": _metrics_only(best_ema),
-                      "cv": best_ema["cv"], "ordered_test_metrics": ema_test_metrics,
-                      "filter_path": str(ema_filter_path)}
-        uncertainty_search = None
-        selected_winner = winner_record
-        uncertainty_trials = {}
-        if candidate["inference_mode"] == "mc":
-            uncertainty_search, uncertainty_trials = _search_mc_uncertainty_stages(
-                winner, candidate, truth_val, ids_val, truth_test, ids_test,
-                labels, output_dir)
-            selected_winner = uncertainty_search["selected"]
-        per_config[cid] = {"candidate": _candidate_metadata(candidate),
-                           "stage1": _stage_summary(stage1, candidate, test_logits, truth_test, ids_test, labels, test_mi),
-                           "stage2": _stage_summary(stage2, candidate, test_logits, truth_test, ids_test, labels, test_mi),
-                           "stage3": _stage_summary(stage3, candidate, test_logits, truth_test, ids_test, labels, test_mi) if stage3 else None,
-                           "stage4": _stage_summary(stage4, candidate, test_logits, truth_test, ids_test, labels, test_mi),
-                           "winner": selected_winner, "best_bayes": winner_record,
-                           "uncertainty_search": uncertainty_search, "ema": ema_record}
-        all_trials[cid] = {"stage1": stage1, "stage2": stage2, "stage3": stage3,
-                           "stage4": stage4, **uncertainty_trials, "ema": ema}
+                      "ordered_test_metrics": ema_test, "filter_path": str(ema_path),
+                      "trace_paths": ensure_ema_traces(best_ema),
+                      "cv": best_ema["cv"], "frontier": ema_frontier_records,
+                      "best": {"trial_id": best_ema["trial_id"]},
+                      **trial_record_metadata(best_ema)}
+
+        # Rerank only the compact finalist set by whole-sequence CV. Ordered
+        # test remains untouched until this selection is frozen.
+        cv_finalists = select_stage_frontier(unrestricted_trials)
+        for trial in cv_finalists:
+            trial["cv"] = _sequence_cv(
+                trial, logits, truth_val, ids_val, labels, mi, agreement)
+        selected_trial = best_by_cv(cv_finalists)
+        selected_filter, selected_test = _evaluate_release_config(
+            selected_trial, test_logits, truth_test, ids_test, labels, test_mi, test_agreement)
+        selected_filter.reset()
+        selected_path = output_dir / f"{cid}_temporal_filter.pt"
+        selected_filter.save(selected_path)
+        low_filter, low_test = _evaluate_release_config(
+            unrestricted_low_delay, test_logits, truth_test, ids_test, labels, test_mi, test_agreement)
+        low_filter.reset()
+        low_path = output_dir / f"{cid}_low_delay_filter.pt"
+        low_filter.save(low_path)
+
+        def winner_record(trial, test_metrics, path):
+            trace_paths = ensure_release_traces(trial)
+            assert_trace_metrics(trace_paths["ordered_test"], test_metrics)
+            return {"trial_id": trial["trial_id"], "parameters": _config_only(trial),
+                    "validation_metrics": _metrics_only(trial),
+                    "cv": trial.get("cv", {"mean_selection_score": trial["score_v2"]}),
+                    "ordered_test_metrics": test_metrics, "filter_path": str(path),
+                    "trace_paths": trace_paths,
+                    **trial_record_metadata(trial)}
+
+        per_config[cid] = {
+            "candidate": _candidate_metadata(candidate), **stage_records,
+            "winner": winner_record(selected_trial, selected_test, selected_path),
+            "best_bayes": winner_record(selected_trial, selected_test, selected_path),
+            "best_low_delay": winner_record(unrestricted_low_delay, low_test, low_path),
+            "ema": ema_record, "uncertainty_search": uncertainty,
+            "controlled_C_chain": controlled,
+            "experiment_B": {"B0_instantaneous": {
+                                 "parameters": {"family": "instantaneous"},
+                                 "validation_metrics": candidate["stage0_validation"],
+                                 "ordered_test_metrics": candidate["stage0_ordered_test"],
+                                 "trace_paths": candidate["stage0_trace_paths"]},
+                             "B1_ema": ema_record, "B2_fixed_bayes": stage_records["stage1"]["best"],
+                             "B3_candidate_release": stage_records["stage2"]["best"],
+                             "supplementary_ambiguity": stage_records["stage4"]["best"]},
+        }
+        all_trials[cid] = {"stage1": stage1, "stage2": stage2,
+                           "stage2_parent_baselines": stage2_parent_baselines,
+                           "stage3": stage3,
+                           "stage4": stage4, **extra_trials, "ema": ema}
 
     det_result = per_config[deterministic["id"]]
-    mc_result = max((per_config[c["id"]] for c in mc_selected),
-                    key=lambda r: r["winner"]["cv"]["mean_selection_score"])
-    return {"stage0": {"deterministic_selected": deterministic["id"],
-                        "mc_selected": [c["id"] for c in mc_selected],
-                        "candidates": {c["id"]: _candidate_metadata(c) | {"validation_metrics": c["stage0_validation"]} for c in candidates}},
-            "configs": per_config, "best_deterministic": det_result,
-            "best_mc": mc_result}, all_trials
+    mc_result = per_config[mc_selected["id"]]
+    return {
+        "stage0": {"deterministic_selected": deterministic["id"],
+                   "mc_selected": mc_selected["id"],
+                   "candidates": {candidate["id"]: _candidate_metadata(candidate) | {
+                       "validation_metrics": candidate["stage0_validation"],
+                       "ordered_test_metrics": candidate["stage0_ordered_test"]}
+                       for candidate in candidates}},
+        "configs": per_config, "best_deterministic": det_result, "best_mc": mc_result,
+    }, all_trials
 
 
 def _uncertainty(logits, temperature):
@@ -1676,7 +2327,8 @@ def _probability_losses(q, truth, labels):
             "brier": float((q - targets).square().sum(1).mean())}
 
 
-_METRIC_NAMES = {"selection_score", "accuracy", "balanced_accuracy", "macro_f1",
+_METRIC_NAMES = {"selection_score", "score_v2", "legacy_selection_score",
+    "accuracy", "balanced_accuracy", "macro_f1",
     "mean_transition_delay", "false_transition_rate", "transition_window_accuracy",
     "steady_state_accuracy", "per_class_recall", "per_class_precision",
     "minimum_class_recall", "missing_predicted_classes", "confusion_matrix",
@@ -1692,12 +2344,21 @@ _METRIC_NAMES = {"selection_score", "accuracy", "balanced_accuracy", "macro_f1",
     "beta_inside_transition_window", "beta_outside_transition_window",
     "mean_accumulated_evidence", "evidence_true_switch_events",
     "evidence_false_switch_events", "evidence_frames_above_threshold",
-    "evidence_fraction_above_threshold"}
+    "evidence_fraction_above_threshold", "nll", "brier",
+    "predictive_entropy_mean", "expected_entropy_mean", "mutual_information_mean",
+    "uncertainty_error_auroc", "inference_latency_seconds", "effective_hz"}
 
 
 def _config_only(value):
     return {k: v for k, v in value.items()
-            if k not in _METRIC_NAMES and k not in {"cv", "selected", "stage_best"}}
+            if k not in _METRIC_NAMES and k not in {
+                "cv", "selected", "stage_best", "trial_id", "parent_trial_id",
+                "parent_stage", "lineage", "on_stage_frontier", "on_pareto_frontier",
+                "stage", "ordered_test_metrics", "filter_path", "trace_paths",
+                "is_noop_baseline", "noop_expected_exact", "noop_verified",
+                "noop_max_posterior_abs_error", "metric_deltas_vs_parent",
+                "selected_at_lower_boundary", "selected_at_upper_boundary",
+                "lower_boundary_parameters", "upper_boundary_parameters"}}
 
 
 def _metrics_only(value):

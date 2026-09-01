@@ -40,7 +40,8 @@ def discover_results(paths: Iterable[str | Path]) -> list[dict[str, Any]]:
 
 
 def _flatten_metrics(prefix: str, metrics: dict[str, Any]) -> dict[str, Any]:
-    scalar = ("accuracy", "balanced_accuracy", "macro_f1", "transition_window_accuracy",
+    scalar = ("selection_score", "score_v2", "legacy_selection_score",
+              "accuracy", "balanced_accuracy", "macro_f1", "transition_window_accuracy",
               "steady_state_accuracy", "mean_transition_delay", "false_transition_rate",
               "minimum_class_recall", "nll", "brier", "event_fraction", "event_precision",
               "expected_calibration_error",
@@ -56,7 +57,9 @@ def _flatten_metrics(prefix: str, metrics: dict[str, Any]) -> dict[str, Any]:
               "beta_inside_transition_window", "beta_outside_transition_window",
               "mean_accumulated_evidence", "evidence_true_switch_events",
               "evidence_false_switch_events", "evidence_frames_above_threshold",
-              "evidence_fraction_above_threshold")
+              "evidence_fraction_above_threshold", "uncertainty_error_auroc",
+              "inference_latency_seconds", "effective_hz", "predictive_entropy_mean",
+              "mutual_information_mean")
     row = {f"{prefix}_{key}": metrics.get(key) for key in scalar}
     for key in ("per_class_precision", "per_class_recall", "missing_predicted_classes", "confusion_matrix"):
         row[f"{prefix}_{key}"] = json.dumps(metrics.get(key))
@@ -73,8 +76,7 @@ def _deployment_row(run, mode):
             "mc_samples": value["mc_samples"], "model_path": value["model_path"],
             "temporal_filter_path": value["temporal_filter_path"],
             "temporal_family": value["selected_temporal_filter_family"],
-            "uncertainty_stage": value.get("uncertainty_search", {}).get("selected_stage")
-            if value.get("uncertainty_search") else None,
+            "uncertainty_stage": value.get("selected_temporal_filter_family"),
             "T_filter": value["T_filter"], "stable_stay": value["stable_stay"],
             "release_strength": value.get("release_strength"),
             "switch_margin": value.get("switch_margin"),
@@ -110,25 +112,48 @@ def _stage_rows(run):
             record = config.get(stage)
             if not record:
                 continue
-            rows.append({"architecture": run["architecture"], "config_id": config_id,
-                         "inference_mode": candidate["inference_mode"],
-                         "dropout_p": candidate["dropout_p"], "mc_samples": candidate["mc_samples"],
-                         "weight_decay": candidate["weight_decay"],
-                         "stage": stage, "parameters": json.dumps(record["parameters"], sort_keys=True),
-                         **_flatten_metrics("validation", record["validation_metrics"]),
-                         **_flatten_metrics("test", record["ordered_test_metrics"])})
-        uncertainty = config.get("uncertainty_search")
-        if uncertainty:
-            for stage, record in uncertainty["stages"].items():
+            records = record.get("frontier", [record])
+            best_id = record.get("best", {}).get("trial_id")
+            for value in records:
                 rows.append({"architecture": run["architecture"], "config_id": config_id,
                              "inference_mode": candidate["inference_mode"],
-                             "dropout_p": candidate["dropout_p"],
-                             "mc_samples": candidate["mc_samples"],
-                             "weight_decay": candidate["weight_decay"],
-                             "stage": stage, "selected": record["selected"],
-                             "parameters": json.dumps(record["parameters"], sort_keys=True),
-                             **_flatten_metrics("validation", record["validation_metrics"]),
-                             **_flatten_metrics("test", record["ordered_test_metrics"])})
+                             "dropout_p": candidate["dropout_p"], "mc_samples": candidate["mc_samples"],
+                             "weight_decay": candidate["weight_decay"], "stage": stage,
+                             "trial_id": value.get("trial_id"),
+                             "selected": value.get("trial_id") == best_id,
+                             "is_noop_baseline": value.get("is_noop_baseline", False),
+                             "noop_verified": value.get("noop_verified"),
+                             "selected_at_lower_boundary": value.get(
+                                 "selected_at_lower_boundary", False),
+                             "selected_at_upper_boundary": value.get(
+                                 "selected_at_upper_boundary", False),
+                             "parameters": json.dumps(value["parameters"], sort_keys=True),
+                             **_flatten_metrics("validation", value["validation_metrics"]),
+                             **_flatten_metrics("test", value["ordered_test_metrics"])})
+        uncertainty = config.get("uncertainty_search")
+        if uncertainty:
+            for stage in ("adaptive_beta", "accumulated_evidence"):
+                payload = uncertainty.get(stage)
+                if not payload:
+                    continue
+                best_id = payload["best"]["trial_id"]
+                for value in payload["frontier"]:
+                    rows.append({"architecture": run["architecture"], "config_id": config_id,
+                                 "inference_mode": candidate["inference_mode"],
+                                 "dropout_p": candidate["dropout_p"],
+                                 "mc_samples": candidate["mc_samples"],
+                                 "weight_decay": candidate["weight_decay"], "stage": stage,
+                                 "trial_id": value["trial_id"],
+                                 "selected": value["trial_id"] == best_id,
+                                 "is_noop_baseline": value.get("is_noop_baseline", False),
+                                 "noop_verified": value.get("noop_verified"),
+                                 "selected_at_lower_boundary": value.get(
+                                     "selected_at_lower_boundary", False),
+                                 "selected_at_upper_boundary": value.get(
+                                     "selected_at_upper_boundary", False),
+                                 "parameters": json.dumps(value["parameters"], sort_keys=True),
+                                 **_flatten_metrics("validation", value["validation_metrics"]),
+                                 **_flatten_metrics("test", value["ordered_test_metrics"])})
     return rows
 
 
@@ -140,6 +165,37 @@ def _write_csv(path, rows):
         writer = csv.DictWriter(stream, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def _write_json(path, value):
+    with Path(path).open("w", encoding="utf-8") as stream:
+        json.dump(value, stream, indent=2)
+
+
+def _frontier_rows(run, pareto=False):
+    rows = []
+    for candidate_id, stages in run["search"].get("all_trials", {}).items():
+        for stage, trials in stages.items():
+            for trial in trials:
+                flag = "on_pareto_frontier" if pareto else "on_stage_frontier"
+                if not trial.get(flag):
+                    continue
+                rows.append({"architecture": run["architecture"], "candidate_id": candidate_id,
+                             "stage": stage, "trial_id": trial.get("trial_id"),
+                             "parent_trial_id": trial.get("parent_trial_id"),
+                             "parent_stage": trial.get("parent_stage"),
+                             "lineage": trial.get("lineage"), "score_v2": trial.get("score_v2"),
+                             "is_noop_baseline": trial.get("is_noop_baseline", False),
+                             "noop_verified": trial.get("noop_verified"),
+                             "selected_at_lower_boundary": trial.get(
+                                 "selected_at_lower_boundary", False),
+                             "selected_at_upper_boundary": trial.get(
+                                 "selected_at_upper_boundary", False),
+                             "balanced_accuracy": trial.get("balanced_accuracy"),
+                             "transition_window_accuracy": trial.get("transition_window_accuracy"),
+                             "mean_transition_delay": trial.get("mean_transition_delay"),
+                             "false_transition_rate": trial.get("false_transition_rate")})
+    return rows
 
 
 def main():
@@ -177,6 +233,61 @@ def main():
         json.dump(payload, stream, indent=2)
     with args.output.with_name("suite_deployments.json").open("w", encoding="utf-8") as stream:
         json.dump(by_name, stream, indent=2)
+
+    output_dir = args.output.parent
+    stage_frontiers = [row for run in runs for row in _frontier_rows(run)]
+    pareto_frontiers = [row for run in runs for row in _frontier_rows(run, pareto=True)]
+    experiment_a = [row for run in runs for row in run.get("experiment_A_search_results", [])]
+    experiment_b, experiment_c = [], []
+    selected_a, selected_b, selected_c = {}, {}, {}
+    for run in runs:
+        architecture = run["architecture"]
+        selected_a[architecture] = {**run.get("experiment_A_selected_configs", {
+            "deterministic_candidate_id": run["search"]["stage0"]["deterministic_selected"],
+            "mc_candidate_id": run["search"]["stage0"]["mc_selected"],
+            "selection_split": "ordered_validation",
+        }), "run_directory": str(Path(run["result_file"]).parent)}
+        selected_b[architecture] = {
+            **run.get("experiment_B_selected_configs", {}),
+            "run_directory": str(Path(run["result_file"]).parent)}
+        selected_c[architecture] = {
+            **run.get("experiment_C_selected_configs", {}),
+            "run_directory": str(Path(run["result_file"]).parent)}
+        b_configurations = run.get("experiment_B_selected_configs", {}).get(
+            "configurations", run.get("experiment_B_selected_configs", {}))
+        for mode, methods in b_configurations.items():
+            if not isinstance(methods, dict):
+                continue
+            for method, record in methods.items():
+                metrics = record.get("validation_metrics", {})
+                experiment_b.append({"architecture": architecture, "inference_mode": mode,
+                                     "method": method, **_flatten_metrics("validation", metrics)})
+        chain = run.get("experiment_C_selected_configs", {}).get("controlled_C_chain", {})
+        for stage, record in chain.items():
+            if not isinstance(record, dict) or "validation_metrics" not in record:
+                continue
+            experiment_c.append({"architecture": architecture, "stage": stage,
+                                 "parent_id": record.get("parent_id"),
+                                 **_flatten_metrics("validation", record["validation_metrics"])})
+
+    for name, rows in (("stage_frontiers", stage_frontiers),
+                       ("pareto_frontiers", pareto_frontiers),
+                       ("experiment_A_search_results", experiment_a),
+                       ("experiment_B_search_results", experiment_b),
+                       ("experiment_C_search_results", experiment_c)):
+        _write_csv(output_dir / f"{name}.csv", rows)
+        _write_json(output_dir / f"{name}.json", rows)
+    _write_json(output_dir / "experiment_A_selected_configs.json", selected_a)
+    _write_json(output_dir / "experiment_B_selected_configs.json", selected_b)
+    _write_json(output_dir / "experiment_C_selected_configs.json", selected_c)
+
+    best_overall = max(winners, key=lambda row: row.get("validation_score_v2", -float("inf")))
+    near = [row for row in winners
+            if best_overall.get("validation_score_v2", -float("inf"))
+            - row.get("validation_score_v2", -float("inf")) <= 0.01]
+    best_low_delay = min(near, key=lambda row: row.get("validation_mean_transition_delay", float("inf")))
+    _write_json(output_dir / "best_overall_pipeline.json", best_overall)
+    _write_json(output_dir / "best_low_delay_pipeline.json", best_low_delay)
 
 
 if __name__ == "__main__":

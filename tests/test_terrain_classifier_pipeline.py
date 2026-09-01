@@ -10,8 +10,11 @@ from legged_gym.scripts.depth_data_pipeline.compare_terrain_classifier_results i
 from legged_gym.scripts.depth_data_pipeline.util_func import collect_neural_logits_batched
 from legged_gym.scripts.depth_data_pipeline.sequential_terrain_filter_extensions import (
     CandidateReleaseBayesianTerrainFilter, accumulate_transition_evidence,
+    FILTER_STAYS, load_temporal_trace, recompute_temporal_trace_metrics,
     mc_candidate_agreement, run_candidate_release_sequences,
-    uncertainty_adaptive_beta, validation_mi_threshold,
+    save_release_temporal_trace, select_stage_frontier,
+    uncertainty_adaptive_beta, uncertainty_error_auroc,
+    validation_mi_threshold,
 )
 from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
     FeatureStandardizer, NeuralClassifierAdapter, RBFSVM, fit_nn,
@@ -118,11 +121,11 @@ def test_accumulated_evidence_candidate_changes_and_reset(tmp_path):
 
     filt = CandidateReleaseBayesianTerrainFilter(
         [0, 1], {0: 0.5, 1: 0.5}, torch.eye(2), release_strength=0.8,
-        change_patience=99, epistemic_threshold=1.0, agreement_threshold=0.5,
+        change_patience=99, epistemic_threshold=1.0,
         mi_scale=1.0, use_accumulated_evidence=True, evidence_decay=0.5,
         evidence_threshold=0.1)
     filt.update(torch.tensor([0.2, 0.8]), event_probabilities=torch.tensor([0.2, 0.8]),
-                mutual_information=0.0, candidate_agreement=1.0)
+                mutual_information=0.0)
     assert filt.last_event  # U3 triggers without applying discrete patience.
     filt.reset()
     assert filt.accumulated_evidence == 0.0 and filt.evidence_candidate_index is None
@@ -142,6 +145,95 @@ def test_adaptive_beta_one_matches_unattenuated_observation():
     baseline.update(probability, mutual_information=0.2)
     adaptive_endpoint.update(probability, mutual_information=0.2)
     assert torch.allclose(baseline.belief, adaptive_endpoint.belief)
+
+
+def test_uncertainty_error_auroc_and_structured_frontier():
+    assert uncertainty_error_auroc(
+        torch.tensor([0.1, 0.2, 0.8, 0.9]),
+        torch.tensor([False, False, True, True])) == 1.0
+    trials = []
+    for index, (score, delay, transition, false_rate) in enumerate((
+        (0.80, 4.0, 0.70, 0.04), (0.795, 1.0, 0.68, 0.06),
+        (0.794, 3.0, 0.80, 0.05), (0.793, 2.0, 0.72, 0.01),
+    )):
+        trials.append({"trial_id": f"t{index}", "score_v2": score,
+                       "selection_score": score, "balanced_accuracy": 0.8,
+                       "transition_window_accuracy": transition,
+                       "mean_transition_delay": delay,
+                       "false_transition_rate": false_rate,
+                       "stable_stay": 0.9 + index * 0.01})
+    frontier = select_stage_frontier(trials)
+    assert {trial["trial_id"] for trial in frontier} == {"t0", "t1", "t2", "t3"}
+    assert all(trial["on_stage_frontier"] for trial in frontier)
+
+
+def test_ambiguity_preserves_patience_and_decays_evidence():
+    common = dict(labels=[0, 1, 2], prior={0: 0.8, 1: 0.1, 2: 0.1},
+                  stable_transition_matrix=torch.eye(3), release_strength=0.2,
+                  switch_margin=0.05, ambiguity_margin=0.2, flatten_strength=0.0)
+    patience_filter = CandidateReleaseBayesianTerrainFilter(**common, change_patience=2)
+    patience_filter.update(torch.tensor([0.3, 0.6, 0.1]),
+                           event_probabilities=torch.tensor([0.3, 0.6, 0.1]))
+    pending = patience_filter.pending_target_index
+    count = patience_filter.pending_count
+    patience_filter.update(torch.tensor([0.45, 0.50, 0.05]),
+                           event_probabilities=torch.tensor([0.45, 0.50, 0.05]))
+    assert patience_filter.pending_target_index == pending
+    assert patience_filter.pending_count == count
+
+    evidence_filter = CandidateReleaseBayesianTerrainFilter(
+        **common, mi_scale=1.0, use_accumulated_evidence=True,
+        evidence_decay=0.5, evidence_threshold=2.0)
+    evidence_filter.update(torch.tensor([0.3, 0.6, 0.1]),
+                           event_probabilities=torch.tensor([0.3, 0.6, 0.1]))
+    evidence = evidence_filter.accumulated_evidence
+    evidence_filter.update(torch.tensor([0.45, 0.50, 0.05]),
+                           event_probabilities=torch.tensor([0.45, 0.50, 0.05]))
+    assert evidence_filter.accumulated_evidence == evidence * 0.5
+
+    uncertain_filter = CandidateReleaseBayesianTerrainFilter(
+        **{**common, "ambiguity_margin": 0.01},
+        epistemic_threshold=0.05, mi_scale=1.0,
+        use_accumulated_evidence=True, evidence_decay=0.5,
+        evidence_threshold=2.0)
+    uncertain_filter.update(torch.tensor([0.40, 0.55, 0.05]),
+                            event_probabilities=torch.tensor([0.40, 0.55, 0.05]),
+                            mutual_information=0.0)
+    evidence = uncertain_filter.accumulated_evidence
+    uncertain_filter.update(torch.tensor([0.40, 0.55, 0.05]),
+                            event_probabilities=torch.tensor([0.40, 0.55, 0.05]),
+                            mutual_information=0.1)
+    assert uncertain_filter.accumulated_evidence == evidence * 0.5
+
+
+def test_compact_temporal_trace_round_trip_and_offline_metrics(tmp_path):
+    assert 0.997 in FILTER_STAYS
+    labels = [0, 1]
+    truth = [0, 0, 1, 1, 1, 0]
+    sequence_ids = [0, 0, 0, 0, 1, 1]
+    logits = torch.tensor([
+        [2.0, -1.0], [1.5, -0.5], [-0.5, 1.5], [-1.0, 2.0],
+        [-1.0, 2.0], [2.0, -1.0],
+    ])
+    trial = {
+        "trial_id": "trace-test", "parent_trial_id": None,
+        "stage": "stage1_fixed_bayes", "family": "fixed_bayes",
+        "lineage": "fixed_bayes", "T_filter": 1.0,
+        "stable_stay": 0.997,
+    }
+    path = tmp_path / "trace.pt"
+    save_release_temporal_trace(
+        path, trial, logits, truth, sequence_ids, labels,
+        inference_mode="deterministic", mc_samples=1)
+    trace = load_temporal_trace(path)
+    assert len(trace["sequence_id"]) == len(truth)
+    assert trace["true_transition_mask"].tolist() == [False, False, True, False, False, True]
+    assert trace["sequence_frame_index"].tolist() == [0, 1, 2, 3, 0, 1]
+    assert torch.allclose(trace["filtered_posterior"].sum(1), torch.ones(len(truth)))
+    assert torch.isnan(trace["mutual_information"]).all()
+    assert torch.isnan(trace["predictive_entropy"]).all()
+    metrics = recompute_temporal_trace_metrics(path, transition_window_radius=2)
+    assert "confusion_matrix" in metrics and "mean_transition_delay" in metrics
 
 
 def test_svm_search_reuses_basis_selection(monkeypatch):

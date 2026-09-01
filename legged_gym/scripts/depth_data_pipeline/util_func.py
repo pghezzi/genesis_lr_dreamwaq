@@ -432,68 +432,71 @@ def train_uncertainty_aware_nn_suite(
     validation_sequence_ids: Sequence[Any], test_sequence_ids: Sequence[Any],
     output: Path, device: str, train_batch: int, validation_batch: int,
 ) -> dict[str, Any]:
-    """Search dropout/weight decay with early stopping, cache MC50 logits, and tune filters."""
+    """Train the frozen paper configurations, cache exact-K logits, and tune filters."""
     from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
         NeuralClassifierAdapter,
     )
-    dropout_values = (0.0, 0.10, 0.15, 0.20)
-    weight_decay_values = (1e-6, 1e-5, 1e-4, 1e-3)
     mc_values = (10, 25, 50)
     candidates, histories, model_records = [], {}, {}
     models_dir = output / "models"
     models_dir.mkdir(parents=True, exist_ok=True)
-    for dropout_p in dropout_values:
-        for weight_decay in weight_decay_values:
-            tag = (f"dropout_{str(dropout_p).replace('.', 'p')}_"
-                   f"wd_{weight_decay:.0e}".replace("-", "m"))
-            model = model_factory(dropout_p)
-            classifier = NeuralClassifierAdapter(model, class_ids, fit_callback=fit_nn, device=device)
-            classifier.require_feature = architecture == "feature_nn"
-            started = time.perf_counter()
-            classifier.fit(
-                train_inputs, train_labels, val=(validation_inputs, validation_labels),
-                epochs=50, batch_size=train_batch, validation_batch_size=validation_batch,
-                optimizer_kwargs={"weight_decay": weight_decay},
-                early_stopping_patience=10, restore_best_weights=True)
-            training_runtime = time.perf_counter() - started
-            model_dir = models_dir / tag
-            model_dir.mkdir(parents=True, exist_ok=True)
-            model_path, args_path = model_dir / "classifier.pt", model_dir / "nn_model_args.pt"
-            classifier.save(model_path)
-            torch.save(model.get_args(), args_path)
-            deterministic_logits, deterministic_runtimes = {}, {}
+    fixed_models = (
+        (("deterministic", 0.0, 1e-5), ("mc", 0.10, 1e-4))
+        if architecture == "feature_nn"
+        else (("deterministic_mc", 0.20, 1e-5),)
+    )
+
+    def collect_repeated(classifier, data, samples, mc):
+        collect_logits(classifier, data, samples, mc)  # warm-up
+        measured = [collect_logits(classifier, data, samples, mc) for _ in range(3)]
+        runtimes = sorted(float(value[1]) for value in measured)
+        return measured[-1][0], runtimes[len(runtimes) // 2]
+
+    for role, dropout_p, weight_decay in fixed_models:
+        tag = (f"dropout_{str(dropout_p).replace('.', 'p')}_"
+               f"wd_{weight_decay:.0e}".replace("-", "m"))
+        model = model_factory(dropout_p)
+        classifier = NeuralClassifierAdapter(model, class_ids, fit_callback=fit_nn, device=device)
+        classifier.require_feature = architecture == "feature_nn"
+        started = time.perf_counter()
+        classifier.fit(
+            train_inputs, train_labels, val=(validation_inputs, validation_labels),
+            epochs=50, batch_size=train_batch, validation_batch_size=validation_batch,
+            optimizer_kwargs={"weight_decay": weight_decay},
+            early_stopping_patience=10, restore_best_weights=True)
+        training_runtime = time.perf_counter() - started
+        model_dir = models_dir / tag
+        model_dir.mkdir(parents=True, exist_ok=True)
+        model_path, args_path = model_dir / "classifier.pt", model_dir / "nn_model_args.pt"
+        classifier.save(model_path)
+        torch.save(model.get_args(), args_path)
+        histories[tag] = classifier.training_history
+        model_records[tag] = {"model_path": model_path, "model_args_path": args_path,
+                              "role": role, "dropout_p": dropout_p,
+                              "weight_decay": weight_decay,
+                              "training_runtime_seconds": training_runtime}
+
+        if role in {"deterministic", "deterministic_mc"}:
+            logits, runtimes = {}, {}
             for split, data in split_data.items():
-                logits, runtime = collect_logits(classifier, data, 1, False)
-                deterministic_logits[split], deterministic_runtimes[split] = logits, runtime
-            det_id = f"{tag}_deterministic"
-            det_candidate = _nn_candidate_record(
-                det_id, architecture, dropout_p, "deterministic", 1, model_path, args_path,
-                deterministic_logits, deterministic_runtimes, classifier, split_data,
-                training_runtime, weight_decay, False, None,
-            )
-            candidates.append(det_candidate)
-            histories[tag] = classifier.training_history
-            model_records[tag] = {"model_path": model_path, "model_args_path": args_path,
-                                  "dropout_p": dropout_p, "weight_decay": weight_decay,
-                                  "training_runtime_seconds": training_runtime}
-            if dropout_p > 0:
-                cached_logits, cached_runtimes = {}, {}
+                logits[split], runtimes[split] = collect_repeated(classifier, data, 1, False)
+            candidates.append(_nn_candidate_record(
+                f"{tag}_deterministic", architecture, dropout_p, "deterministic", 1,
+                model_path, args_path, logits, runtimes, classifier, split_data,
+                training_runtime, weight_decay, False, None))
+        if role in {"mc", "deterministic_mc"}:
+            for samples in mc_values:
+                logits, runtimes = {}, {}
                 for split, data in split_data.items():
-                    logits, runtime = collect_logits(classifier, data, 50, True)
-                    cached_logits[split], cached_runtimes[split] = logits, runtime
-                for samples in mc_values:
-                    cid = f"{tag}_mc{samples}"
-                    runtimes = {name: value * samples / 50.0
-                                for name, value in cached_runtimes.items()}
-                    candidates.append(_nn_candidate_record(
-                        cid, architecture, dropout_p, "mc", samples, model_path, args_path,
-                        {name: value[:samples] for name, value in cached_logits.items()},
-                        runtimes, classifier, split_data, training_runtime, weight_decay,
-                        True, cached_runtimes,
-                    ))
-            classifier.to("cpu")
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+                    logits[split], runtimes[split] = collect_repeated(
+                        classifier, data, samples, True)
+                candidates.append(_nn_candidate_record(
+                    f"{tag}_mc{samples}", architecture, dropout_p, "mc", samples,
+                    model_path, args_path, logits, runtimes, classifier, split_data,
+                    training_runtime, weight_decay, False, None))
+        classifier.to("cpu")
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     search, trials = search_uncertainty_aware_temporal(
         candidates, classifier._normalize_labels(split_data["ordered_validation"]["labels"]),
@@ -502,8 +505,76 @@ def train_uncertainty_aware_nn_suite(
     )
     torch.save(trials, output / "uncertainty_temporal_search.pt")
     search["all_trials"] = trials
+
+    def write_table(name, rows):
+        save_results(output / f"{name}.json", rows)
+        if rows:
+            fields = list(dict.fromkeys(key for row in rows for key in row))
+            with (output / f"{name}.csv").open("w", newline="", encoding="utf-8") as stream:
+                writer = csv.DictWriter(stream, fieldnames=fields)
+                writer.writeheader()
+                writer.writerows([{key: json.dumps(json_safe(value)) if isinstance(value, (dict, list))
+                                   else value for key, value in row.items()} for row in rows])
+
+    experiment_a_rows = []
+    for candidate_id, record in search["stage0"]["candidates"].items():
+        validation_metrics = record["validation_metrics"]
+        test_metrics = record["ordered_test_metrics"]
+        experiment_a_rows.append({
+            "architecture": architecture, "candidate_id": candidate_id,
+            "inference_mode": record["inference_mode"], "K": record["mc_samples"],
+            "selected_for_temporal_search": candidate_id in {
+                search["stage0"]["deterministic_selected"], search["stage0"]["mc_selected"]},
+            "validation_balanced_accuracy": validation_metrics["balanced_accuracy"],
+            "validation_nll": validation_metrics["nll"],
+            "validation_uncertainty_error_auroc": validation_metrics["uncertainty_error_auroc"],
+            "validation_latency_seconds": validation_metrics["inference_latency_seconds"],
+            "validation_effective_hz": validation_metrics["effective_hz"],
+            "ordered_test_balanced_accuracy": test_metrics["balanced_accuracy"],
+            "ordered_test_nll": test_metrics["nll"],
+            "ordered_test_uncertainty_error_auroc": test_metrics["uncertainty_error_auroc"],
+            "ordered_test_latency_seconds": test_metrics["inference_latency_seconds"],
+            "ordered_test_effective_hz": test_metrics["effective_hz"],
+        })
+    write_table("experiment_A_search_results", experiment_a_rows)
+    write_table("experiment_A", experiment_a_rows)
+    save_results(output / "experiment_A_search_selection.json", {
+        "architecture": architecture,
+        "deterministic_candidate_id": search["stage0"]["deterministic_selected"],
+        "mc_candidate_id": search["stage0"]["mc_selected"],
+        "selection_order": ["balanced_accuracy", "lower_nll", "lower_latency"],
+        "selection_split": "ordered_validation",
+    })
+
+    frontier_rows, pareto_rows = [], []
+    for candidate_id, stages in trials.items():
+        for stage, values in stages.items():
+            for value in values:
+                row = {"architecture": architecture, "candidate_id": candidate_id,
+                       "stage": stage, "trial_id": value.get("trial_id"),
+                       "parent_trial_id": value.get("parent_trial_id"),
+                       "parent_stage": value.get("parent_stage"),
+                       "lineage": value.get("lineage"), "score_v2": value.get("score_v2"),
+                       "is_noop_baseline": value.get("is_noop_baseline", False),
+                       "selected_at_lower_boundary": value.get("selected_at_lower_boundary", False),
+                       "selected_at_upper_boundary": value.get("selected_at_upper_boundary", False),
+                       "balanced_accuracy": value.get("balanced_accuracy"),
+                       "transition_window_accuracy": value.get("transition_window_accuracy"),
+                       "mean_transition_delay": value.get("mean_transition_delay"),
+                       "false_transition_rate": value.get("false_transition_rate"),
+                       "parameters": _trial_parameters(value)}
+                if value.get("on_stage_frontier"):
+                    frontier_rows.append(row)
+                if value.get("on_pareto_frontier"):
+                    pareto_rows.append(row)
+    write_table("stage_frontiers", frontier_rows)
+    write_table("pareto_frontiers", pareto_rows)
     trial_rows = [{"candidate_id": candidate_id, "stage": "stage0",
         "family": metadata["inference_mode"],
+        "trial_id": metadata.get("stage0_trial_id"), "parent_trial_id": None,
+        "parent_stage": None, "lineage": metadata["inference_mode"],
+        "score_v2": metadata["validation_metrics"].get("score_v2"),
+        "on_stage_frontier": False, "on_pareto_frontier": False,
         "stage_best": False, "selected": False,
         "selection_score": metadata["validation_metrics"].get("selection_score"),
         "balanced_accuracy": metadata["validation_metrics"].get("balanced_accuracy"),
@@ -521,7 +592,17 @@ def train_uncertainty_aware_nn_suite(
         for stage, values in stages.items():
             for value in values:
                 trial_rows.append({"candidate_id": candidate_id, "stage": stage,
-                    "family": value.get("family"), "selection_score": value.get("selection_score"),
+                    "family": value.get("family"), "trial_id": value.get("trial_id"),
+                    "parent_trial_id": value.get("parent_trial_id"),
+                    "parent_stage": value.get("parent_stage"), "lineage": value.get("lineage"),
+                    "score_v2": value.get("score_v2"),
+                    "on_stage_frontier": value.get("on_stage_frontier", False),
+                    "on_pareto_frontier": value.get("on_pareto_frontier", False),
+                    "is_noop_baseline": value.get("is_noop_baseline", False),
+                    "noop_verified": value.get("noop_verified"),
+                    "selected_at_lower_boundary": value.get("selected_at_lower_boundary", False),
+                    "selected_at_upper_boundary": value.get("selected_at_upper_boundary", False),
+                    "selection_score": value.get("selection_score"),
                     "stage_best": value.get("stage_best", False),
                     "selected": value.get("selected", False),
                     "balanced_accuracy": value.get("balanced_accuracy"),
@@ -536,25 +617,34 @@ def train_uncertainty_aware_nn_suite(
                         and not k.endswith("accuracy") and k not in {"selection_score", "macro_f1"}}), sort_keys=True)})
     if trial_rows:
         with (output / "search_trials.csv").open("w", newline="", encoding="utf-8") as stream:
-            writer = csv.DictWriter(stream, fieldnames=list(trial_rows[0]))
+            fields = list(dict.fromkeys(key for row in trial_rows for key in row))
+            writer = csv.DictWriter(stream, fieldnames=fields)
             writer.writeheader(); writer.writerows(trial_rows)
     deployments = {}
     for mode, key in (("deterministic", "best_deterministic"), ("mc", "best_mc")):
         winner = search[key]
         candidate = winner["candidate"]
         ema = winner["ema"]
+
+        def relative_record(record):
+            if isinstance(record, list):
+                return [relative_record(value) for value in record]
+            if not isinstance(record, dict):
+                return record
+            return {
+                key: ({split: _relative_artifact(path, output)
+                       for split, path in value.items()}
+                      if key == "trace_paths" and isinstance(value, dict)
+                      else _relative_artifact(value, output)
+                      if key.endswith("_path") and isinstance(value, (str, Path))
+                      else relative_record(value))
+                for key, value in record.items()}
+
         uncertainty_search = winner.get("uncertainty_search")
         if uncertainty_search is not None:
-            uncertainty_search = {
-                **uncertainty_search,
-                "stages": {
-                    stage: {**record,
-                            "filter_path": _relative_artifact(record["filter_path"], output)}
-                    for stage, record in uncertainty_search["stages"].items()
-                },
-            }
-            uncertainty_search["selected"] = uncertainty_search["stages"][
-                uncertainty_search["selected_stage"]]
+            uncertainty_search = {key: relative_record(value)
+                                  if isinstance(value, dict) else value
+                                  for key, value in uncertainty_search.items()}
         deployment = {
             "architecture": architecture,
             "model_path": _relative_artifact(candidate["model_path"], output),
@@ -563,7 +653,14 @@ def train_uncertainty_aware_nn_suite(
             "weight_decay": candidate["weight_decay"],
             "inference_mode": mode, "mc_samples": candidate["mc_samples"],
             "selected_temporal_filter_family": winner["winner"]["parameters"]["family"],
+            "selected_at_lower_boundary": winner["winner"].get(
+                "selected_at_lower_boundary", False),
+            "selected_at_upper_boundary": winner["winner"].get(
+                "selected_at_upper_boundary", False),
             "temporal_filter_path": _relative_artifact(winner["winner"]["filter_path"], output),
+            "temporal_trace_paths": {
+                split: _relative_artifact(path, output)
+                for split, path in winner["winner"].get("trace_paths", {}).items()},
             "structural_metrics": candidate["structural_metrics"],
             "sequential_instantaneous_validation": candidate["stage0_validation"],
             "sequential_instantaneous_test": candidate["stage0_ordered_test"],
@@ -576,15 +673,23 @@ def train_uncertainty_aware_nn_suite(
             "validation_metrics": winner["winner"]["validation_metrics"],
             "cv_metrics": winner["winner"]["cv"],
             "ordered_test_metrics": winner["winner"]["ordered_test_metrics"],
-            "best_bayes": {
-                **winner["best_bayes"],
-                "filter_path": _relative_artifact(winner["best_bayes"]["filter_path"], output),
-            },
-            "best_ema": {
-                **ema,
-                "filter_path": _relative_artifact(ema["filter_path"], output),
-            },
+            "best_bayes": relative_record(winner["best_bayes"]),
+            "best_ema": relative_record(ema),
+            "best_low_delay": relative_record(winner["best_low_delay"]),
+            "fixed_bayes_winner": relative_record(winner["stage1"]["best"]),
+            "candidate_release_winner": relative_record(winner["stage2"]["best"]),
+            "mi_gated_winner": relative_record(winner["stage3"]["best"])
+            if winner.get("stage3") else None,
+            "ambiguity_aware_winner": relative_record(winner["stage4"]["best"]),
+            "adaptive_beta_winner": relative_record(
+                uncertainty_search.get("adaptive_beta", {}).get("best"))
+            if uncertainty_search else None,
+            "accumulated_evidence_winner": relative_record(
+                uncertainty_search.get("accumulated_evidence", {}).get(
+                    "selected", uncertainty_search.get("accumulated_evidence", {}).get("best")))
+            if uncertainty_search else None,
             "uncertainty_search": uncertainty_search,
+            "controlled_C_chain": relative_record(winner.get("controlled_C_chain")),
         }
         if architecture == "feature_nn":
             deployment.update(extractor_path="extractor.pt", standardizer_path="standardizer.pt")
@@ -600,13 +705,83 @@ def train_uncertainty_aware_nn_suite(
         shutil.copyfile(output / deployment["temporal_filter_path"], output / f"bayes_filter{suffix}.pt")
         shutil.copyfile(output / deployment["best_ema"]["filter_path"],
                         output / f"ema_filter{suffix}.pt")
-    return {"schema_version": 2, "architecture": architecture,
-            "deterministic_baseline_dropout_p": 0.0,
-            "dropout_search": list(dropout_values[1:]), "mc_samples_search": list(mc_values),
-            "weight_decay_search": list(weight_decay_values),
+        if mode == "mc":
+            shutil.copyfile(output / deployment["best_low_delay"]["filter_path"],
+                            output / "bayes_filter_mc_low_delay.pt")
+
+    experiment_a_selected = {
+        "architecture": architecture, "selection_split": "ordered_validation",
+        "deterministic": {key: deployments["deterministic"].get(key) for key in (
+            "model_path", "model_args_path", "dropout_p", "weight_decay",
+            "inference_mode", "mc_samples", "extractor_path", "standardizer_path",
+            "robot_state_inputs") if key in deployments["deterministic"]},
+        "mc": {key: deployments["mc"].get(key) for key in (
+            "model_path", "model_args_path", "dropout_p", "weight_decay",
+            "inference_mode", "mc_samples", "extractor_path", "standardizer_path",
+            "robot_state_inputs") if key in deployments["mc"]},
+    }
+    save_results(output / "experiment_A_selected_configs.json", experiment_a_selected)
+
+    experiment_b = {mode: search[key]["experiment_B"]
+                    for mode, key in (("deterministic", "best_deterministic"),
+                                      ("mc", "best_mc"))}
+    experiment_b_payload = {
+        "architecture": architecture,
+        "selection_split": "ordered_validation",
+        "classifiers": {mode: {key: deployment.get(key) for key in (
+            "model_path", "model_args_path", "dropout_p", "weight_decay",
+            "inference_mode", "mc_samples", "extractor_path", "standardizer_path",
+            "robot_state_inputs") if key in deployment}
+            for mode, deployment in deployments.items()},
+        "configurations": relative_record(experiment_b),
+    }
+    save_results(output / "experiment_B_selected_configs.json", experiment_b_payload)
+    b_rows = []
+    for mode, values in experiment_b.items():
+        for method, record in values.items():
+            metrics = record["validation_metrics"]
+            b_rows.append({"architecture": architecture, "inference_mode": mode,
+                           "method": method, "balanced_accuracy": metrics.get("balanced_accuracy"),
+                           "transition_window_accuracy": metrics.get("transition_window_accuracy"),
+                           "mean_transition_delay": metrics.get("mean_transition_delay"),
+                           "false_transition_rate": metrics.get("false_transition_rate")})
+    write_table("experiment_B_search_results", b_rows)
+
+    mc_winner = search["best_mc"]
+    experiment_c = {
+        "architecture": architecture, "inference_mode": "mc",
+        "classifier": experiment_b_payload["classifiers"]["mc"],
+        "controlled_C_chain": relative_record(mc_winner["controlled_C_chain"]),
+        "best_unrestricted_uncertainty_pipeline": relative_record(mc_winner["winner"]),
+        "best_unrestricted_low_delay_pipeline": relative_record(mc_winner["best_low_delay"]),
+    }
+    save_results(output / "experiment_C_selected_configs.json", experiment_c)
+    c_rows = []
+    for stage, record in mc_winner["controlled_C_chain"].items():
+        if not isinstance(record, dict) or "validation_metrics" not in record:
+            continue
+        metrics = record["validation_metrics"]
+        c_rows.append({"architecture": architecture, "stage": stage,
+                       "parent_id": record["parent_id"], "score_v2": metrics["score_v2"],
+                       "balanced_accuracy": metrics["balanced_accuracy"],
+                       "transition_window_accuracy": metrics["transition_window_accuracy"],
+                       "mean_transition_delay": metrics["mean_transition_delay"],
+                       "false_transition_rate": metrics["false_transition_rate"]})
+    write_table("experiment_C_search_results", c_rows)
+
+    return {"schema_version": 3, "architecture": architecture,
+            "fixed_nn_configurations": [
+                {"role": role, "dropout_p": dropout, "weight_decay": decay}
+                for role, dropout, decay in fixed_models],
+            "dropout_search": [], "mc_samples_search": list(mc_values),
+            "weight_decay_search": [], "nn_hyperparameter_search": False,
             "max_epochs": 50, "early_stopping_patience": 10,
             "models": model_records, "training_history": histories,
-            "search": search, "deployments": deployments}
+            "search": search, "deployments": deployments,
+            "experiment_A_search_results": experiment_a_rows,
+            "experiment_A_selected_configs": experiment_a_selected,
+            "experiment_B_selected_configs": experiment_b_payload,
+            "experiment_C_selected_configs": experiment_c}
 
 
 def _relative_artifact(path, root):
@@ -615,6 +790,23 @@ def _relative_artifact(path, root):
         return str(path.relative_to(root))
     except ValueError:
         return str(path)
+
+
+def _trial_parameters(value):
+    excluded = {
+        "trial_id", "parent_trial_id", "parent_stage", "lineage", "stage", "family",
+        "on_stage_frontier", "on_pareto_frontier", "stage_best", "selected", "cv",
+        "is_noop_baseline", "noop_expected_exact", "noop_verified",
+        "noop_max_posterior_abs_error", "metric_deltas_vs_parent",
+        "selected_at_lower_boundary", "selected_at_upper_boundary",
+        "lower_boundary_parameters", "upper_boundary_parameters", "trace_paths",
+        "selection_score", "score_v2", "legacy_selection_score", "accuracy",
+        "balanced_accuracy", "macro_f1", "transition_window_accuracy",
+        "steady_state_accuracy", "mean_transition_delay", "false_transition_rate",
+        "per_class_recall", "per_class_precision", "minimum_class_recall",
+        "missing_predicted_classes", "confusion_matrix",
+    }
+    return json_safe({key: item for key, item in value.items() if key not in excluded})
 
 
 def _nn_candidate_record(cid, architecture, dropout_p, mode, samples, model_path,

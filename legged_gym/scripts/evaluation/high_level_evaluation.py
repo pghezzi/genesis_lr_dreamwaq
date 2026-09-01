@@ -206,17 +206,13 @@ class RuntimeClassifier:
         from legged_gym.scripts.depth_data_pipeline.util_func import (
             collect_neural_logits_batched, probabilities_and_uncertainty,
         )
-        from legged_gym.scripts.depth_data_pipeline.sequential_terrain_filter_extensions import (
-            mc_candidate_agreement,
-        )
         logits, _ = collect_neural_logits_batched(
             self.classifier, inputs, batch_size=inputs.shape[0],
             mc_samples=self.mc_samples, mc_dropout=self.inference_mode == "mc",
             cache_device=self.classifier.device)
         q_filter, _, _, _ = probabilities_and_uncertainty(logits, self.filter_temperature)
         q_event, _, _, mi = probabilities_and_uncertainty(logits, 1.0)
-        agreement = mc_candidate_agreement(torch.softmax(logits, dim=-1))
-        return q_filter.detach(), q_event.detach(), mi.detach(), agreement.detach()
+        return q_filter.detach(), q_event.detach(), mi.detach()
 
 
 def _classifier_artifacts(classifier_dir):
@@ -725,13 +721,11 @@ def run_eval(args):
                 sensor_depth = depth[valid_ids].detach()
                 euler = env.simulator._base_euler[valid_ids].detach()
                 angular_velocity = env.simulator.base_ang_vel[valid_ids].detach()
-                (filter_probabilities, event_probabilities, mutual_information,
-                 candidate_agreement) = runtime_classifier.predict(
+                filter_probabilities, event_probabilities, mutual_information = runtime_classifier.predict(
                     sensor_depth, euler, angular_velocity)
                 filter_probabilities = filter_probabilities.to(device)
                 event_probabilities = event_probabilities.to(device)
                 mutual_information = mutual_information.to(device)
-                candidate_agreement = candidate_agreement.to(device)
                 if filter_probabilities.shape[0] != valid_ids.numel():
                     raise RuntimeError("Classifier batch size does not match valid environment count")
                 for batch_index, env_id in enumerate(valid_ids.detach().cpu().tolist()):
@@ -741,8 +735,7 @@ def run_eval(args):
                     instant_label = canonicalize_label(instant_id)
                     bayes_step = filters[env_id].update(
                         filter_probabilities[batch_index], event_probabilities=probability,
-                        mutual_information=float(mutual_information[batch_index]),
-                        candidate_agreement=float(candidate_agreement[batch_index]))
+                        mutual_information=float(mutual_information[batch_index]))
                     bayes_label = canonicalize_label(bayes_step.label)
                     posterior = bayes_step.posterior
                     if args.selector_mode == "oracle":

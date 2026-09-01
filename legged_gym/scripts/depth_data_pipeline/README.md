@@ -82,25 +82,34 @@ parameters, metrics, and standardized `results.json`. The suite root contains
 `--skip-comparison` to omit automatic comparison or `--continue-on-error` to run
 remaining approaches after one fails.
 
-Each architecture searches dropout (`0.10/0.15/0.20`) and weight decay
-(`1e-6/1e-5/1e-4/1e-3`) while retaining the `dropout_p=0` baseline. Models train
-for at most 50 epochs with validation-loss early stopping and best-weight rollback,
-then cache batched MC10/25/50 logits and retain deterministic and MC branches separately.
+Training uses the frozen paper-search configurations (no NN hyperparameter search):
+feature deterministic `dropout_p=0, weight_decay=1e-5`, feature MC
+`dropout_p=0.10, weight_decay=1e-4`, and raw-depth deterministic/MC
+`dropout_p=0.20, weight_decay=1e-5`. Models train for at most 50 epochs with
+validation-loss early stopping and best-weight rollback, then independently cache
+and time batched MC10/25/50 logits. Deterministic and MC branches remain separate.
 The raw-depth network concatenates robot roll, pitch, and roll/pitch/yaw angular
 velocities with the flattened CNN representation before its hidden FC layers.
-The ordered-validation search covers fixed persistence, candidate-directed event
-release, MC epistemic gating, and ambiguity handling, followed by sequence-level
-CV reranking. For each retained classifier, an independent EMA-score + patience
+The ordered-validation search uses structured score/low-delay/transition/false-event
+frontiers across fixed persistence, candidate-directed release, MI gating, refined
+ambiguity handling, adaptive beta, and accumulated transition evidence. It also
+records Pareto frontiers and a frozen controlled C0-C3 ablation lineage. For each
+retained classifier, an independent EMA-score + patience
 baseline searches `ema_alpha=0.40/0.60/0.80/1.0` and `patience=1/2`. Results report
 the validation/CV-selected EMA baseline beside the best Bayes filter; ordered test
 data remains reporting-only. `deployment_deterministic.json` and
 `deployment_mc.json` contain everything required for automatic deployment.
 
-MC deployments additionally extend the selected candidate-release Bayes filter
-through U0-U3: the unchanged U0 baseline, U1 candidate agreement plus MI gating,
-U2 MI-adaptive observation strength, and U3 uncertainty-weighted accumulated
-transition evidence. Each stage retains its prior baseline, uses cached MC logits,
-and may replace the deployed filter only after improving validation selection score.
+MC deployments additionally compare the protected temporal baseline frontier with
+MI gating, MI-adaptive observation strength, and uncertainty-weighted accumulated
+transition evidence. Candidate agreement is diagnostic only and never gates a
+transition. Search/development Experiment A-C CSV/JSON files and self-contained
+selected configuration files are written for later no-search paper evaluation.
+Selected and stage-frontier configurations also write compact `.pt` per-frame
+traces under `temporal_traces/`. Use `load_temporal_trace()` and
+`recompute_temporal_trace_metrics()` from `sequential_terrain_filter_extensions`
+to change transition-window radii or build offline failure/uncertainty plots
+without rerunning neural inference or filter search.
 
 ## Comparing saved results
 
@@ -125,6 +134,9 @@ The command writes stage-level and selected-deployment comparisons:
 - `<output>_winners.csv`
 - `<output>_stages.csv`
 - `<output>.json`
+
+The comparison directory also includes `stage_frontiers`, `pareto_frontiers`,
+Experiment A-C search/selection files, and best-overall/low-delay deployment JSON.
 
 The suite also writes `suite_deployments.json` identifying the four learned
 deployments and the global validation/CV-selected deterministic, MC, and overall
