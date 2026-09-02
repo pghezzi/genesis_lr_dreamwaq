@@ -208,6 +208,10 @@ def get_args():
     parser.add_argument('--command_test_suite', action='store_true', default=False, help="run a simple commnad test suite")
     parser.add_argument('--explore', action='store_true', default=False, help="explore terrain")
 
+    parser.add_argument('--multitask', type=str, nargs='+', default=None, help="list of tasks to run/train on")
+
+    parser.add_argument('--seed',           type=int, default=42, help="random seed")
+
     args = configure_runtime_device(parser.parse_args())
 
     selected = [
@@ -299,7 +303,7 @@ def override_configs(env_cfg, args):
         },
         "pit": {
             "type": "terrain_utils.pit_terrain",
-            "depth": 0.4,
+            "depth": 0.15,
             "platform_size": 3.0,
         },
         "multiple_high_platforms" : {
@@ -432,47 +436,64 @@ def override_configs(env_cfg, args):
             #env_cfg.commands.ranges.heading = [0.0, 0.0]
             env_cfg.commands.ranges.heading = [-3.14, 3.14]
 
-            
-            terrain_types = [
-                {
-                    "type": "terrain_utils.random_uniform_terrain",
-                    "min_height": -0.05,
-                    "max_height": 0.05,
-                    "step": 0.005,
-                    "downsampled_scale": 0.2,
-                },
-                {
-                    "type": "terrain_utils.gap_terrain",
-                    "gap_size": 0.5,
-                    "platform_size": 3.0,
-                },
-                {
-                    "type": "terrain_utils.pyramid_stairs_terrain",
-                    "step_width": 0.4,
-                    "step_height": -0.25,
-                    "platform_size": 3.0,
-                },
-                {
-                    "type": "terrain_utils.pyramid_stairs_terrain",
-                    "step_width": 0.4,
-                    "step_height": 0.25,   # stairs up
-                    "platform_size": 3.0,
-                },
-                {
-                    "type": "terrain_utils.pit_terrain",
-                    "depth": 0.3,
-                    "platform_size": 3.0,
-                },
-            ]
-
             import random
-            seed = 42
-            rng = random.Random(seed)
+            rng = random.Random(args.seed)
+
+
+            def make_terrain():
+                terrain_type = rng.choice([
+                    "random_uniform",
+                    "gap",
+                    "stairs_down",
+                    "stairs_up",
+                    "pit",
+                ])
+
+                if terrain_type == "random_uniform":
+                    return {
+                        "type": "terrain_utils.random_uniform_terrain",
+                        "min_height": -0.05,
+                        "max_height": 0.05,
+                        "step": 0.005,
+                        "downsampled_scale": 0.2,
+                    }
+
+                if terrain_type == "gap":
+                    return {
+                        "type": "terrain_utils.gap_terrain",
+                        "gap_size": rng.uniform(0.2, 0.8),
+                        "platform_size": 3.0,
+                    }
+
+                if terrain_type == "stairs_down":
+                    return {
+                        "type": "terrain_utils.pyramid_stairs_terrain",
+                        "step_width": 0.4,
+                        "step_height": rng.uniform(-0.3, -0.1),
+                        "platform_size": 3.0,
+                    }
+
+                if terrain_type == "stairs_up":
+                    return {
+                        "type": "terrain_utils.pyramid_stairs_terrain",
+                        "step_width": 0.4,
+                        "step_height": rng.uniform(0.1, 0.3),
+                        "platform_size": 3.0,
+                    }
+
+                if terrain_type == "pit":
+                    return {
+                        "type": "terrain_utils.pit_terrain",
+                        "depth": rng.uniform(0.2, 0.5),
+                        "platform_size": 3.0,
+                    }
+
 
             env_cfg.terrain.terrain_map = [
-                rng.choice(terrain_types).copy()
+                make_terrain()
                 for _ in range(env_cfg.terrain.num_rows * env_cfg.terrain.num_cols)
             ]
+
         elif args.test_terrain:
             if args.save_depth_classifier_data:
                 env_cfg.zero_cmd_prob = 0.0
@@ -671,16 +692,17 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
 
     # logger = ExpLogger(train_cfg.runner.exp_data_path)
 
-    from legged_gym.scripts.evaluation.high_level_evaluation import create_classifier, auto_load_checkpoint_bayes_filter, RuntimeClassifier
-    import copy
-
-    def make_terrain_detector(ckpt_dir):
-        classifier = create_classifier(ckpt_dir, env.device)
-        bayes_template = auto_load_checkpoint_bayes_filter(ckpt_dir, env.device)
-        filters = [copy.deepcopy(bayes_template) for _ in range(env.num_envs)]
-        return classifier, filters
+   
 
     if args.terrain_detector:
+        from legged_gym.scripts.evaluation.high_level_evaluation import create_classifier, auto_load_checkpoint_bayes_filter, RuntimeClassifier
+        import copy
+
+        def make_terrain_detector(ckpt_dir):
+            classifier = create_classifier(ckpt_dir, env.device)
+            bayes_template = auto_load_checkpoint_bayes_filter(ckpt_dir, env.device)
+            filters = [copy.deepcopy(bayes_template) for _ in range(env.num_envs)]
+            return classifier, filters
         terrain_detector, bayes_filters = make_terrain_detector(args.terrain_detector)
 
     if "lora" in train_cfg.runner.experiment_name.lower():
@@ -929,7 +951,7 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
                     )
                     if args.save_depth_classifier_data:
                         terrain_name_log.append(labels)
-                    if args.jit:
+                    if args.jit or args.multitask:
                         policy.set_labels(labels)
         elif "waq" in task_name:
             actions = policy(obs_buf, obs_history)
@@ -1284,6 +1306,98 @@ class multi_jit:
     def swap(self, index):
         pass
 
+class multi_policy:
+    def __init__(self, policies, terrain_keys):
+        """
+        policies:
+            List of inference policies, e.g.
+                runner = runner_class(env, train_cfg_dict, "/", env.device)
+                runner.load(ckpt)
+                policies.append(runner.get_inference_policy(device=env.device))
+            Indexed the same way _get_policy_index() returns indices.
+
+        terrain_keys:
+            TERRAIN_KEYS, e.g.
+            {
+                0: "gap",
+                1: "stairs",
+                2: "pit",
+                ...
+            }
+        """
+        self.policies = policies
+        self.terrain_keys = terrain_keys
+        self.labels = None
+
+    def _get_policy_index(self, label):
+        terrain = self.terrain_keys[label]
+
+        if terrain == "random_uniform":
+            return 0
+        if terrain == "gap":
+            return 1
+        if "stairs" in terrain:
+            return 2
+        if terrain in ("pit", "center_platform"):
+            return 3
+
+        raise ValueError(f"Unknown terrain: {terrain}")
+
+    def __call__(self, obs_buf, obs_history, depth):
+        """
+        Run the appropriate policy for each environment.
+
+        Returns:
+            Same output shape as policy(obs_buf, obs_history, depth)
+        """
+        num_envs = obs_buf.shape[0]
+
+        # Get terrain labels from wherever you store them.
+        labels = self.labels
+
+        output = None
+
+        # Group environments by policy index
+        policy_envs = {}
+        for env_id in range(num_envs):
+            policy_idx = self._get_policy_index(labels[env_id])
+            policy_envs.setdefault(policy_idx, []).append(env_id)
+
+        # Run each policy only on the environments that need it
+        for policy_idx, env_ids in policy_envs.items():
+            env_ids = torch.tensor(
+                env_ids,
+                device=obs_buf.device,
+                dtype=torch.long,
+            )
+
+            # Select batch
+            obs = obs_buf[env_ids]
+            history = obs_history[env_ids]
+            d = depth[env_ids]
+
+            # Select policy — direct list indexing instead of .swap()
+            policy = self.policies[policy_idx]
+            actions = policy(obs, history, d)
+
+            # Allocate output after seeing first policy's output
+            if output is None:
+                output = torch.empty(
+                    (num_envs,) + actions.shape[1:],
+                    device=actions.device,
+                    dtype=actions.dtype,
+                )
+
+            output[env_ids] = actions
+
+        return output
+
+    def set_labels(self, labels):
+        self.labels = labels
+    
+    def swap(self, index):
+        pass
+
 def play(args):
     """Main function to run the play script
 
@@ -1312,17 +1426,19 @@ def play(args):
         policy1 = policy
         policy = multi_jit(torch.jit.load(args.jit,  map_location=args.gpu if not args.cpu else 'cpu'), TERRAIN_KEYS)
         policy.set_labels(torch.tensor([1]*env.num_envs))
-    elif args.multi_task:
+    elif args.multitask:
+        from rsl_rl.utils.runner_registry import runner_registry
         runner_class = runner_registry.get_runner_class(train_cfg.runner_class_name)
         train_cfg_dict = class_to_dict(train_cfg)
         policies = []
-        for ckpt in args.multi_ckpt:
+        for ckpt in args.multitask:
             runner = runner_class(env, train_cfg_dict, "/", env.device)
             runner.load(ckpt)
             policies.append(
                 runner.get_inference_policy(device=env.device)
             )
-            
+        policy = multi_policy(policies, TERRAIN_KEYS)
+        policy.set_labels(torch.tensor([1]*env.num_envs))  
     else:
         log_root = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name)
         path = get_load_path(log_root, load_run=train_cfg.runner.load_run, checkpoint=train_cfg.runner.checkpoint)
