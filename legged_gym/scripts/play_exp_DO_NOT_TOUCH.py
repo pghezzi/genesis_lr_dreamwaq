@@ -1105,7 +1105,7 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
             f"{'_filtered' if args.filter_depth_classifier_data else ''}"
             f"{'_test_terrain' if args.test_terrain else ''}"
             f"{'_curriculum' if args.curriculum else ''}"
-            f"{'_explore' if arg.explore else ''}"
+            f"{'_explore' if args.explore else ''}"
             f"{'_extreme' if args.extreme else ''}"
             f"_{env.cfg.env.num_envs}_capture_{timestamp}.pt"
         )
@@ -1312,6 +1312,17 @@ def play(args):
         policy1 = policy
         policy = multi_jit(torch.jit.load(args.jit,  map_location=args.gpu if not args.cpu else 'cpu'), TERRAIN_KEYS)
         policy.set_labels(torch.tensor([1]*env.num_envs))
+    elif args.multi_task:
+        runner_class = runner_registry.get_runner_class(train_cfg.runner_class_name)
+        train_cfg_dict = class_to_dict(train_cfg)
+        policies = []
+        for ckpt in args.multi_ckpt:
+            runner = runner_class(env, train_cfg_dict, "/", env.device)
+            runner.load(ckpt)
+            policies.append(
+                runner.get_inference_policy(device=env.device)
+            )
+            
     else:
         log_root = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name)
         path = get_load_path(log_root, load_run=train_cfg.runner.load_run, checkpoint=train_cfg.runner.checkpoint)

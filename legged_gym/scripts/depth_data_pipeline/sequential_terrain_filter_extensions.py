@@ -2296,16 +2296,19 @@ def search_uncertainty_aware_temporal(candidates, validation_labels, validation_
                            "stage4": stage4, **extra_trials, "ema": ema}
 
     det_result = per_config[deterministic["id"]]
-    mc_result = per_config[mc_selected["id"]]
+    mc_result = max((per_config[c["id"]] for c in mc_selected),
+                    key=lambda r: r["winner"]["cv"]["mean_selection_score"])
     return {
-        "stage0": {"deterministic_selected": deterministic["id"],
-                   "mc_selected": mc_selected["id"],
-                   "candidates": {candidate["id"]: _candidate_metadata(candidate) | {
-                       "validation_metrics": candidate["stage0_validation"],
-                       "ordered_test_metrics": candidate["stage0_ordered_test"]}
-                       for candidate in candidates}},
-        "configs": per_config, "best_deterministic": det_result, "best_mc": mc_result,
-    }, all_trials
+            "stage0": {"deterministic_selected": deterministic["id"],
+                        "mc_selected": [c["id"] for c in mc_selected],
+                        "candidates": {c["id"]: {
+                            **_candidate_metadata(c), 
+                            "validation_metrics": c["stage0_validation"]
+                        } for c in candidates}},
+            "configs": per_config, 
+            "best_deterministic": det_result,
+            "best_mc": mc_result
+        }, all_trials
 
 
 def _uncertainty(logits, temperature):
