@@ -319,6 +319,7 @@ def override_configs(env_cfg, args):
             "platform_size": 3.0,
         }
     }
+    env_cfg.seed = args.seed
     if args.num_envs:
         envs = args.num_envs
     else:
@@ -447,6 +448,7 @@ def override_configs(env_cfg, args):
                     "stairs_down",
                     "stairs_up",
                     "pit",
+                    "central"
                 ])
 
                 if terrain_type == "random_uniform":
@@ -485,6 +487,12 @@ def override_configs(env_cfg, args):
                     return {
                         "type": "terrain_utils.pit_terrain",
                         "depth": rng.uniform(0.2, 0.5),
+                        "platform_size": 3.0,
+                    }
+                if terrain_type == "central":
+                    return {
+                        "type": "terrain_utils.center_platform_terrain",
+                        "height": rng.uniform(0.2, 0.5),
                         "platform_size": 3.0,
                     }
 
@@ -821,6 +829,9 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
     commands[:, 1] = 0
     commands[:, 2] = 0
     commands[:, 3] = cho[torch.randint(0, cho.shape[0], (env.num_envs,))]
+    if args.save_depth_classifier_data:
+        print(f"Num of samples generated: {(10* 1000 * env.num_envs) / 5} (aprox)")
+    #(10* 1000 * 100) / 5 = 2000
     for i in range(int(10.00*env.max_episode_length)):
         if not args.headless and args.follow_robot:
             pos = env.simulator.base_pos[0].cpu().numpy() + np.array(env.cfg.viewer.pos)
@@ -1116,7 +1127,10 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
                 labels_tensor = reset_split(labels_tensor, reset_tensor)
         if labels_tensor is not None:
             labels_tensor = tensor_to_keys(labels_tensor)
-        save_dir = os.path.join(LEGGED_GYM_ROOT_DIR, 'depth_waq_selector', 'depth_data', train_cfg.runner.experiment_name)
+        if args.multitask:
+            save_dir = os.path.join(LEGGED_GYM_ROOT_DIR, 'depth_waq_selector', 'depth_data', 'multitask')
+        else:
+            save_dir = os.path.join(LEGGED_GYM_ROOT_DIR, 'depth_waq_selector', 'depth_data', train_cfg.runner.experiment_name)
         os.makedirs(save_dir, exist_ok=True)
 
         from datetime import datetime
@@ -1125,10 +1139,11 @@ def interaction_loop(train_cfg, env, policy, args, new="", policy1=None):
         save_name = (
             f"{train_cfg.runner.experiment_name}"
             f"{'_filtered' if args.filter_depth_classifier_data else ''}"
-            f"{'_test_terrain' if args.test_terrain else ''}"
+            f"{'_test_terrain_' + args.test_terrain + '_' if args.test_terrain else ''}"
             f"{'_curriculum' if args.curriculum else ''}"
             f"{'_explore' if args.explore else ''}"
             f"{'_extreme' if args.extreme else ''}"
+            f"_seed_{args.seed}"
             f"_{env.cfg.env.num_envs}_capture_{timestamp}.pt"
         )
 

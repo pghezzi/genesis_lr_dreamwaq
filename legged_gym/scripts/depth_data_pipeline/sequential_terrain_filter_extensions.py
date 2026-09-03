@@ -2296,8 +2296,7 @@ def search_uncertainty_aware_temporal(candidates, validation_labels, validation_
                            "stage4": stage4, **extra_trials, "ema": ema}
 
     det_result = per_config[deterministic["id"]]
-    mc_result = max((per_config[c["id"]] for c in mc_selected),
-                    key=lambda r: r["winner"]["cv"]["mean_selection_score"])
+    mc_result = per_config[mc_selected["id"]]
     return {
             "stage0": {"deterministic_selected": deterministic["id"],
                         "mc_selected": [c["id"] for c in mc_selected],

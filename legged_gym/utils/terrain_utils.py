@@ -1132,12 +1132,34 @@ def center_platform_terrain(terrain : SubTerrain,
         if not simplify_mesh:
             vertices, triangles = convert_heightfield_to_trimesh(
                 terrain.height_field_raw, terrain.horizontal_scale, terrain.vertical_scale)
-            terrain.terrain_mesh = trimesh.Trimesh(vertices=vertices, faces=triangles)
-            terrain.terrain_mesh.apply_translation(np.array([
+            terrain_mesh = trimesh.Trimesh(vertices=vertices, faces=triangles)
+            terrain_mesh.apply_translation(np.array([
                 terrain.horizontal_scale / 2.0,
                 terrain.horizontal_scale / 2.0,
                 0,
             ]))
+            border_meshes = make_border(
+                size=(terrain.length * terrain.horizontal_scale,
+                    terrain.width * terrain.horizontal_scale),
+                inner_size=((terrain.length - 2) * terrain.horizontal_scale,
+                            (terrain.width - 2) * terrain.horizontal_scale),
+                height=1.0,
+                position=(0.5 * terrain.length * terrain.horizontal_scale, 
+                        0.5 * terrain.width * terrain.horizontal_scale, 
+                        -0.5)
+            )
+            border_mesh = trimesh.util.concatenate(border_meshes)
+            selector = ~(np.asarray(border_mesh.triangles)[:, :, 2] < -0.1).any(1)
+            border_mesh.update_faces(selector)
+            # add a small offset to align the terrain mesh with the border
+            translation = np.array([
+                    terrain.horizontal_scale / 2.0,
+                    terrain.horizontal_scale / 2.0,
+                    0
+                ])
+            terrain.terrain_mesh.apply_translation(translation)
+            terrain.terrain_mesh = trimesh.util.concatenate([terrain_mesh, border_mesh])
+
         else:
             terrain.terrain_mesh = mesh_center_platform_terrain(
                 terrain,
