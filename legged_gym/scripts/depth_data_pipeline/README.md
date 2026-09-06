@@ -145,3 +145,20 @@ winners.
 Outputs include structural and ordered instantaneous metrics, uncertainty and
 calibration summaries, temporal validation/CV scores, ordered-test metrics, and
 the selected Bayes and EMA baseline parameters.
+
+## Frozen offline paper Experiments 1--2
+
+To train exactly three deterministic seeded copies of the fixed feature/raw-depth
+NNs and evaluate instantaneous, fixed EMA, and fixed persistent-Bayes results
+without running any search:
+
+```bash
+python -m legged_gym.scripts.depth_data_pipeline.evaluate_paper_offline_experiments_1_2 \
+  --dataset /path/to/leakage_safe_compiled_dataset \
+  --output paper_offline_eval
+```
+
+Use `--classifier-data` and `--ordered-data` for nonstandard structural/ordered
+folder layouts. The output contains per-seed and mean/std CSV/JSON metrics,
+checkpoints and preprocessing artifacts, a reproducibility manifest, and the
+initial Experiment 1--2 figures.

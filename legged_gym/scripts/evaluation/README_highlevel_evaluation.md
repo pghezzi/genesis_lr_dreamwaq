@@ -162,3 +162,24 @@ Optional sweep variables include `CLASSIFIER_APPROACH` and `TASK`.
 ## Evaluation randomization settings
 
 The script-level `EVAL_DOMAIN_RANDOMIZATION_RANGES` and `EVAL_DOMAIN_RANDOMIZATION_ENABLED` dictionaries match the low-level evaluator. Edit these hardcoded dictionaries to change the evaluation perturbation distribution. Disabled randomization names are stored in the result metadata.
+
+## Frozen paper locomotion sweep
+
+The final no-search evaluation loads the three seeded classifiers produced by
+`evaluate_paper_offline_experiments_1_2.py`, runs the six frozen routing/policy
+conditions over Easy/Nominal/Hard and evaluation seeds 101/202/303/404/505, and
+resumes completed conditions automatically:
+
+```bash
+SIMULATOR=genesis python -m \
+  legged_gym.scripts.evaluation.run_paper_locomotion_evaluation \
+  --paper_offline_dir /path/to/paper_offline_eval \
+  --jit /path/to/specialist_lora_bundle.pt \
+  --distilled_jit /path/to/exported_distilled_policy.pt \
+  --output paper_locomotion_eval --gpu cuda:0
+```
+
+Each condition retains the existing run JSON/episode CSV. The sweep root adds
+per-episode, per-run, summary, difficulty, and transition-pair CSVs; a LaTeX
+main-results table; PNG/PDF figures; and a manifest containing all resolved
+artifacts, terrain parameters, seeds, commands, and paired track layouts.

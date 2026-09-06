@@ -10,6 +10,7 @@ import csv
 import json
 import os
 import random
+import time
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -27,6 +28,24 @@ METHOD_TO_APPROACH = {
     "raw_depth_nn_deterministic": ("raw_depth_nn", "deterministic"),
     "feature_nn_mc": ("feature_nn", "mc"),
     "raw_depth_nn_mc": ("raw_depth_nn", "mc"),
+}
+PAPER_METHODS = (
+    "oracle", "feature_instantaneous", "feature_ema", "feature_bayes",
+    "raw_depth_bayes", "distilled",
+)
+PAPER_METHOD_SPECS = {
+    "feature_instantaneous": ("feature_nn", "instantaneous"),
+    "feature_ema": ("feature_nn", "ema"),
+    "feature_bayes": ("feature_nn", "bayes"),
+    "raw_depth_bayes": ("raw_depth_nn", "bayes"),
+}
+DIFFICULTY_LEVELS = {
+    "easy": {"normalized": 0.25, "pit_depth": 0.20,
+             "stair_magnitude": 0.10, "gap_width": 0.40},
+    "nominal": {"normalized": 0.50, "pit_depth": 0.35,
+                "stair_magnitude": 0.20, "gap_width": 0.60},
+    "hard": {"normalized": 0.75, "pit_depth": 0.50,
+             "stair_magnitude": 0.30, "gap_width": 0.80},
 }
 
 # Keep evaluation randomization identical to low_level_evaluation.py.
@@ -214,6 +233,23 @@ class RuntimeClassifier:
         q_event, _, _, mi = probabilities_and_uncertainty(logits, 1.0)
         return q_filter.detach(), q_event.detach(), mi.detach()
 
+    def predict_deterministic(self, depth, euler, angular_velocity, temperature=1.0):
+        """Return native-order logits/probabilities with one deterministic batch forward."""
+        if self.approach == "raw_depth_nn":
+            from legged_gym.scripts.depth_data_pipeline.util_func import pack_raw_depth_state_inputs
+            inputs = (pack_raw_depth_state_inputs(depth, euler, angular_velocity)
+                      if getattr(self.classifier.model, "robot_state_dim", 0)
+                      else depth.unsqueeze(1) if depth.ndim == 3 else depth)
+        else:
+            inputs = self.extractor.extract_batch(depth, euler, angular_velocity)
+            if self.standardizer is not None:
+                inputs = self.standardizer.transform(inputs)
+        self.classifier.model.eval()
+        with torch.inference_mode():
+            logits = self.classifier.model(self.classifier._prepare(inputs))
+        probabilities = torch.softmax(logits / float(temperature), dim=1)
+        return logits.detach(), probabilities.detach()
+
 
 def _classifier_artifacts(classifier_dir):
     root = Path(classifier_dir)
@@ -286,6 +322,76 @@ def _load_neural(suite_dir, approach, device):
     return runtime, deployment
 
 
+def _load_paper_classifier(paper_offline_dir, architecture, seed, device):
+    """Load one frozen Experiment 1--2 classifier and its preprocessing artifacts."""
+    from legged_gym.scripts.depth_data_pipeline.train_feature_nn import TerrainDepthFeatureClassifierNN
+    from legged_gym.scripts.depth_data_pipeline.train_raw_depth_nn import TerrainDepthClassifierNN
+    from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
+        FeatureStandardizer, NeuralClassifierAdapter,
+    )
+    from legged_gym.utils.depth_terrain_classifier.depth_terrain_classifier import (
+        SobelDepthTerrainFeatureExtractor,
+    )
+
+    root = Path(paper_offline_dir).expanduser().resolve()
+    manifest_path = root / "manifest.json"
+    with manifest_path.open(encoding="utf-8") as stream:
+        manifest = json.load(stream)
+    if int(seed) not in manifest.get("model_seeds", []):
+        raise ValueError(f"classifier seed {seed} is absent from {manifest_path}")
+    expected_ema = {"ema_alpha": 0.6, "change_patience": 1}
+    expected_bayes = {
+        "T_filter": 1.0, "stable_stay": 0.90, "evidence_power": 1.0,
+        "observation_mix": 0.0, "adaptive_evidence": False,
+    }
+    expected_models = {
+        "feature_nn": {"dropout_p": 0.0, "weight_decay": 1e-5},
+        "raw_depth_nn": {"dropout_p": 0.20, "weight_decay": 1e-5},
+    }
+    if manifest.get("fixed_model_configurations", {}).get(architecture) != expected_models[architecture]:
+        raise ValueError(f"paper offline {architecture} configuration is not the frozen model")
+    if manifest.get("fixed_ema_configuration") != expected_ema:
+        raise ValueError("paper offline EMA configuration does not match the frozen evaluation")
+    for key, expected in expected_bayes.items():
+        if manifest.get("fixed_bayes_configuration", {}).get(key) != expected:
+            raise ValueError(f"paper offline Bayes parameter {key} is not {expected!r}")
+
+    artifact_root = root / "artifacts" / architecture
+    checkpoint = artifact_root / f"seed_{seed}" / "classifier.pt"
+    args_path = artifact_root / f"seed_{seed}" / "nn_model_args.pt"
+    if not checkpoint.is_file() or not args_path.is_file():
+        raise FileNotFoundError(f"missing seeded classifier artifacts below {artifact_root}")
+    model_args = dict(torch.load(args_path, map_location="cpu", weights_only=False))
+    class_name = model_args.pop("cls")
+    model_types = {
+        "TerrainDepthFeatureClassifierNN": TerrainDepthFeatureClassifierNN,
+        "TerrainDepthClassifierNN": TerrainDepthClassifierNN,
+    }
+    model = model_types[class_name](**model_args)
+    classifier = NeuralClassifierAdapter.load(checkpoint, model, device=device)
+    if list(classifier.class_ids) != list(manifest.get("class_ordering", classifier.class_ids)):
+        raise ValueError("seeded classifier class order differs from the paper manifest")
+    deployment = {
+        "architecture": architecture, "inference_mode": "deterministic", "mc_samples": 1,
+        "dropout_p": model_args.get("dropout_p", 0.0),
+        "model_path": str(checkpoint), "model_args_path": str(args_path),
+        **manifest["fixed_bayes_configuration"],
+        "ema": manifest["fixed_ema_configuration"],
+    }
+    if architecture == "feature_nn":
+        extractor_path = artifact_root / "extractor.pt"
+        standardizer_path = artifact_root / "standardizer.pt"
+        runtime = RuntimeClassifier(
+            classifier, architecture, deployment,
+            SobelDepthTerrainFeatureExtractor.load(extractor_path, device=device),
+            FeatureStandardizer.load(standardizer_path))
+        deployment.update(extractor_path=str(extractor_path),
+                          standardizer_path=str(standardizer_path))
+    else:
+        runtime = RuntimeClassifier(classifier, architecture, deployment)
+    return runtime, deployment, manifest
+
+
 CLASSIFIER_LOADERS = {name: _load_neural for name in METHOD_TO_APPROACH}
 
 
@@ -315,6 +421,8 @@ def get_args():
     parser.add_argument("--num_steps", type=int, default=100000, help="safety cap only")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--difficulty", type=float, default=0.5)
+    parser.add_argument("--difficulty_level", choices=tuple(DIFFICULTY_LEVELS),
+                        help="named frozen paper difficulty (overrides --difficulty)")
     parser.add_argument("--finish_margin", type=float, default=0.25)
     parser.add_argument("--look_ahead_frac", type=float, default=0)
     parser.add_argument("--classify_every", type=int, default=5)
@@ -323,12 +431,21 @@ def get_args():
         default="bayes",
     )
     parser.add_argument(
-        "--classifier_approach", choices=tuple(CLASSIFIER_LOADERS), required=True
+        "--classifier_approach", choices=tuple(CLASSIFIER_LOADERS)
     )
-    parser.add_argument("--classifier_dir", "--classifier_suite", dest="classifier_dir", required=True)
-    parser.add_argument("--jit", "--policy_jit", dest="jit", required=True)
+    parser.add_argument("--classifier_dir", "--classifier_suite", dest="classifier_dir")
+    parser.add_argument("--jit", "--policy_jit", dest="jit")
+    parser.add_argument("--paper_method", choices=PAPER_METHODS,
+                        help="run one frozen closed-loop paper condition")
+    parser.add_argument("--paper_offline_dir",
+                        help="output directory from evaluate_paper_offline_experiments_1_2.py")
+    parser.add_argument("--classifier_seed", type=int, choices=(0, 1, 2))
+    parser.add_argument("--distilled_jit",
+                        help="exported unified depth-DreamWaQ policy for the distilled method")
     parser.add_argument("--fixed_forward_command", type=float, default=None)
     parser.add_argument("--out_dir", default=None)
+    parser.add_argument("--result_name", default=None,
+                        help="stable output stem (used by resumable paper orchestration)")
     
     #not used args
     parser.add_argument(
@@ -359,6 +476,22 @@ def get_args():
         parser.error("--difficulty must be in [0,1]")
     if not 0.0 <= args.look_ahead_frac <= 1.0:
         parser.error("--look_ahead_frac must be in [0,1]")
+    if args.paper_method:
+        if args.difficulty_level is None:
+            parser.error("--paper_method requires --difficulty_level")
+        if args.fixed_forward_command is None:
+            args.fixed_forward_command = 1.0
+        if args.paper_method in PAPER_METHOD_SPECS:
+            if args.paper_offline_dir is None or args.classifier_seed is None:
+                parser.error("learned paper methods require --paper_offline_dir and --classifier_seed")
+            if args.jit is None:
+                parser.error("learned paper methods require --jit")
+        elif args.paper_method == "oracle" and args.jit is None:
+            parser.error("oracle requires --jit")
+        elif args.paper_method == "distilled" and args.distilled_jit is None:
+            parser.error("distilled requires --distilled_jit")
+    elif args.classifier_approach is None or args.classifier_dir is None or args.jit is None:
+        parser.error("legacy mode requires --classifier_approach, --classifier_dir, and --jit")
     return args
 
 
@@ -367,33 +500,43 @@ def _eval_terrain_value(value, difficulty):
 
 
 def make_track_layout(env_cfg, args):
-    difficulty = args.difficulty
-    gap_size = 0.30 + 0.70 * difficulty
-    pit_depth = 0.25 + 0.25 * difficulty
-    stair_height = 0.10 + 0.30 * difficulty
+    difficulty_level = getattr(args, "difficulty_level", None)
+    level = DIFFICULTY_LEVELS.get(difficulty_level)
+    difficulty = level["normalized"] if level is not None else args.difficulty
+    gap_size = level["gap_width"] if level is not None else 0.30 + 0.70 * difficulty
+    pit_depth = level["pit_depth"] if level is not None else 0.25 + 0.25 * difficulty
+    stair_height = (level["stair_magnitude"] if level is not None
+                    else 0.10 + 0.30 * difficulty)
     rough_cfg = env_cfg.terrain.terrain_curriculum_difficulty["random_uniform_params"]
     rough_values = {
         key: _eval_terrain_value(value, difficulty) for key, value in rough_cfg.items()
     }
+    # The LoRA rough-terrain training range is [-0.12, 0.12].  Its endpoints
+    # are constants rather than difficulty expressions, so use interior
+    # 25/50/75% amplitudes for the named paper levels.
+    if level is not None and "difficulty" not in str(rough_cfg.get("min_height", "")):
+        rough_values["min_height"] = -abs(float(rough_cfg["min_height"])) * difficulty
+    if level is not None and "difficulty" not in str(rough_cfg.get("max_height", "")):
+        rough_values["max_height"] = abs(float(rough_cfg["max_height"])) * difficulty
     definitions = {
         "random_uniform": {
             "type": "terrain_utils.random_uniform_terrain", **rough_values,
         },
         "gap": {
-            "type": "terrain_utils.gap_terrain", "gap_size": 0.5,
+            "type": "terrain_utils.gap_terrain", "gap_size": gap_size,
             "platform_size": env_cfg.terrain.platform_size,
         },
         "pit": {
-            "type": "terrain_utils.pit_terrain", "depth": 0.3,
+            "type": "terrain_utils.pit_terrain", "depth": pit_depth,
             "platform_size": env_cfg.terrain.platform_size,
         },
         "upwards_stairs": {
             "type": "terrain_utils.pyramid_stairs_terrain", "step_width": 0.4,
-            "step_height": 0.25, "platform_size": env_cfg.terrain.platform_size,
+            "step_height": stair_height, "platform_size": env_cfg.terrain.platform_size,
         },
         "stairs": {
             "type": "terrain_utils.pyramid_stairs_terrain", "step_width": 0.4,
-            "step_height": -0.25, "platform_size": env_cfg.terrain.platform_size,
+            "step_height": -stair_height, "platform_size": env_cfg.terrain.platform_size,
         },
     }
     rng = random.Random(args.seed)
@@ -414,6 +557,11 @@ def make_track_layout(env_cfg, args):
                 for row, name in enumerate(sequence)
             ],
         })
+    args.resolved_difficulty = {
+        "name": difficulty_level, "normalized": difficulty,
+        "pit_depth": pit_depth, "stair_magnitude": stair_height,
+        "gap_width": gap_size, "rough_parameters": rough_values,
+    }
     return terrain_map, logged
 
 
@@ -612,6 +760,29 @@ def _summary_rows(rows, track_id=None):
     }
 
 
+def _synchronize(device):
+    if torch.device(device).type == "cuda":
+        torch.cuda.synchronize(device)
+
+
+def _make_paper_bayes_filters(class_ids, config, count, device):
+    from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
+        BayesianTerrainFilter, make_persistent_transition_matrix,
+    )
+    transition = make_persistent_transition_matrix(
+        class_ids, float(config["stable_stay"]), device=device)
+    prior = torch.full((len(class_ids),), 1.0 / len(class_ids), device=device)
+    observation = torch.eye(len(class_ids), device=device)
+    template = BayesianTerrainFilter(
+        class_ids, prior, transition, observation,
+        evidence_power=float(config["evidence_power"]),
+        adaptive_evidence=bool(config["adaptive_evidence"]),
+        min_evidence_power=float(config["evidence_power"]),
+        confidence_gamma=1.0, stay_probability=float(config["stable_stay"]),
+        transition_source="persistent", device=device)
+    return [copy.deepcopy(template) for _ in range(count)]
+
+
 def run_eval(args):
     if "genesis" in globals().get("SIMULATOR", ""):
         init_genesis(args, gs)
@@ -631,24 +802,60 @@ def run_eval(args):
     assign_tracks_and_reset(env, track_ids)
     obs_buf, _, obs_history, _, _, depth = unpack_observations(env.get_observations(), 6)
 
-    approach = resolve_classifier_approach(args)
-    runtime_classifier, deployment = _load_neural(args.classifier_dir, approach, device)
-    bayes_path = Path(deployment["temporal_filter_path"])
-    if not bayes_path.is_absolute():
-        suite_root = Path(args.classifier_dir)
-        architecture = METHOD_TO_APPROACH[approach][0]
-        run_root = suite_root / architecture if (suite_root / architecture).is_dir() else suite_root
-        bayes_path = run_root / bayes_path
-    bayes_template = _load_bayes_template(bayes_path, device)
-    if runtime_classifier.class_ids != list(bayes_template.labels):
-        raise ValueError(
-            "Classifier class_ids and Bayes filter labels/order must agree exactly: "
-            f"{runtime_classifier.class_ids!r} != {list(bayes_template.labels)!r}"
-        )
-    filters = [copy.deepcopy(bayes_template) for _ in range(env.num_envs)]
-    for filt in filters:
-        filt.reset()
-    policy_set = PerTerrainPolicySet(args.jit, device)
+    paper_method = getattr(args, "paper_method", None)
+    runtime_classifier = deployment = paper_manifest = None
+    filters = ema_filters = None
+    bayes_path = None
+    approach = args.classifier_approach
+    selector_mode = args.selector_mode
+    if paper_method in PAPER_METHOD_SPECS:
+        architecture, selector_mode = PAPER_METHOD_SPECS[paper_method]
+        approach = architecture
+        runtime_classifier, deployment, paper_manifest = _load_paper_classifier(
+            args.paper_offline_dir, architecture, args.classifier_seed, device)
+        if selector_mode == "bayes":
+            filters = _make_paper_bayes_filters(
+                runtime_classifier.class_ids, paper_manifest["fixed_bayes_configuration"],
+                env.num_envs, device)
+        elif selector_mode == "ema":
+            from legged_gym.scripts.depth_data_pipeline.sequential_terrain_filter_extensions import (
+                EMALogitPatienceFilter,
+            )
+            ema_filters = [EMALogitPatienceFilter(
+                runtime_classifier.class_ids,
+                **paper_manifest["fixed_ema_configuration"], device=device)
+                for _ in range(env.num_envs)]
+    elif paper_method in ("oracle", "distilled"):
+        selector_mode = paper_method
+        approach = None
+    else:
+        runtime_classifier, deployment = _load_neural(args.classifier_dir, approach, device)
+        bayes_path = Path(deployment["temporal_filter_path"])
+        if not bayes_path.is_absolute():
+            suite_root = Path(args.classifier_dir)
+            architecture = METHOD_TO_APPROACH[approach][0]
+            run_root = suite_root / architecture if (suite_root / architecture).is_dir() else suite_root
+            bayes_path = run_root / bayes_path
+        bayes_template = _load_bayes_template(bayes_path, device)
+        if runtime_classifier.class_ids != list(bayes_template.labels):
+            raise ValueError("classifier and Bayes-filter class order differ")
+        filters = [copy.deepcopy(bayes_template) for _ in range(env.num_envs)]
+
+    if filters is not None:
+        for filt in filters:
+            filt.reset()
+    policy_set = (None if paper_method == "distilled"
+                  else PerTerrainPolicySet(args.jit, device))
+    distilled_policy = (torch.jit.load(args.distilled_jit, map_location=device).eval()
+                        if paper_method == "distilled" else None)
+    # Model reconstruction can consume framework RNG state. Restore the paired
+    # environment seed after every method's artifacts are loaded so later
+    # episode resets remain identical across methods and classifier seeds.
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
     terminal_capture = TerminalCapture(env)
 
     selected_skills = ["rough"] * env.num_envs
@@ -658,7 +865,7 @@ def run_eval(args):
     forward = quat_apply(env.simulator.base_quat, env.forward_vec)
     env.heading = torch.atan2(forward[:, 1], forward[:, 0]) 
 
-    if args.selector_mode == "oracle":
+    if selector_mode == "oracle":
         _, selected_skills = get_ground_truth_labels(env, args.look_ahead_frac)
     assigned_lora = torch.tensor(
         [label_to_lora(label) for label in selected_skills], device=device, dtype=torch.long
@@ -671,6 +878,10 @@ def run_eval(args):
     inst_total = torch.zeros_like(inst_correct)
     bayes_correct = torch.zeros_like(inst_correct)
     bayes_total = torch.zeros_like(inst_correct)
+    selected_correct = torch.zeros_like(inst_correct)
+    selected_total = torch.zeros_like(inst_correct)
+    episode_switches = torch.zeros_like(inst_correct)
+    episode_delays = [[] for _ in range(env.num_envs)]
     completed_by_track = [0] * 10
     episode_rows = []
     classification = ClassificationStats()
@@ -679,11 +890,20 @@ def run_eval(args):
     finish_x = 5 * env_cfg.terrain.terrain_length - args.finish_margin
     width = env_cfg.terrain.terrain_width
     steps_run = 0
+    policy_runtime = selector_runtime = 0.0
+    policy_calls = selector_calls = 0
 
     while steps_run < args.num_steps and min(completed_by_track) < args.episodes_per_track:
         _force_commands(env, selected_skills, args.fixed_forward_command)
+        _synchronize(device)
+        policy_started = time.perf_counter()
         with torch.inference_mode():
-            actions = policy_set.act(obs_buf, obs_history, depth, assigned_lora)
+            actions = (distilled_policy(obs_buf.detach(), obs_history.detach(), depth.detach())
+                       if distilled_policy is not None else
+                       policy_set.act(obs_buf, obs_history, depth, assigned_lora))
+        _synchronize(device)
+        policy_runtime += time.perf_counter() - policy_started
+        policy_calls += 1
         terminal_capture.begin()
         try:
             step_value = env.step(actions.detach())
@@ -711,57 +931,135 @@ def run_eval(args):
         lateral_ids = set(lateral_failure.nonzero(as_tuple=False).flatten().cpu().tolist())
 
         if (steps_run - 1) % args.classify_every == 0:
-            raw_truth, canonical_truth = get_ground_truth_labels(env, args.look_ahead_frac)
-            print(canonical_truth)
-            valid = _depth_valid(depth)
+            if selector_mode == "oracle" and paper_method == "oracle":
+                _synchronize(device)
+                selector_started = time.perf_counter()
+                raw_truth, canonical_truth = get_ground_truth_labels(env, args.look_ahead_frac)
+            else:
+                raw_truth, canonical_truth = get_ground_truth_labels(env, args.look_ahead_frac)
+            valid = (torch.ones(env.num_envs, dtype=torch.bool, device=device)
+                     if selector_mode == "oracle" and paper_method == "oracle"
+                     else _depth_valid(depth))
             if done_ids:
                 valid[list(done_ids)] = False
             valid_ids = valid.nonzero(as_tuple=False).flatten()
-            if valid_ids.numel():
+            if selector_mode == "oracle" and paper_method == "oracle":
+                oracle_outputs = []
+                for env_id in valid_ids.detach().cpu().tolist():
+                    previous = selected_skills[env_id]
+                    selected_skills[env_id] = canonical_truth[env_id]
+                    assigned_lora[env_id] = label_to_lora(selected_skills[env_id])
+                    changed = selection_initialized[env_id] and selected_skills[env_id] != previous
+                    oracle_outputs.append((env_id, changed))
+                    selection_initialized[env_id] = True
+                _synchronize(device)
+                selector_runtime += time.perf_counter() - selector_started
+                selector_calls += 1
+                for env_id, changed in oracle_outputs:
+                    if changed:
+                        classification.switch_count += 1
+                        episode_switches[env_id] += 1
+                    selected_correct[env_id] += 1
+                    selected_total[env_id] += 1
+                    truth = canonical_truth[env_id]
+                    if previous_truth[env_id] is not None and truth != previous_truth[env_id]:
+                        classification.delays.append(0)
+                        episode_delays[env_id].append(0)
+                    previous_truth[env_id] = truth
+                    record = {
+                        "step": steps_run, "env_id": env_id,
+                        "track_id": int(track_ids[env_id].item()),
+                        "raw_ground_truth": raw_truth[env_id],
+                        "canonical_ground_truth": canonical_truth[env_id],
+                        "instantaneous_label": canonical_truth[env_id],
+                        "bayes_label": canonical_truth[env_id],
+                        "selected_skill": canonical_truth[env_id],
+                    }
+                    classification.update(canonical_truth[env_id], canonical_truth[env_id],
+                                          canonical_truth[env_id], canonical_truth[env_id], record)
+            elif runtime_classifier is not None and valid_ids.numel():
                 sensor_depth = depth[valid_ids].detach()
                 euler = env.simulator._base_euler[valid_ids].detach()
                 angular_velocity = env.simulator.base_ang_vel[valid_ids].detach()
-                filter_probabilities, event_probabilities, mutual_information = runtime_classifier.predict(
-                    sensor_depth, euler, angular_velocity)
-                filter_probabilities = filter_probabilities.to(device)
-                event_probabilities = event_probabilities.to(device)
-                mutual_information = mutual_information.to(device)
-                if filter_probabilities.shape[0] != valid_ids.numel():
+                _synchronize(device)
+                selector_started = time.perf_counter()
+                if paper_method:
+                    logits, probabilities = runtime_classifier.predict_deterministic(
+                        sensor_depth, euler, angular_velocity,
+                        temperature=paper_manifest["fixed_bayes_configuration"]["T_filter"])
+                    logits, probabilities = logits.to(device), probabilities.to(device)
+                else:
+                    probabilities, event_probabilities, mutual_information = runtime_classifier.predict(
+                        sensor_depth, euler, angular_velocity)
+                    logits = event_probabilities.clamp_min(1e-8).log().to(device)
+                    probabilities = probabilities.to(device)
+                if probabilities.shape[0] != valid_ids.numel():
                     raise RuntimeError("Classifier batch size does not match valid environment count")
+                classifier_outputs = []
                 for batch_index, env_id in enumerate(valid_ids.detach().cpu().tolist()):
                     truth = canonical_truth[env_id]
-                    probability = event_probabilities[batch_index]
-                    instant_id = runtime_classifier.class_ids[int(probability.argmax().item())]
+                    probability = probabilities[batch_index]
+                    instant_id = runtime_classifier.class_ids[int(logits[batch_index].argmax().item())]
                     instant_label = canonicalize_label(instant_id)
-                    bayes_step = filters[env_id].update(
-                        filter_probabilities[batch_index], event_probabilities=probability,
-                        mutual_information=float(mutual_information[batch_index]))
-                    bayes_label = canonicalize_label(bayes_step.label)
-                    posterior = bayes_step.posterior
-                    if args.selector_mode == "oracle":
-                        selected = truth
-                    elif args.selector_mode == "instantaneous":
-                        selected = instant_label
-                    elif args.selector_mode == "bayes":
+                    posterior = probability
+                    bayes_label = instant_label
+                    if selector_mode == "bayes":
+                        if paper_method:
+                            bayes_step = filters[env_id].update(probability)
+                        else:
+                            bayes_step = filters[env_id].update(
+                                probability, event_probabilities=event_probabilities[batch_index],
+                                mutual_information=float(mutual_information[batch_index]))
+                        bayes_label = canonicalize_label(bayes_step.label)
+                        posterior = bayes_step.posterior
                         selected = bayes_label
+                    elif selector_mode == "oracle":
+                        selected = truth
+                    elif selector_mode == "ema":
+                        ema_id = ema_filters[env_id].update(logits[batch_index])
+                        selected = canonicalize_label(ema_id)
+                    elif selector_mode == "instantaneous":
+                        selected = instant_label
                     else:
                         selected = "rough"
-                    if selection_initialized[env_id] and selected != selected_skills[env_id]:
-                        classification.switch_count += 1
+                    changed = selection_initialized[env_id] and selected != selected_skills[env_id]
                     selection_initialized[env_id] = True
                     selected_skills[env_id] = selected
                     assigned_lora[env_id] = label_to_lora(selected)
+                    classifier_outputs.append({
+                        "batch_index": batch_index, "env_id": env_id, "truth": truth,
+                        "probability": probability, "instant_label": instant_label,
+                        "posterior": posterior, "bayes_label": bayes_label,
+                        "selected": selected, "changed": changed,
+                    })
+                _synchronize(device)
+                selector_runtime += time.perf_counter() - selector_started
+                selector_calls += 1
+                for output_record in classifier_outputs:
+                    batch_index = output_record["batch_index"]
+                    env_id, truth = output_record["env_id"], output_record["truth"]
+                    probability = output_record["probability"]
+                    instant_label = output_record["instant_label"]
+                    posterior, bayes_label = output_record["posterior"], output_record["bayes_label"]
+                    selected = output_record["selected"]
+                    if output_record["changed"]:
+                        classification.switch_count += 1
+                        episode_switches[env_id] += 1
                     inst_correct[env_id] += int(instant_label == truth)
                     inst_total[env_id] += 1
                     bayes_correct[env_id] += int(bayes_label == truth)
                     bayes_total[env_id] += 1
+                    selected_correct[env_id] += int(selected == truth)
+                    selected_total[env_id] += 1
 
                     if previous_truth[env_id] is not None and truth != previous_truth[env_id]:
                         pending_transition[env_id] = (truth, steps_run)
                     previous_truth[env_id] = truth
                     pending = pending_transition[env_id]
-                    if pending is not None and bayes_label == pending[0]:
-                        classification.delays.append(steps_run - pending[1])
+                    if pending is not None and selected == pending[0]:
+                        delay = steps_run - pending[1]
+                        classification.delays.append(delay)
+                        episode_delays[env_id].append(delay)
                         pending_transition[env_id] = None
                     record = {
                         "step": steps_run, "env_id": env_id,
@@ -770,7 +1068,6 @@ def run_eval(args):
                         "canonical_ground_truth": truth,
                         "class_ids": [str(value) for value in runtime_classifier.class_ids],
                         "instantaneous_probabilities": probability.detach().cpu().tolist(),
-                        "mutual_information": float(mutual_information[batch_index]),
                         "instantaneous_label": instant_label,
                         "bayes_posterior": posterior.detach().cpu().tolist(),
                         "bayes_label": bayes_label,
@@ -796,11 +1093,13 @@ def run_eval(args):
                 success, reason = False, "termination"
             if completed_by_track[track_id] < args.episodes_per_track:
                 episode_rows.append({
-                    "selector_mode": args.selector_mode,
+                    "paper_method": paper_method, "selector_mode": selector_mode,
                     "classifier_approach": approach,
-                    "bayes_filter_approach": "suite_selected",
-                    "bayes_filter_path": str(bayes_path),
-                    "seed": args.seed, "difficulty": args.difficulty,
+                    "bayes_filter_approach": "fixed_persistent" if selector_mode == "bayes" else None,
+                    "bayes_filter_path": str(bayes_path) if bayes_path else None,
+                    "seed": args.seed, "classifier_seed": getattr(args, "classifier_seed", None),
+                    "difficulty": args.resolved_difficulty["normalized"],
+                    "difficulty_level": getattr(args, "difficulty_level", None),
                     "track_id": track_id,
                     "terrain_sequence": args.track_layout[track_id]["sequence"],
                     "success": success, "termination_reason": reason,
@@ -812,6 +1111,15 @@ def run_eval(args):
                     "instantaneous_total": int(inst_total[env_id].item()),
                     "bayes_correct": int(bayes_correct[env_id].item()),
                     "bayes_total": int(bayes_total[env_id].item()),
+                    "wrong_skill_fraction": (None if paper_method == "distilled" else
+                        0.0 if selector_mode == "oracle" else
+                        1.0 - float(selected_correct[env_id].item()) /
+                        max(int(selected_total[env_id].item()), 1)),
+                    "skill_switch_count": int(episode_switches[env_id].item()),
+                    "skill_switch_rate": float(episode_switches[env_id].item()) /
+                        max(int(selected_total[env_id].item()), 1),
+                    "terrain_transition_detection_delay_steps": (
+                        float(np.mean(episode_delays[env_id])) if episode_delays[env_id] else None),
                 })
                 completed_by_track[track_id] += 1
             if env_id not in done_ids:
@@ -819,17 +1127,21 @@ def run_eval(args):
 
         if completed_ids:
             for env_id in completed_ids:
-                filters[env_id].reset()
+                if filters is not None:
+                    filters[env_id].reset()
+                if ema_filters is not None:
+                    ema_filters[env_id].reset()
                 selected_skills[env_id] = "rough"
                 selection_initialized[env_id] = False
                 previous_truth[env_id] = None
                 pending_transition[env_id] = None
+                episode_delays[env_id] = []
             if manual_reset_ids:
                 reset_tensor = torch.tensor(manual_reset_ids, device=device, dtype=torch.long)
                 env.reset_idx(reset_tensor)
                 env.compute_observations()
                 obs_buf, _, obs_history, _, _, depth = unpack_observations(env.get_observations(), 6)
-            if args.selector_mode == "oracle":
+            if selector_mode == "oracle":
                 _, oracle_labels = get_ground_truth_labels(env, args.look_ahead_frac)
                 for env_id in completed_ids:
                     selected_skills[env_id] = oracle_labels[env_id]
@@ -844,6 +1156,9 @@ def run_eval(args):
             inst_total[reset_tensor] = 0
             bayes_correct[reset_tensor] = 0
             bayes_total[reset_tensor] = 0
+            selected_correct[reset_tensor] = 0
+            selected_total[reset_tensor] = 0
+            episode_switches[reset_tensor] = 0
 
     classification_summary = classification.summary()
     overall = _summary_rows(episode_rows)
@@ -854,20 +1169,44 @@ def run_eval(args):
         "instantaneous_classification_accuracy": classification_summary["instantaneous"]["accuracy"],
         "bayes_classification_accuracy": classification_summary["bayes"]["accuracy"],
     })
+    selector_ms = 1000.0 * selector_runtime / max(selector_calls, 1)
+    policy_ms = 1000.0 * policy_runtime / max(policy_calls, 1)
+    amortized_ms = policy_ms + selector_ms / args.classify_every
+    wrong_skill = (None if paper_method == "distilled" else
+                   0.0 if selector_mode == "oracle" else
+                   1.0 - classification_summary["selected_skill_accuracy"])
+    for row in episode_rows:
+        row.update({
+            "selector_latency_ms_per_update": selector_ms,
+            "policy_latency_ms_per_step": policy_ms,
+            "amortized_total_inference_ms_per_step": amortized_ms,
+            "effective_hz": 1000.0 / amortized_ms if amortized_ms > 0 else float("inf"),
+        })
     return {
         "metadata": {
             "task": args.task, "policy_jit": args.jit,
-            "selector_mode": args.selector_mode,
+            "distilled_jit": getattr(args, "distilled_jit", None), "paper_method": paper_method,
+            "selector_mode": selector_mode,
+            "classifier_seed": getattr(args, "classifier_seed", None),
             "classifier_approach": approach, "classifier_dir": args.classifier_dir,
-            "bayes_filter_approach": "suite_selected",
-            "bayes_filter_path": str(bayes_path), "seed": args.seed,
-            "inference_mode": deployment["inference_mode"],
-            "mc_samples": deployment["mc_samples"],
-            "dropout_p": deployment["dropout_p"],
-            "weight_decay": deployment.get("weight_decay"),
-            "temporal_filter_family": deployment["selected_temporal_filter_family"],
-            "T_filter": deployment["T_filter"],
-            "difficulty": args.difficulty, "look_ahead_frac": args.look_ahead_frac,
+            "paper_offline_dir": getattr(args, "paper_offline_dir", None),
+            "bayes_filter_approach": "fixed_persistent" if selector_mode == "bayes" else None,
+            "bayes_filter_path": str(bayes_path) if bayes_path else None, "seed": args.seed,
+            "inference_mode": deployment.get("inference_mode") if deployment else None,
+            "mc_samples": deployment.get("mc_samples") if deployment else None,
+            "dropout_p": deployment.get("dropout_p") if deployment else None,
+            "model_path": deployment.get("model_path") if deployment else None,
+            "filter_parameters": (paper_manifest.get("fixed_bayes_configuration")
+                                  if paper_manifest and selector_mode == "bayes" else None),
+            "ema_parameters": (paper_manifest.get("fixed_ema_configuration")
+                                if paper_manifest and selector_mode == "ema" else None),
+            "difficulty": args.resolved_difficulty["normalized"],
+            "difficulty_level": getattr(args, "difficulty_level", None),
+            "resolved_difficulty_parameters": args.resolved_difficulty,
+            "fixed_forward_command": args.fixed_forward_command,
+            "classify_every": args.classify_every,
+            "simulator": globals().get("SIMULATOR"),
+            "look_ahead_frac": args.look_ahead_frac,
             "disabled_randomizations": sorted(
                 name for name, enabled in EVAL_DOMAIN_RANDOMIZATION_ENABLED.items()
                 if not enabled
@@ -877,6 +1216,16 @@ def run_eval(args):
         "headline": {
             "episodic_success_rate": overall["success_rate"],
             "episodic_forward_distance_m": overall["mean_forward_distance_m"],
+            "wrong_skill_fraction": wrong_skill,
+            "selector_latency_ms_per_update": selector_ms,
+            "policy_latency_ms_per_step": policy_ms,
+            "amortized_total_inference_ms_per_step": amortized_ms,
+            "effective_hz": 1000.0 / amortized_ms if amortized_ms > 0 else float("inf"),
+            "skill_switch_count": classification_summary["switch_count"],
+            "skill_switch_rate": classification_summary["switch_count"] /
+                max(classification_summary["selected_skill_total"], 1),
+            "terrain_transition_detection_delay_steps":
+                classification_summary["terrain_transition_detection_delay_steps"],
             "instantaneous_classification_accuracy": overall["instantaneous_classification_accuracy"],
             "bayes_classification_accuracy": overall["bayes_classification_accuracy"],
         },
@@ -886,8 +1235,9 @@ def run_eval(args):
                 **_summary_rows(episode_rows, track),
                 "terrain_sequence": args.track_layout[track]["sequence"],
                 "seed": args.seed,
-                "difficulty": args.difficulty,
-                "selector_mode": args.selector_mode,
+                "difficulty": args.resolved_difficulty["normalized"],
+                "difficulty_level": getattr(args, "difficulty_level", None),
+                "selector_mode": selector_mode, "paper_method": paper_method,
                 "classifier_approach": approach,
                 "bayes_filter_approach": "suite_selected",
             }
@@ -899,12 +1249,12 @@ def run_eval(args):
     }
 
 
-def save_results(payload, out_dir, task):
+def save_results(payload, out_dir, task, result_name=None):
     root = Path(out_dir or Path(LEGGED_GYM_ROOT_DIR) / "exp_logs" / "classifier_eval")
     root.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    json_path = root / f"eval_{task}_{timestamp}.json"
-    csv_path = root / f"eval_{task}_{timestamp}_episodes.csv"
+    stem = result_name or f"eval_{task}_{datetime.now():%Y%m%d_%H%M%S}"
+    json_path = root / f"{stem}.json"
+    csv_path = root / f"{stem}_episodes.csv"
     with json_path.open("w") as stream:
         json.dump(payload, stream, indent=2, allow_nan=True)
     rows = payload["episodes"]
@@ -932,7 +1282,7 @@ def main():
         print(f"Track {track['track_id']}: {' -> '.join(track['sequence'])}")
         for cell in track["cells"]:
             print(f"  row {cell['row']}: {cell['raw_label']} {cell['parameters']}")
-    json_path, csv_path = save_results(payload, args.out_dir, args.task)
+    json_path, csv_path = save_results(payload, args.out_dir, args.task, args.result_name)
     print(f"Saved JSON: {json_path}")
     print(f"Saved episodes CSV: {csv_path}")
 
