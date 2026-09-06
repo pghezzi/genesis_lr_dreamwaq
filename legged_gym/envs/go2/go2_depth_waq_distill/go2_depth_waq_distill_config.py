@@ -90,16 +90,16 @@ class Go2DepthWaqDistillCfg(Go2DepthWaqCfg):
         # Keep the ten curriculum columns used by Go2DepthWaqCfg, but dedicate
         # the first half to stairs and the second half to gaps. The indices
         # here follow TERRAIN_KEYS in legged_gym.utils.terrain_vars.
-        num_cols = 10
+        num_cols = 12
         terrain_proportions = [
             0.0,  # slope
             0.0,  # random_uniform
-            0.5,  # stairs
-            0.0,  # upwards_stairs
+            0.25,  # stairs
+            0.25,  # upwards_stairs
             0.0,  # discrete_obstacles
             0.0,  # stepping_stones
-            0.5,  # gap
-            0.0,  # pit
+            0.25,  # gap
+            0.25,  # pit
             0.0,  # multiple_high_platforms
             0.0,  # high_platform_gaps
             0.0,
@@ -168,11 +168,11 @@ class Go2DepthWaqDistillCfg(Go2DepthWaqCfg):
                 "checkpoint": "/home/pablo/Documents/Legged_Gym_EX/logs/go2_depth_waq_fft_all_stairs/Aug14_14-23-53_dreamwaq_isaacgym/model_47000.pt",
                 "teacher_actor_critic": "ActorCriticDreamWaQDepth"
             },
-            #{
-            #    "name": "pit",
-            #    "checkpoint": "/home/pablo/Documents/Legged_Gym_EX/logs/go2_depth_waq_fft_pit/Aug20_11-10-54_dreamwaq_isaacgym/model_67000.pt",
-            #    "teacher_actor_critic": "ActorCriticDreamWaQDepth"
-            #},
+            {
+                "name": "pit",
+                "checkpoint": "/home/pablo/Documents/Legged_Gym_EX/logs/go2_depth_waq_fft_pit/Aug29_00-30-31_dreamwaq_isaacgym/model_67000.pt",
+                "teacher_actor_critic": "ActorCriticDreamWaQDepth"
+            },
         ]
 
         # ------------------------------------------------------------------
@@ -188,7 +188,7 @@ class Go2DepthWaqDistillCfg(Go2DepthWaqCfg):
         # Curriculum generation assigns the lower-numbered columns to stairs
         # and the higher-numbered columns to gaps. Teacher 1 is stairs and
         # teacher 0 is gap, matching the teachers list above.
-        terrain_type_to_teacher = [1] * 5 + [0] * 5
+        terrain_type_to_teacher = [1] * 6 + [0] * 3 + [2] * 3
 
         # ------------------------------------------------------------------
         # Pure imitation-learning settings

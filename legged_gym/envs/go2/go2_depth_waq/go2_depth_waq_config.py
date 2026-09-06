@@ -367,7 +367,7 @@ class Go2DepthWaqCfgPPO( LeggedRobotDreamwaqCfgPPO ):
         cnn_kernel_sizes = [5, 3]
     class algorithm( LeggedRobotDreamwaqCfgPPO.algorithm ):
         if terrain_name == "pit":
-            entropy_coef = 0.001
+            entropy_coef = 0.005
         encoder_lr = 2.e-4
         num_encoder_epochs = 1
         vae_kld_weight = 2.0
