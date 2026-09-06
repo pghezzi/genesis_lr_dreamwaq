@@ -1,7 +1,16 @@
 from legged_gym import LEGGED_GYM_ROOT_DIR
 
+import json
 import torch
 import os
+
+
+GROUP_METADATA_KEYS = (
+    "terrain_seed_ids", "terrain_seeds", "terrain_seed",
+    "terrain_seed_id", "terrain_realization_seed", "terrain_realization_ids",
+    "track_seed_ids", "track_seeds", "track_seed",
+    "track_seed_id", "track_ids",
+)
 
 def data_flattening(tensor):
     #data is stacked as episodes, envs, shape. This swaps it to ensure 
@@ -11,7 +20,8 @@ def labels_flattening(labels):
     # labels: [episodes][envs] -> [envs * episodes]
     return [label for env in zip(*labels) for label in env]
 
-def sample_envs(depth_images, base_rpy, base_ang_vel, terrain_labels, fraction=0.5, seed=None):
+def sample_envs(depth_images, base_rpy, base_ang_vel, terrain_labels, fraction=0.5,
+                seed=None, return_indices=False):
     n_envs = depth_images.shape[1]
     n_keep = int(n_envs * fraction)
 
@@ -27,26 +37,147 @@ def sample_envs(depth_images, base_rpy, base_ang_vel, terrain_labels, fraction=0
         for row in terrain_labels
     ]
 
-    return (
+    sampled = (
         depth_images[:, idx],
         base_rpy[:, idx],
         base_ang_vel[:, idx],
         terrain_labels
     )
+    return (*sampled, idx) if return_indices else sampled
 
-def get_data_raw(load_file, frac=0.1, seed=42):
-    torch_load = torch.load(load_file)
+
+def _python_scalar(value):
+    if torch.is_tensor(value) and value.numel() == 1:
+        return value.item()
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except (TypeError, ValueError):
+            pass
+    return value
+
+
+def _seed_sets_by_env(raw_value, n_envs):
+    """Normalize scalar/[N]/[T,N] seed metadata to one seed set per env."""
+    if raw_value is None:
+        return None
+    if torch.is_tensor(raw_value):
+        value = raw_value.detach().cpu()
+        if value.ndim == 0:
+            return [{value.item()} for _ in range(n_envs)]
+        if value.shape[-1] == n_envs:
+            rows = value.reshape(-1, n_envs).tolist()
+            return [{_python_scalar(row[env]) for row in rows} for env in range(n_envs)]
+        if value.ndim == 1 and value.numel() == n_envs:
+            return [{_python_scalar(item)} for item in value.tolist()]
+        return None
+    if isinstance(raw_value, (list, tuple)):
+        if len(raw_value) == n_envs and not any(
+                isinstance(item, (list, tuple)) for item in raw_value):
+            return [{_python_scalar(item)} for item in raw_value]
+        if raw_value and all(isinstance(row, (list, tuple)) and len(row) == n_envs
+                             for row in raw_value):
+            return [{_python_scalar(row[env]) for row in raw_value}
+                    for env in range(n_envs)]
+    return None
+
+
+def _environment_groups(selected_env_ids, seed_sets=None):
+    """Return env groups, joining environments that share any terrain seed."""
+    selected_env_ids = [int(value) for value in selected_env_ids]
+    if seed_sets is None:
+        return [{"env_ids": [env_id], "seed_ids": [], "group_id": f"env:{env_id}"}
+                for env_id in selected_env_ids], "environment"
+
+    parent = list(range(len(selected_env_ids)))
+
+    def find(value):
+        while parent[value] != value:
+            parent[value] = parent[parent[value]]
+            value = parent[value]
+        return value
+
+    def union(left, right):
+        left, right = find(left), find(right)
+        if left != right:
+            parent[right] = left
+
+    owner = {}
+    for position, seeds in enumerate(seed_sets):
+        for terrain_seed in seeds:
+            token = repr(terrain_seed)
+            if token in owner:
+                union(position, owner[token])
+            else:
+                owner[token] = position
+    components = {}
+    for position in range(len(selected_env_ids)):
+        components.setdefault(find(position), []).append(position)
+    groups = []
+    for positions in components.values():
+        env_ids = [selected_env_ids[position] for position in positions]
+        seeds_by_token = {repr(seed): seed for position in positions
+                          for seed in seed_sets[position]}
+        seed_tokens = sorted(seeds_by_token)
+        seeds = [seeds_by_token[token] for token in seed_tokens]
+        groups.append({"env_ids": env_ids, "seed_ids": seeds,
+                       "group_id": "terrain_seed:" + "|".join(seed_tokens)})
+    return groups, "terrain_seed"
+
+
+def split_environment_groups(groups, seed=42):
+    """Seeded 60/20/20 partition over indivisible environment/terrain groups."""
+    generator = torch.Generator().manual_seed(int(seed))
+    order = torch.randperm(len(groups), generator=generator).tolist()
+    n_train = int(len(groups) * 0.6)
+    n_val = int(len(groups) * 0.2)
+    partitions = {
+        "train": [groups[index] for index in order[:n_train]],
+        "val": [groups[index] for index in order[n_train:n_train + n_val]],
+        "test": [groups[index] for index in order[n_train + n_val:]],
+    }
+    id_sets = [{group["group_id"] for group in partitions[name]}
+               for name in ("train", "val", "test")]
+    assert id_sets[0].isdisjoint(id_sets[1])
+    assert id_sets[0].isdisjoint(id_sets[2])
+    assert id_sets[1].isdisjoint(id_sets[2])
+    return partitions
+
+def get_data_raw(load_file, frac=0.1, seed=42, return_metadata=False):
+    torch_load = torch.load(load_file, map_location="cpu", weights_only=False)
     depth_images = torch_load["depth_images"]
     base_rpy = torch_load["base_rpy"]
     base_ang_vel = torch_load["base_ang_vel"]
     terrain_labels = torch_load["terrain_name"]
-    filtered = torch_load["filtered"]
-    depth_images, base_rpy, base_ang_vel, terrain_labels = sample_envs(
+    source_n_envs = depth_images.shape[1]
+    sampled = sample_envs(
         depth_images, base_rpy, base_ang_vel, terrain_labels,
         fraction=frac,
         seed=seed,
+        return_indices=True,
     )
-    return depth_images, base_rpy, base_ang_vel, terrain_labels
+    depth_images, base_rpy, base_ang_vel, terrain_labels, selected_env_ids = sampled
+    if not return_metadata:
+        return depth_images, base_rpy, base_ang_vel, terrain_labels
+    seed_key, seed_sets = None, None
+    containers = [("", torch_load)]
+    if isinstance(torch_load.get("metadata"), dict):
+        containers.append(("metadata.", torch_load["metadata"]))
+    for prefix, container in containers:
+        for key in GROUP_METADATA_KEYS:
+            normalized = _seed_sets_by_env(container.get(key), source_n_envs)
+            if normalized is not None:
+                seed_key = prefix + key
+                seed_sets = [normalized[index] for index in selected_env_ids.tolist()]
+                break
+        if seed_sets is not None:
+            break
+    return depth_images, base_rpy, base_ang_vel, terrain_labels, {
+        "source_file": os.path.abspath(os.fspath(load_file)),
+        "selected_env_ids": selected_env_ids.tolist(),
+        "seed_metadata_key": seed_key,
+        "seed_sets": seed_sets,
+    }
 
 def calibration_data(*args, **kwargs):
     calibration_depth, calibration_rpy, calibration_ang_vel, _  = get_data_raw(*args, **kwargs)
@@ -56,60 +187,64 @@ def calibration_data(*args, **kwargs):
         "angular_velocity": data_flattening(calibration_ang_vel)
     }
 
-def train_val_test_data(*args, **kwargs):
-    depth_images, base_rpy, base_ang_vel, terrain_labels = get_data_raw(*args, **kwargs)
+def train_val_test_data(load_file, frac=0.1, seed=42, return_manifest=False):
+    depth_images, base_rpy, base_ang_vel, terrain_labels, source = get_data_raw(
+        load_file, frac=frac, seed=seed, return_metadata=True)
     episode_length = int(depth_images.shape[0])
+    groups, group_type = _environment_groups(source["selected_env_ids"], source["seed_sets"])
+    partitions = split_environment_groups(groups, seed=seed)
+    selected_position = {env_id: position
+                         for position, env_id in enumerate(source["selected_env_ids"])}
 
-    def _split_flat(t):
-        train_split = int(t.shape[0] * 0.6)
-        val_split = train_split + int(t.shape[0] * 0.2)
-        return (
-            data_flattening(t[:train_split]),
-            data_flattening(t[train_split:val_split]),
-            data_flattening(t[val_split:]),
-        )
-    
-    def _split_list(lst):
-        train_split = int(len(lst) * 0.6)
-        val_split = train_split + int(len(lst) * 0.2)
-        return (
-            labels_flattening(lst[:train_split]),
-            labels_flattening(lst[train_split:val_split]),
-            labels_flattening(lst[val_split:]),
-        )
-    
-    train_depth, val_depth, test_depth = _split_flat(depth_images)
-    train_rpy, val_rpy, test_rpy = _split_flat(base_rpy)
-    train_ang, val_ang, test_ang = _split_flat(base_ang_vel)
-    train_labels, val_labels, test_labels = _split_list(terrain_labels)
+    def build_split(split_groups):
+        env_ids = sorted(env_id for group in split_groups for env_id in group["env_ids"])
+        positions = torch.tensor([selected_position[env_id] for env_id in env_ids], dtype=torch.long)
+        split_labels = [[row[position] for position in positions.tolist()]
+                        for row in terrain_labels]
+        result = {
+            "depth_images": data_flattening(depth_images[:, positions]),
+            "orientation_rpy": data_flattening(base_rpy[:, positions]),
+            "angular_velocity": data_flattening(base_ang_vel[:, positions]),
+            "per_eps": episode_length,
+            "labels": labels_flattening(split_labels),
+        }
+        count = len(result["labels"])
+        assert result["depth_images"].shape[0] == count
+        assert result["orientation_rpy"].shape[0] == count
+        assert result["angular_velocity"].shape[0] == count
+        assert count == episode_length * len(env_ids)
+        return result, env_ids
 
-    assert len(train_labels) == train_depth.shape[0]
-
-    train = {
-        "depth_images": train_depth,
-        "orientation_rpy": train_rpy,
-        "angular_velocity": train_ang,
-        "per_eps": episode_length,
-        "labels": train_labels,
+    datasets, split_manifest = {}, {}
+    for name in ("train", "val", "test"):
+        datasets[name], env_ids = build_split(partitions[name])
+        split_manifest[name] = {
+            "source_env_ids": env_ids,
+            "group_ids": [group["group_id"] for group in partitions[name]],
+            "terrain_seed_ids": sorted(
+                {seed_id for group in partitions[name] for seed_id in group["seed_ids"]},
+                key=repr),
+            "num_frames": len(datasets[name]["labels"]),
+        }
+    env_sets = [set(split_manifest[name]["source_env_ids"])
+                for name in ("train", "val", "test")]
+    seed_sets = [set(split_manifest[name]["terrain_seed_ids"])
+                 for name in ("train", "val", "test")]
+    assert env_sets[0].isdisjoint(env_sets[1])
+    assert env_sets[0].isdisjoint(env_sets[2])
+    assert env_sets[1].isdisjoint(env_sets[2])
+    assert seed_sets[0].isdisjoint(seed_sets[1])
+    assert seed_sets[0].isdisjoint(seed_sets[2])
+    assert seed_sets[1].isdisjoint(seed_sets[2])
+    manifest = {
+        "split_seed": int(seed), "fraction": float(frac),
+        "source_file": source["source_file"], "group_type": group_type,
+        "seed_metadata_key": source["seed_metadata_key"],
+        "selected_source_env_ids": source["selected_env_ids"],
+        "splits": split_manifest,
     }
-
-    val = {
-        "depth_images": val_depth,
-        "orientation_rpy": val_rpy,
-        "angular_velocity": val_ang,
-        "per_eps": episode_length,
-        "labels": val_labels,
-    }
-
-    test = {
-        "depth_images": test_depth,
-        "orientation_rpy": test_rpy,
-        "angular_velocity": test_ang,
-        "per_eps": episode_length,
-        "labels": test_labels,
-    }
-
-    return train, val, test
+    result = (datasets["train"], datasets["val"], datasets["test"])
+    return (*result, manifest) if return_manifest else result
 
 def merge_sets(*datasets):
     merged = {}
@@ -137,7 +272,7 @@ if __name__ == "__main__":
     parser.add_argument("--frac", type=float, default=0.1,
                         help="amount of envs used from total(optional)")
     parser.add_argument("--seed", type=int, default=42,
-                        help="random seed for random events(optional)")
+                        help="seed for environment subsampling and the group split")
     parser.add_argument("--calibration_label", type=str, default="random_uniform",
                         help="label for calibration")
     
@@ -153,10 +288,16 @@ if __name__ == "__main__":
         calibration = calibration_data(args.calibration, **get_data_args)
         calibration["labels"] = [args.calibration_label] * calibration["depth_images"].shape[0]   
     
-    all_data    = [train_val_test_data(file, **get_data_args) for i, file in enumerate(args.files)]
+    if args.calibration and os.path.abspath(args.calibration) in {
+            os.path.abspath(file) for file in args.files}:
+        raise ValueError("calibration must use a separate source file to prevent split overlap")
+
+    all_data    = [train_val_test_data(file, return_manifest=True, **get_data_args)
+                   for file in args.files]
     train       = merge_sets(*[data[0] for data in all_data])
     val         = merge_sets(*[data[1] for data in all_data])
     test        = merge_sets(*[data[2] for data in all_data])
+    source_manifests = [data[3] for data in all_data]
 
     print(train["depth_images"].shape)
     print(val["depth_images"].shape)
@@ -171,6 +312,7 @@ if __name__ == "__main__":
         f.write(f"Files: {args.files}\n")
         f.write(f"Calibration: {args.calibration}\n")
         f.write(f"Frac: {args.frac}\n")
+        f.write(f"Split seed: {args.seed}\n")
     
     torch.save(train, os.path.join(out_dir, "train.pt"))
     torch.save(val,   os.path.join(out_dir, "val.pt"))
@@ -178,6 +320,35 @@ if __name__ == "__main__":
     if args.calibration:
         torch.save(calibration,  os.path.join(out_dir, "calibration.pt"))
 
+    split_manifest = {
+        "split_seed": args.seed,
+        "fraction": args.frac,
+        "source_files": [os.path.abspath(file) for file in args.files],
+        "calibration_source_file": (os.path.abspath(args.calibration)
+                                    if args.calibration else None),
+        "sources": source_manifests,
+        "splits": {},
+    }
+    split_group_sets = {}
+    for split_name in ("train", "val", "test"):
+        entries = []
+        qualified_group_ids = []
+        for source in source_manifests:
+            source_split = source["splits"][split_name]
+            entries.append({"source_file": source["source_file"], **source_split})
+            qualified_group_ids.extend(
+                f"{source['source_file']}::{group_id}"
+                for group_id in source_split["group_ids"])
+        split_manifest["splits"][split_name] = {
+            "sources": entries, "group_ids": qualified_group_ids,
+            "num_frames": len({"train": train, "val": val, "test": test}[split_name]["labels"]),
+        }
+        split_group_sets[split_name] = set(qualified_group_ids)
+    assert split_group_sets["train"].isdisjoint(split_group_sets["val"])
+    assert split_group_sets["train"].isdisjoint(split_group_sets["test"])
+    assert split_group_sets["val"].isdisjoint(split_group_sets["test"])
+    with open(os.path.join(out_dir, "split_manifest.json"), "w", encoding="utf-8") as stream:
+        json.dump(split_manifest, stream, indent=2)
+
     print(out_dir)
     
-
