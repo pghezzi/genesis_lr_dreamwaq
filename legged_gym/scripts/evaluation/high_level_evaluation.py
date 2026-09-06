@@ -250,6 +250,36 @@ class RuntimeClassifier:
         probabilities = torch.softmax(logits / float(temperature), dim=1)
         return logits.detach(), probabilities.detach()
 
+    def predict_deterministic_timed(self, depth, euler, angular_velocity, temperature=1.0):
+        """Deterministic inference with synchronized, non-overlapping stage timings."""
+        timings = {
+            "depth_preprocess_ms": 0.0, "oracle_lookup_ms": 0.0,
+            "feature_extraction_ms": 0.0, "standardization_ms": 0.0,
+            "classifier_ms": 0.0,
+        }
+        if self.approach == "raw_depth_nn":
+            from legged_gym.scripts.depth_data_pipeline.util_func import pack_raw_depth_state_inputs
+            started = _timing_start(self.classifier.device)
+            inputs = (pack_raw_depth_state_inputs(depth, euler, angular_velocity)
+                      if getattr(self.classifier.model, "robot_state_dim", 0)
+                      else depth.unsqueeze(1) if depth.ndim == 3 else depth)
+            timings["depth_preprocess_ms"] = _timing_stop(started, self.classifier.device)
+        else:
+            started = _timing_start(self.classifier.device)
+            inputs = self.extractor.extract_batch(depth, euler, angular_velocity)
+            timings["feature_extraction_ms"] = _timing_stop(started, self.classifier.device)
+            if self.standardizer is not None:
+                started = _timing_start(self.classifier.device)
+                inputs = self.standardizer.transform(inputs)
+                timings["standardization_ms"] = _timing_stop(started, self.classifier.device)
+        self.classifier.model.eval()
+        started = _timing_start(self.classifier.device)
+        with torch.inference_mode():
+            logits = self.classifier.model(self.classifier._prepare(inputs))
+            probabilities = torch.softmax(logits / float(temperature), dim=1)
+        timings["classifier_ms"] = _timing_stop(started, self.classifier.device)
+        return logits.detach(), probabilities.detach(), timings
+
 
 def _classifier_artifacts(classifier_dir):
     root = Path(classifier_dir)
@@ -426,6 +456,7 @@ def get_args():
     parser.add_argument("--finish_margin", type=float, default=0.25)
     parser.add_argument("--look_ahead_frac", type=float, default=0)
     parser.add_argument("--classify_every", type=int, default=5)
+    parser.add_argument("--latency_warmup_updates", type=int, default=20)
     parser.add_argument(
         "--selector_mode", choices=("oracle", "instantaneous", "bayes", "baseline"),
         default="bayes",
@@ -470,7 +501,8 @@ def get_args():
         args.gpu = "cpu"
     if args.num_envs < 10 or args.num_envs % 10:
         parser.error("--num_envs must be 10 or a balanced multiple of 10")
-    if args.episodes_per_track < 1 or args.num_steps < 1 or args.classify_every < 1:
+    if (args.episodes_per_track < 1 or args.num_steps < 1 or args.classify_every < 1
+            or args.latency_warmup_updates < 0):
         parser.error("episode quota, step cap, and classify interval must be positive")
     if not 0.0 <= args.difficulty <= 1.0:
         parser.error("--difficulty must be in [0,1]")
@@ -765,6 +797,27 @@ def _synchronize(device):
         torch.cuda.synchronize(device)
 
 
+def _timing_start(device):
+    _synchronize(device)
+    return time.perf_counter()
+
+
+def _timing_stop(started, device):
+    _synchronize(device)
+    return 1000.0 * (time.perf_counter() - started)
+
+
+def _timing_statistics(values):
+    values = np.asarray(values, dtype=np.float64)
+    if not values.size:
+        return {"count": 0, "mean": None, "std": None, "median": None, "p95": None}
+    return {
+        "count": int(values.size), "mean": float(values.mean()),
+        "std": float(values.std(ddof=1)) if values.size > 1 else 0.0,
+        "median": float(np.median(values)), "p95": float(np.percentile(values, 95)),
+    }
+
+
 def _make_paper_bayes_filters(class_ids, config, count, device):
     from legged_gym.utils.depth_terrain_classifier.terrain_classifier_bayes_streaming_prototype_rbf import (
         BayesianTerrainFilter, make_persistent_transition_matrix,
@@ -890,20 +943,25 @@ def run_eval(args):
     finish_x = 5 * env_cfg.terrain.terrain_length - args.finish_margin
     width = env_cfg.terrain.terrain_width
     steps_run = 0
-    policy_runtime = selector_runtime = 0.0
-    policy_calls = selector_calls = 0
+    timing_stage_names = (
+        "depth_preprocess_ms", "oracle_lookup_ms", "feature_extraction_ms",
+        "standardization_ms", "classifier_ms", "temporal_filter_ms",
+        "skill_selection_ms", "selector_total_ms",
+    )
+    timing_samples = {name: [] for name in timing_stage_names}
+    timing_samples["specialist_policy_ms"] = []
+    classification_updates_seen = 0
 
     while steps_run < args.num_steps and min(completed_by_track) < args.episodes_per_track:
         _force_commands(env, selected_skills, args.fixed_forward_command)
-        _synchronize(device)
-        policy_started = time.perf_counter()
+        policy_started = _timing_start(device)
         with torch.inference_mode():
             actions = (distilled_policy(obs_buf.detach(), obs_history.detach(), depth.detach())
                        if distilled_policy is not None else
                        policy_set.act(obs_buf, obs_history, depth, assigned_lora))
-        _synchronize(device)
-        policy_runtime += time.perf_counter() - policy_started
-        policy_calls += 1
+        policy_elapsed_ms = _timing_stop(policy_started, device)
+        if classification_updates_seen >= args.latency_warmup_updates:
+            timing_samples["specialist_policy_ms"].append(policy_elapsed_ms)
         terminal_capture.begin()
         try:
             step_value = env.step(actions.detach())
@@ -931,10 +989,14 @@ def run_eval(args):
         lateral_ids = set(lateral_failure.nonzero(as_tuple=False).flatten().cpu().tolist())
 
         if (steps_run - 1) % args.classify_every == 0:
+            record_latency = classification_updates_seen >= args.latency_warmup_updates
+            stage_timing = {name: 0.0 for name in timing_stage_names[:-1]}
+            selector_executed = False
             if selector_mode == "oracle" and paper_method == "oracle":
-                _synchronize(device)
-                selector_started = time.perf_counter()
+                selector_executed = True
+                lookup_started = _timing_start(device)
                 raw_truth, canonical_truth = get_ground_truth_labels(env, args.look_ahead_frac)
+                stage_timing["oracle_lookup_ms"] = _timing_stop(lookup_started, device)
             else:
                 raw_truth, canonical_truth = get_ground_truth_labels(env, args.look_ahead_frac)
             valid = (torch.ones(env.num_envs, dtype=torch.bool, device=device)
@@ -945,6 +1007,7 @@ def run_eval(args):
             valid_ids = valid.nonzero(as_tuple=False).flatten()
             if selector_mode == "oracle" and paper_method == "oracle":
                 oracle_outputs = []
+                skill_started = _timing_start(device)
                 for env_id in valid_ids.detach().cpu().tolist():
                     previous = selected_skills[env_id]
                     selected_skills[env_id] = canonical_truth[env_id]
@@ -952,9 +1015,7 @@ def run_eval(args):
                     changed = selection_initialized[env_id] and selected_skills[env_id] != previous
                     oracle_outputs.append((env_id, changed))
                     selection_initialized[env_id] = True
-                _synchronize(device)
-                selector_runtime += time.perf_counter() - selector_started
-                selector_calls += 1
+                stage_timing["skill_selection_ms"] = _timing_stop(skill_started, device)
                 for env_id, changed in oracle_outputs:
                     if changed:
                         classification.switch_count += 1
@@ -978,31 +1039,46 @@ def run_eval(args):
                     classification.update(canonical_truth[env_id], canonical_truth[env_id],
                                           canonical_truth[env_id], canonical_truth[env_id], record)
             elif runtime_classifier is not None and valid_ids.numel():
+                selector_executed = True
                 sensor_depth = depth[valid_ids].detach()
                 euler = env.simulator._base_euler[valid_ids].detach()
                 angular_velocity = env.simulator.base_ang_vel[valid_ids].detach()
-                _synchronize(device)
-                selector_started = time.perf_counter()
                 if paper_method:
-                    logits, probabilities = runtime_classifier.predict_deterministic(
+                    logits, probabilities, classifier_timing = runtime_classifier.predict_deterministic_timed(
                         sensor_depth, euler, angular_velocity,
                         temperature=paper_manifest["fixed_bayes_configuration"]["T_filter"])
+                    stage_timing.update(classifier_timing)
                     logits, probabilities = logits.to(device), probabilities.to(device)
                 else:
+                    classifier_started = _timing_start(device)
                     probabilities, event_probabilities, mutual_information = runtime_classifier.predict(
                         sensor_depth, euler, angular_velocity)
                     logits = event_probabilities.clamp_min(1e-8).log().to(device)
                     probabilities = probabilities.to(device)
+                    stage_timing["classifier_ms"] = _timing_stop(classifier_started, device)
                 if probabilities.shape[0] != valid_ids.numel():
                     raise RuntimeError("Classifier batch size does not match valid environment count")
-                classifier_outputs = []
+                base_outputs = []
+                postprocess_started = _timing_start(device)
                 for batch_index, env_id in enumerate(valid_ids.detach().cpu().tolist()):
-                    truth = canonical_truth[env_id]
                     probability = probabilities[batch_index]
-                    instant_id = runtime_classifier.class_ids[int(logits[batch_index].argmax().item())]
-                    instant_label = canonicalize_label(instant_id)
+                    instant_id = runtime_classifier.class_ids[
+                        int(logits[batch_index].argmax().item())]
+                    base_outputs.append({
+                        "batch_index": batch_index, "env_id": env_id,
+                        "truth": canonical_truth[env_id], "probability": probability,
+                        "instant_id": instant_id,
+                    })
+                stage_timing["classifier_ms"] += _timing_stop(
+                    postprocess_started, device)
+
+                native_outputs = []
+                selection_started = _timing_start(device)
+                for base_output in base_outputs:
+                    batch_index, env_id = base_output["batch_index"], base_output["env_id"]
+                    probability, instant_id = base_output["probability"], base_output["instant_id"]
                     posterior = probability
-                    bayes_label = instant_label
+                    bayes_id = instant_id
                     if selector_mode == "bayes":
                         if paper_method:
                             bayes_step = filters[env_id].update(probability)
@@ -1010,31 +1086,44 @@ def run_eval(args):
                             bayes_step = filters[env_id].update(
                                 probability, event_probabilities=event_probabilities[batch_index],
                                 mutual_information=float(mutual_information[batch_index]))
-                        bayes_label = canonicalize_label(bayes_step.label)
+                        bayes_id = bayes_step.label
                         posterior = bayes_step.posterior
-                        selected = bayes_label
+                        selected_id = bayes_id
                     elif selector_mode == "oracle":
-                        selected = truth
+                        selected_id = truth
                     elif selector_mode == "ema":
-                        ema_id = ema_filters[env_id].update(logits[batch_index])
-                        selected = canonicalize_label(ema_id)
+                        selected_id = ema_filters[env_id].update(logits[batch_index])
                     elif selector_mode == "instantaneous":
-                        selected = instant_label
+                        selected_id = instant_id
                     else:
-                        selected = "rough"
+                        selected_id = "rough"
+                    native_outputs.append({
+                        **base_output,
+                        "posterior": posterior, "bayes_id": bayes_id,
+                        "selected_id": selected_id,
+                    })
+                selection_elapsed = _timing_stop(selection_started, device)
+                if selector_mode in ("ema", "bayes"):
+                    stage_timing["temporal_filter_ms"] = selection_elapsed
+                else:
+                    stage_timing["classifier_ms"] += selection_elapsed
+
+                classifier_outputs = []
+                skill_started = _timing_start(device)
+                for native in native_outputs:
+                    env_id = native["env_id"]
+                    instant_label = canonicalize_label(native["instant_id"])
+                    bayes_label = canonicalize_label(native["bayes_id"])
+                    selected = canonicalize_label(native["selected_id"])
                     changed = selection_initialized[env_id] and selected != selected_skills[env_id]
                     selection_initialized[env_id] = True
                     selected_skills[env_id] = selected
                     assigned_lora[env_id] = label_to_lora(selected)
                     classifier_outputs.append({
-                        "batch_index": batch_index, "env_id": env_id, "truth": truth,
-                        "probability": probability, "instant_label": instant_label,
-                        "posterior": posterior, "bayes_label": bayes_label,
+                        **native, "instant_label": instant_label, "bayes_label": bayes_label,
                         "selected": selected, "changed": changed,
                     })
-                _synchronize(device)
-                selector_runtime += time.perf_counter() - selector_started
-                selector_calls += 1
+                stage_timing["skill_selection_ms"] = _timing_stop(skill_started, device)
                 for output_record in classifier_outputs:
                     batch_index = output_record["batch_index"]
                     env_id, truth = output_record["env_id"], output_record["truth"]
@@ -1074,6 +1163,16 @@ def run_eval(args):
                         "selected_skill": selected,
                     }
                     classification.update(truth, instant_label, bayes_label, selected, record)
+
+            if paper_method != "distilled" and selector_executed and record_latency:
+                selector_total = sum(stage_timing.values())
+                stage_timing["selector_total_ms"] = selector_total
+                if abs(selector_total - sum(
+                        stage_timing[name] for name in timing_stage_names[:-1])) > 1e-9:
+                    raise AssertionError("selector total does not equal the sum of timed stages")
+                for name in timing_stage_names:
+                    timing_samples[name].append(stage_timing[name])
+            classification_updates_seen += 1
 
         completed_ids = sorted(done_ids | course_ids | lateral_ids)
         manual_reset_ids = []
@@ -1169,19 +1268,76 @@ def run_eval(args):
         "instantaneous_classification_accuracy": classification_summary["instantaneous"]["accuracy"],
         "bayes_classification_accuracy": classification_summary["bayes"]["accuracy"],
     })
-    selector_ms = 1000.0 * selector_runtime / max(selector_calls, 1)
-    policy_ms = 1000.0 * policy_runtime / max(policy_calls, 1)
-    amortized_ms = policy_ms + selector_ms / args.classify_every
+    selector_values = timing_samples["selector_total_ms"]
+    policy_values = timing_samples["specialist_policy_ms"]
+    selector_overhead_values = [value / args.classify_every for value in selector_values]
+    selector_overhead_mean = (
+        float(np.mean(selector_overhead_values)) if selector_overhead_values else None
+    )
+    if paper_method == "distilled":
+        total_values = list(policy_values)
+        additional_selector_values = []
+    else:
+        # Policy and selector samples have different cadence.  Adding the mean
+        # amortized selector cost to every policy sample preserves all measured
+        # policy jitter without inventing a one-to-one pairing.
+        total_values = [value + (selector_overhead_mean or 0.0) for value in policy_values]
+        additional_selector_values = list(selector_overhead_values)
+    timing_samples.update({
+        "selector_ms_per_update": list(selector_values),
+        "selector_overhead_ms_per_control_step": selector_overhead_values,
+        "specialist_policy_ms_per_step": list(policy_values),
+        "total_inference_ms_per_control_step": total_values,
+        "total_routed_inference_ms_per_step": list(total_values),
+        "effective_inference_hz": [1000.0 / value for value in total_values if value > 0.0],
+        "additional_selector_only_ms_per_step": additional_selector_values,
+    })
+    timing_statistics = {
+        name: _timing_statistics(values) for name, values in timing_samples.items()
+    }
+    selector_ms = timing_statistics["selector_total_ms"]["mean"]
+    policy_ms = timing_statistics["specialist_policy_ms_per_step"]["mean"]
+    total_ms = timing_statistics["total_inference_ms_per_control_step"]["mean"]
+    effective_hz = 1000.0 / total_ms if total_ms and total_ms > 0.0 else None
+    if paper_method == "feature_instantaneous" and any(
+            value != 0.0 for value in timing_samples["temporal_filter_ms"]):
+        raise AssertionError("feature instantaneous unexpectedly incurred temporal-filter timing")
+    if paper_method == "raw_depth_bayes" and any(
+            value != 0.0 for value in timing_samples["feature_extraction_ms"]):
+        raise AssertionError("raw-depth timing unexpectedly included engineered feature extraction")
+    if paper_method in ("oracle", "distilled") and any(
+            value != 0.0 for name in ("feature_extraction_ms", "classifier_ms")
+            for value in timing_samples[name]):
+        raise AssertionError("oracle/distilled unexpectedly inherited classifier timing")
+    stage_fractions = {}
+    if paper_method == "feature_bayes" and selector_ms:
+        stage_fractions = {
+            "feature_extraction_fraction":
+                timing_statistics["feature_extraction_ms"]["mean"] / selector_ms,
+            "classifier_fraction": timing_statistics["classifier_ms"]["mean"] / selector_ms,
+            "bayes_fraction": timing_statistics["temporal_filter_ms"]["mean"] / selector_ms,
+            "skill_selection_fraction":
+                timing_statistics["skill_selection_ms"]["mean"] / selector_ms,
+        }
     wrong_skill = (None if paper_method == "distilled" else
                    0.0 if selector_mode == "oracle" else
                    1.0 - classification_summary["selected_skill_accuracy"])
     for row in episode_rows:
         row.update({
+            "selector_ms_per_update": selector_ms,
+            "selector_overhead_ms_per_control_step": selector_overhead_mean,
+            "specialist_policy_ms_per_step": policy_ms,
+            "total_inference_ms_per_control_step": total_ms,
+            "total_routed_inference_ms_per_step": total_ms,
+            "effective_inference_hz": effective_hz,
             "selector_latency_ms_per_update": selector_ms,
             "policy_latency_ms_per_step": policy_ms,
-            "amortized_total_inference_ms_per_step": amortized_ms,
-            "effective_hz": 1000.0 / amortized_ms if amortized_ms > 0 else float("inf"),
+            "amortized_total_inference_ms_per_step": total_ms,
+            "effective_hz": effective_hz,
         })
+    device_name = str(device)
+    gpu_name = (torch.cuda.get_device_name(device)
+                if torch.device(device).type == "cuda" else None)
     return {
         "metadata": {
             "task": args.task, "policy_jit": args.jit,
@@ -1205,6 +1361,13 @@ def run_eval(args):
             "resolved_difficulty_parameters": args.resolved_difficulty,
             "fixed_forward_command": args.fixed_forward_command,
             "classify_every": args.classify_every,
+            "latency_warmup_updates": args.latency_warmup_updates,
+            "timing_device": device_name, "gpu_name": gpu_name,
+            "timing_batch_size": env.num_envs, "num_envs": env.num_envs,
+            "policy_control_frequency_hz": 1.0 / float(env.dt),
+            "control_period_s": float(env.dt),
+            "timing_clock": "time.perf_counter",
+            "cuda_synchronized_timing": torch.device(device).type == "cuda",
             "simulator": globals().get("SIMULATOR"),
             "look_ahead_frac": args.look_ahead_frac,
             "disabled_randomizations": sorted(
@@ -1217,10 +1380,18 @@ def run_eval(args):
             "episodic_success_rate": overall["success_rate"],
             "episodic_forward_distance_m": overall["mean_forward_distance_m"],
             "wrong_skill_fraction": wrong_skill,
+            "selector_ms_per_update": selector_ms,
+            "selector_overhead_ms_per_control_step": selector_overhead_mean,
+            "specialist_policy_ms_per_step": policy_ms,
+            "total_inference_ms_per_control_step": total_ms,
+            "total_routed_inference_ms_per_step": total_ms,
+            "effective_inference_hz": effective_hz,
+            "additional_selector_only_ms_per_step": (
+                selector_overhead_mean if paper_method != "distilled" else None),
             "selector_latency_ms_per_update": selector_ms,
             "policy_latency_ms_per_step": policy_ms,
-            "amortized_total_inference_ms_per_step": amortized_ms,
-            "effective_hz": 1000.0 / amortized_ms if amortized_ms > 0 else float("inf"),
+            "amortized_total_inference_ms_per_step": total_ms,
+            "effective_hz": effective_hz,
             "skill_switch_count": classification_summary["switch_count"],
             "skill_switch_rate": classification_summary["switch_count"] /
                 max(classification_summary["selected_skill_total"], 1),
@@ -1245,6 +1416,12 @@ def run_eval(args):
         ],
         "classification": classification_summary,
         "classification_ticks": classification.ticks,
+        "latency": {
+            "warmup_updates_excluded": args.latency_warmup_updates,
+            "samples": timing_samples,
+            "statistics": timing_statistics,
+            "stage_fractions": stage_fractions,
+        },
         "episodes": episode_rows,
     }
 
