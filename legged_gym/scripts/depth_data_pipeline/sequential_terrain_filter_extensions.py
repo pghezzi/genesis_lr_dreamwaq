@@ -2299,10 +2299,14 @@ def search_uncertainty_aware_temporal(candidates, validation_labels, validation_
     mc_result = per_config[mc_selected["id"]]
     return {
             "stage0": {"deterministic_selected": deterministic["id"],
-                        "mc_selected": [c["id"] for c in mc_selected],
+                        "mc_selected": mc_selected["id"],
                         "candidates": {c["id"]: {
                             **_candidate_metadata(c), 
-                            "validation_metrics": c["stage0_validation"]
+                            "validation_metrics": c["stage0_validation"],
+                            # Stage-0 test metrics are calculated above after the
+                            # validation-only candidate selection is frozen.  Keep
+                            # them in the result schema for Experiment-A reporting.
+                            "ordered_test_metrics": c["stage0_ordered_test"],
                         } for c in candidates}},
             "configs": per_config, 
             "best_deterministic": det_result,

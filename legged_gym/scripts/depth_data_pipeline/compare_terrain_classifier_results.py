@@ -11,6 +11,20 @@ from typing import Any, Iterable
 REQUIRED_ARCHITECTURES = {"feature_nn", "raw_depth_nn"}
 
 
+def _score(value: Any, default: float = float("-inf")) -> float:
+    """Return a sortable metric value from JSON results.
+
+    ``save_results`` deliberately encodes non-finite values as ``null``.  The
+    reporting step must therefore tolerate ``None`` rather than failing after
+    a successful training run just because a metric is unavailable.
+    """
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return default
+    return value if value == value else default  # NaN is the only float != itself.
+
+
 def parse_result_file(path: str | Path) -> dict[str, Any]:
     path = Path(path)
     if path.is_dir():
@@ -212,7 +226,7 @@ def main():
     by_name = {row["approach"]: row for row in winners}
     deterministic = [row for row in winners if row["inference_mode"] == "deterministic"]
     mc = [row for row in winners if row["inference_mode"] == "mc"]
-    best = lambda values: max(values, key=lambda row: row["cv_selection_score"])
+    best = lambda values: max(values, key=lambda row: _score(row.get("cv_selection_score")))
     selections = {
         "feature_nn deterministic winner": by_name.get("feature_nn_deterministic"),
         "feature_nn MC winner": by_name.get("feature_nn_mc"),
@@ -223,7 +237,7 @@ def main():
         "global deterministic winner": best(deterministic) if deterministic else None,
         "global MC winner": best(mc) if mc else None,
         "best MC filter overall": best(mc) if mc else None,
-        "global overall winner": best(winners),
+        "global overall winner": best(winners) if winners else None,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     _write_csv(args.output.with_name(args.output.name + "_winners.csv"), winners)
@@ -281,13 +295,16 @@ def main():
     _write_json(output_dir / "experiment_B_selected_configs.json", selected_b)
     _write_json(output_dir / "experiment_C_selected_configs.json", selected_c)
 
-    best_overall = max(winners, key=lambda row: row.get("validation_score_v2", -float("inf")))
-    near = [row for row in winners
-            if best_overall.get("validation_score_v2", -float("inf"))
-            - row.get("validation_score_v2", -float("inf")) <= 0.01]
-    best_low_delay = min(near, key=lambda row: row.get("validation_mean_transition_delay", float("inf")))
-    _write_json(output_dir / "best_overall_pipeline.json", best_overall)
-    _write_json(output_dir / "best_low_delay_pipeline.json", best_low_delay)
+    if winners:
+        best_overall = max(winners, key=lambda row: _score(row.get("validation_score_v2")))
+        best_score = _score(best_overall.get("validation_score_v2"))
+        near = [row for row in winners
+                if best_score - _score(row.get("validation_score_v2")) <= 0.01]
+        # A missing delay is never preferable to an observed delay.
+        best_low_delay = min(
+            near, key=lambda row: _score(row.get("validation_mean_transition_delay"), float("inf")))
+        _write_json(output_dir / "best_overall_pipeline.json", best_overall)
+        _write_json(output_dir / "best_low_delay_pipeline.json", best_low_delay)
 
 
 if __name__ == "__main__":

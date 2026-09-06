@@ -130,10 +130,26 @@ def main() -> None:
             "legged_gym.scripts.depth_data_pipeline.compare_terrain_classifier_results",
             *map(str, successful_outputs), "--output", str(comparison_prefix),
         ]
-        comparison = subprocess.run(command, check=False)
+        # The per-approach output is already complete at this point.  Keep the
+        # comparison/reporting failure separate from training and retain its
+        # diagnostics, otherwise a reporting-only error looks like a failed
+        # classifier run to callers of this script.
+        comparison = subprocess.run(command, check=False, text=True,
+                                    capture_output=True)
         manifest["comparison_return_code"] = comparison.returncode
+        manifest["comparison"] = {
+            "status": "completed" if comparison.returncode == 0 else "failed",
+            "command": command,
+            "stdout": comparison.stdout,
+            "stderr": comparison.stderr,
+        }
         with (output_root / "suite_manifest.json").open("w", encoding="utf-8") as stream:
             json.dump(manifest, stream, indent=2)
+        if comparison.stdout:
+            print(comparison.stdout, end="" if comparison.stdout.endswith("\n") else "\n")
+        if comparison.stderr:
+            print(comparison.stderr, file=sys.stderr,
+                  end="" if comparison.stderr.endswith("\n") else "\n")
         if comparison.returncode != 0 and not args.continue_on_error:
             raise SystemExit(comparison.returncode)
     print(f"\nSuite outputs: {output_root}")
